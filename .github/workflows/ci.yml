@@ -57,4 +57,4 @@ jobs:
       - run: cargo bench -p sky_ecs_comparison --bench fair --no-run
       - run: cargo package -p sky_type --allow-dirty
       - run: cargo package -p sky_ecs_derive --allow-dirty
-      - run: cargo package -p sky_ecs --allow-dirty --no-verify
+      - run: cargo package -p sky_ecs --allow-dirty
