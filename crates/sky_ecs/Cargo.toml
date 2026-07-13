@@ -1,23 +1,50 @@
 [package]
 name = "sky_ecs"
-version = "0.1.0"
-edition = "2021"
-description = "Chunk-based ECS core for Sky"
+version = "0.1.1"
+edition.workspace = true
+rust-version.workspace = true
+description = "High-performance typed chunk-based ECS for Rust"
 readme = "README.md"
-license = "MIT"
-repository = "https://github.com/jz315/SkyEngine"
-homepage = "https://github.com/jz315/SkyEngine"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 documentation = "https://docs.rs/sky_ecs"
+keywords = ["ecs", "game", "data-oriented", "parallel", "performance"]
+categories = ["data-structures", "game-development"]
+autobenches = false
 
 [dependencies]
 lazy_static = "1.4.0"
 rayon = "1.10"
 rustc-hash = "2.1.2"
-sky_type = { version = "0.1.0", path = "../sky_type" }
-sky_profile = { version = "0.1.0", path = "../sky_profile", optional = true }
+sky_type = { version = "0.1.1", path = "../sky_type" }
+sky_profile = { version = "0.1.0", optional = true }
 smallvec = "1.13.2"
 sky_ecs_derive = { version = "0.1.0", path = "../sky_ecs_derive" }
+
+[dev-dependencies]
+criterion = "0.8.2"
 
 [features]
 default = []
 profile = ["dep:sky_profile"]
+
+[[bench]]
+name = "parallel_query"
+harness = false
+
+[[bench]]
+name = "bound_query"
+harness = false
+
+[[bench]]
+name = "archetype_match"
+harness = false
+
+[[bench]]
+name = "parallel_job_cache"
+harness = false
+
+[[bench]]
+name = "system_schedule"
+harness = false

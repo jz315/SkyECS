@@ -7,7 +7,7 @@
 //! cargo run --example queries
 //! ```
 
-use sky_engine::ecs::{QueryData, With, Without, World};
+use sky_ecs::{QueryData, With, Without, World};
 
 #[derive(Clone, Copy, Debug)]
 struct Position {

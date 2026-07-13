@@ -2,7 +2,7 @@ use crate::common::*;
 use crate::shared::sample_entities;
 use cgmath::{SquareMatrix, Transform as _};
 use criterion::{measurement::WallTime, BenchmarkGroup};
-use sky_engine::ecs::{EntityId, PreparedQuery, World};
+use sky_ecs::{EntityId, PreparedQuery, World};
 use std::hint::black_box;
 
 fn world_with_entities(n: usize) -> World {

@@ -6,7 +6,7 @@
 //! cargo run --example hello_ecs
 //! ```
 
-use sky_engine::ecs::World;
+use sky_ecs::World;
 
 #[derive(Clone, Copy, Debug)]
 struct Position {

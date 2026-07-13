@@ -36,7 +36,7 @@ that scale across CPU cores without giving up a direct API.
 
 ```toml
 [dependencies]
-sky_ecs = "0.1"
+sky_ecs = "0.1.1"
 ```
 
 ```rust
@@ -165,7 +165,7 @@ The repository ships two deliberately separate benchmark tracks:
 2. `cargo bench` tracks Sky ECS's internal hot paths and protects against
    regressions. Its results must not be presented as a cross-engine comparison.
 
-From a checkout of [SkyEngine](https://github.com/jz315/SkyEngine):
+From a checkout of [SkyECS](https://github.com/jz315/SkyECS):
 
 ```bash
 cargo compare-ecs
@@ -173,8 +173,9 @@ cargo compare-ecs -- fair_iteration/simple/sky --exact
 ```
 
 The recorded historical snapshot, methodology, and citation rules live in
-[`benches/BENCHMARKS.md`](../../benches/BENCHMARKS.md). Re-run before publishing
-new numbers: benchmark results are evidence, not a permanent entitlement.
+the [benchmark guide](https://github.com/jz315/SkyECS/blob/main/benches/BENCHMARKS.md).
+Re-run before publishing new numbers: benchmark results are evidence, not a
+permanent entitlement.
 
 ## API map
 
@@ -191,13 +192,13 @@ new numbers: benchmark results are evidence, not a permanent entitlement.
 
 ## Status and ecosystem
 
-`sky_ecs` is the standalone ECS core of
-[SkyEngine](https://github.com/jz315/SkyEngine). It is designed for direct use,
-while the engine re-exports it as `sky_engine::ecs`.
+`sky_ecs` is an independent ECS crate and the ECS foundation used by
+[SkyEngine](https://github.com/jz315/SkyEngine), which re-exports it as
+`sky_engine::ecs`.
 
 The crate is actively evolving. If you depend on it directly, pin a compatible
 version and follow release notes for API changes.
 
 ## License
 
-MIT. See the repository [LICENSE](../../LICENSE).
+MIT. See the repository [LICENSE](https://github.com/jz315/SkyECS/blob/main/LICENSE).

@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+use sky_ecs::dynamic::{DynamicBundle, WorldDynamicExt};
 use sky_ecs::ecs::__private::QuerySpec;
-use sky_engine::ecs::dynamic::{DynamicBundle, WorldDynamicExt};
-use sky_engine::ecs::{Any, PreparedQuery, QueryData, QueryFilter, With, Without, World};
+use sky_ecs::{Any, PreparedQuery, QueryData, QueryFilter, With, Without, World};
 use std::hint::black_box;
 use std::time::Duration;
 

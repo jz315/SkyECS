@@ -8,7 +8,7 @@
 //! cargo run --example commands
 //! ```
 
-use sky_engine::ecs::{CommandBuffer, World};
+use sky_ecs::{CommandBuffer, World};
 
 #[derive(Clone, Copy, Debug)]
 struct Position {

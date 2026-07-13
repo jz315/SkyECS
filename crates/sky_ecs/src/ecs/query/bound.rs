@@ -642,7 +642,7 @@ mod tests {
             let local = positions.iter().map(|position| position.0 as usize).sum();
             sum.fetch_add(local, Ordering::Relaxed);
         });
-        assert_eq!(sum.load(Ordering::Relaxed), (1..=1_024).sum());
+        assert_eq!(sum.load(Ordering::Relaxed), (1..=1_024).sum::<usize>());
     }
 
     #[test]
@@ -666,6 +666,6 @@ mod tests {
             });
 
         assert_eq!(*seen.lock().unwrap(), expected);
-        assert_eq!(sum.load(Ordering::Relaxed), (1..=1_024).sum());
+        assert_eq!(sum.load(Ordering::Relaxed), (1..=1_024).sum::<usize>());
     }
 }

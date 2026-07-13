@@ -1,8 +1,9 @@
-#[path = "../src/common.rs"]
-mod common;
+#![allow(clippy::too_many_arguments)]
 
 #[path = "../src/bevy.rs"]
 mod bevy;
+#[path = "../src/common.rs"]
+mod common;
 #[path = "../src/flecs.rs"]
 mod flecs;
 #[path = "../src/hecs.rs"]

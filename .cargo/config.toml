@@ -1,0 +1,2 @@
+[alias]
+compare-ecs = ["bench", "-p", "sky_ecs_comparison", "--bench", "fair"]

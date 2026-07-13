@@ -3,7 +3,7 @@ mod common;
 
 use common::{Position2D, Velocity2D};
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use sky_engine::ecs::{ParView, ResMut, Update, View, World};
+use sky_ecs::{ParView, ResMut, Update, View, World};
 use std::hint::black_box;
 use std::time::Duration;
 

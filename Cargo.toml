@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sky_ecs",
+    "crates/sky_ecs_derive",
+    "crates/sky_type",
+    "tools/ecs-comparison",
+]
+default-members = [
+    "crates/sky_ecs",
+    "crates/sky_ecs_derive",
+    "crates/sky_type",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/jz315/SkyECS"
+homepage = "https://github.com/jz315/SkyECS"
+
+[profile.release]
+debug = true

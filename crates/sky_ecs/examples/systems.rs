@@ -6,7 +6,7 @@
 //! cargo run --example systems
 //! ```
 
-use sky_engine::ecs::{FixedStep, FixedUpdate, Res, ResMut, Time, Update, View, World};
+use sky_ecs::{FixedStep, FixedUpdate, Res, ResMut, Time, Update, View, World};
 
 // ---------------------------------------------------------------------------
 // Components

@@ -13,7 +13,7 @@
 //! cargo run --example tiny_defense
 //! ```
 
-use sky_engine::ecs::{CommandBuffer, EntityId, With, World};
+use sky_ecs::{CommandBuffer, EntityId, With, World};
 
 const WIDTH: i32 = 24;
 const HEIGHT: i32 = 7;
@@ -110,7 +110,7 @@ fn step(world: &mut World) {
 fn spawn_enemy(world: &mut World) {
     let lane = {
         let state = world.get_resource_mut::<GameState>().unwrap();
-        if state.wave_index >= ENEMY_LANES.len() || !state.tick.is_multiple_of(3) {
+        if state.wave_index >= ENEMY_LANES.len() || state.tick % 3 != 0 {
             return;
         }
         let lane = ENEMY_LANES[state.wave_index];

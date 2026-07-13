@@ -3,7 +3,7 @@ mod common;
 
 use common::{Position2D, Velocity2D};
 use criterion::{criterion_group, criterion_main, Criterion};
-use sky_engine::ecs::{Any, PreparedQuery, QueryData, With, World};
+use sky_ecs::{Any, PreparedQuery, QueryData, With, World};
 use std::hint::black_box;
 use std::time::Duration;
 
