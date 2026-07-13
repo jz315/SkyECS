@@ -14,6 +14,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $env:RAYON_NUM_THREADS = "8"
+$env:RUSTFLAGS = "-C target-cpu=native"
 
 $benchmarks = @(
     [pscustomobject]@{ Target = "archetype_match"; Group = "archetype_cache"; Name = "prepared_epoch_hit" },
