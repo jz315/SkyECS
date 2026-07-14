@@ -405,7 +405,7 @@ impl World {
     }
 
     #[inline(always)]
-    fn entity_location(&self, entity: EntityId) -> Option<EntityLocation> {
+    pub(crate) fn entity_location(&self, entity: EntityId) -> Option<EntityLocation> {
         let record = self.entities.get(entity.index() as usize)?;
         if record.generation != entity.generation() {
             return None;
@@ -702,6 +702,87 @@ impl World {
                 .add(location.entity_index * std::mem::size_of::<T>());
             &*(ptr as *const T)
         })
+    }
+
+    /// Creates a read-only accessor for repeated random access to component `T`.
+    ///
+    /// Construction resolves `T` once for every archetype and caches typed
+    /// views of matching chunk columns. This is useful when a hot loop performs
+    /// many lookups by [`EntityId`]. For an occasional lookup, use
+    /// [`World::get`] directly.
+    ///
+    /// The accessor holds a shared borrow of this world, so structural changes
+    /// cannot occur while it remains in use.
+    ///
+    /// ```
+    /// use sky_ecs::World;
+    ///
+    /// #[derive(Debug, PartialEq)]
+    /// struct Position(f32, f32);
+    ///
+    /// let mut world = World::new();
+    /// let entity = world.spawn((Position(1.0, 2.0),));
+    /// let positions = world.accessor::<Position>();
+    ///
+    /// assert_eq!(positions.get(entity), Some(&Position(1.0, 2.0)));
+    /// ```
+    ///
+    /// Structural mutation is rejected while the accessor is still used:
+    ///
+    /// ```compile_fail
+    /// use sky_ecs::World;
+    ///
+    /// struct Position(f32, f32);
+    ///
+    /// let mut world = World::new();
+    /// let entity = world.spawn((Position(1.0, 2.0),));
+    /// let positions = world.accessor::<Position>();
+    /// world.spawn((Position(3.0, 4.0),));
+    /// let _ = positions.get(entity);
+    /// ```
+    #[inline]
+    pub fn accessor<T: 'static>(&self) -> ComponentAccessor<'_, T> {
+        ComponentAccessor::new(self)
+    }
+
+    /// Creates an exclusive accessor for repeated random updates to component `T`.
+    ///
+    /// Like [`World::accessor`], construction resolves matching component
+    /// columns before the hot loop. The accessor exclusively borrows the world,
+    /// and each component reference remains tied to one mutable accessor borrow.
+    ///
+    /// ```
+    /// use sky_ecs::World;
+    ///
+    /// struct Position(f32, f32);
+    ///
+    /// let mut world = World::new();
+    /// let entity = world.spawn((Position(1.0, 2.0),));
+    /// {
+    ///     let mut positions = world.accessor_mut::<Position>();
+    ///     positions.get_mut(entity).unwrap().0 += 3.0;
+    /// }
+    /// assert_eq!(world.get::<Position>(entity).unwrap().0, 4.0);
+    /// ```
+    ///
+    /// Mutable references from the same accessor cannot overlap:
+    ///
+    /// ```compile_fail
+    /// use sky_ecs::World;
+    ///
+    /// struct Position(f32, f32);
+    ///
+    /// let mut world = World::new();
+    /// let first = world.spawn((Position(1.0, 2.0),));
+    /// let second = world.spawn((Position(3.0, 4.0),));
+    /// let mut positions = world.accessor_mut::<Position>();
+    /// let first_position = positions.get_mut(first).unwrap();
+    /// let second_position = positions.get_mut(second).unwrap();
+    /// first_position.0 += second_position.0;
+    /// ```
+    #[inline]
+    pub fn accessor_mut<T: 'static>(&mut self) -> ComponentAccessorMut<'_, T> {
+        ComponentAccessorMut::new(self)
     }
 
     /// Returns an exclusive reference to component `T` on `entity`.

@@ -4,6 +4,7 @@
 //!
 //! - [`World`] — the central container for entities, components, and resources.
 //! - [`EntityId`] — a generational handle to a live entity.
+//! - [`ComponentAccessor`] / [`ComponentAccessorMut`] — bound random-access fast paths.
 //! - [`CommandBuffer`] — an owned deferred buffer for manual structural changes.
 //! - [`Commands`] — a borrowed deferred writer available as a system parameter.
 //! - [`Bundle`] — trait implemented for component tuples used in [`World::spawn`].
@@ -14,6 +15,7 @@
 //! - [`StageLabel`] — type-level labels used by [`World::stage`].
 //! - [`Time`] — per-frame timing information.
 
+mod accessor;
 mod archetype;
 mod bundle;
 mod chunk;
@@ -27,6 +29,7 @@ mod system;
 pub(crate) mod time;
 mod world;
 
+pub use accessor::{ComponentAccessor, ComponentAccessorMut};
 pub use bundle::Bundle;
 pub use commands::{CommandBuffer, Commands};
 pub use entity::EntityId;

@@ -38,6 +38,10 @@ name = "bound_query"
 harness = false
 
 [[bench]]
+name = "random_access"
+harness = false
+
+[[bench]]
 name = "archetype_match"
 harness = false
 
