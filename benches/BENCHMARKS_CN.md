@@ -45,10 +45,6 @@ cargo compare-ecs-publish
 
 ## 说明
 
-- † Flecs 批量插入是在已归档的六轮结果之后修正的。`273.84 µs` 是同一台机器上针对安全 `entity_bulk(...).set(...).build()` 路径执行一次 Criterion 定向测试的点估计，没有混入六轮中位数。
-- Flecs 使用在计时循环外构造并复用的 `new_query()` 对象。其 uncached table matching 是有意选择：定向测试显示，具名缓存 query 在稳定遍历和包含结构变更的混合帧中都更慢。
-- Flecs 专项诊断中，直接 spawn/despawn 1,000 个实体为 `162.74 µs`（`[162.22, 163.31]`），deferred 路径为 `177.17 µs`（`[175.72, 179.20]`）。直接路径语义与其他库的即时操作一致，并且本次更快，因此继续作为 canonical 项目。
-- Heavy compute 是诊断项，不用于排名 ECS 开销。
 - Health 和 spawn/despawn 分别重复 8 次和 32 次；换算单帧时需除以对应次数。
 - 阶段测试使用独立 World，不会与完整混合帧完全相加。
 - 冷随机访问 100 万实体的跨轮噪声较大，只保留数据，不作为首页结论。
