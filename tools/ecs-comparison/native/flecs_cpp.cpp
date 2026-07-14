@@ -266,7 +266,7 @@ template<typename Tag>
 void add_fragment(flecs::world& world) {
     world.component<Tag>();
     for (std::size_t index = 0; index < FRAGMENTED_ENTITIES_PER_VARIANT; ++index) {
-        world.entity().set<Tag>({0.0f}).set<DataComponent>({1.0f});
+        world.entity().set<Tag>({0.0f}).template set<DataComponent>({1.0f});
     }
 }
 
