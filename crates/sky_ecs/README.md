@@ -162,9 +162,9 @@ the scheduler, use an owned `CommandBuffer`.
 
 ## Benchmarks
 
-The repository includes a Criterion comparison against `hecs`, `bevy_ecs`,
-`flecs_ecs`, `freecs`, and `shipyard`. Compare-ECS v2 limits conclusions to its
-single-threaded safe-public-API workloads, uses each library's recommended
+The repository includes a Criterion comparison of seven ECS implementations.
+Compare-ECS v2 limits conclusions to its
+single-threaded public-API workloads, uses each implementation's fastest suitable
 reusable query or view state, and validates all adapters before measurement.
 
 In the six-rotation snapshot recorded on 2026-07-14, Sky has the lowest

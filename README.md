@@ -19,8 +19,8 @@ leading results across multiple performance benchmarks.
 > Sky ECS is also the built-in ECS component of the
 > [SkyEngine](https://github.com/jz315/SkyEngine) game engine.
 
-In cross-library comparisons against `hecs`, `bevy_ecs`, `flecs_ecs`, `freecs`,
-and `shipyard`, Sky ECS records the lowest times for **bulk insertion,
+In cross-implementation comparisons against `hecs`, `bevy_ecs`, `Flecs`,
+`freecs`, and `shipyard`, Sky ECS records the lowest times for **bulk insertion,
 entity creation/destruction, and mixed-frame** workloads.
 
 ## Features
@@ -79,9 +79,8 @@ For larger workloads, replace serial iteration with `par_for_each` or
 
 ## Benchmarks
 
-The benchmark uses functionality and public APIs shared by all six libraries to
-compare Sky ECS, hecs, Bevy ECS, Flecs, FreeCS, and Shipyard in the same
-environment.
+The benchmark uses shared workloads and public APIs to compare seven ECS
+implementations in the same environment.
 
 In the recorded results, Sky has the lowest times for bulk insertion, single
 insertion, spawn/despawn, and the mixed-frame scenario, while its iteration
@@ -89,17 +88,16 @@ performance is effectively tied with Flecs.
 
 Key results:
 
-| Workload | Sky | hecs | Bevy | Flecs | FreeCS | Shipyard |
-|---|---:|---:|---:|---:|---:|---:|
-| Bulk insert 10k | **146.70 µs** | 242.59 µs | 287.62 µs | 273.84 µs | 261.05 µs | 157.98 µs |
-| Iterate 10k | **4.96 µs** | 5.10 µs | 7.69 µs | 5.15 µs | 7.78 µs | 11.03 µs |
-| Iterate 100k | **52.31 µs** | 55.08 µs | 80.75 µs | **52.01 µs** | 79.49 µs | 114.18 µs |
-| Spawn/despawn 1k | **19.57 µs** | 24.51 µs | 63.54 µs | 157.58 µs | 72.28 µs | 59.71 µs |
-| Mixed frame | **181.68 µs** | 195.09 µs | 238.81 µs | 223.63 µs | 208.04 µs | 200.05 µs |
+| Workload | Sky | hecs | Bevy | Flecs | Flecs C++ | FreeCS | Shipyard |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Bulk insert 10k | **146.70 µs** | 242.59 µs | 287.62 µs | 273.84 µs | 223.31 µs | 261.05 µs | 157.98 µs |
+| Iterate 10k | **4.96 µs** | 5.10 µs | 7.69 µs | 5.15 µs | 8.09 µs | 7.78 µs | 11.03 µs |
+| Iterate 100k | **52.31 µs** | 55.08 µs | 80.75 µs | **52.01 µs** | 63.46 µs | 79.49 µs | 114.18 µs |
+| Spawn/despawn 1k | **19.57 µs** | 24.51 µs | 63.54 µs | 157.58 µs | 145.02 µs | 72.28 µs | 59.71 µs |
+| Mixed frame | **181.68 µs** | 195.09 µs | 238.81 µs | 223.63 µs | 222.83 µs | 208.04 µs | 200.05 µs |
 
 See the [benchmark documentation](benches/BENCHMARKS.md) for all 19 workloads,
 the test environment, dependency versions, and measurement notes.
-
 
 
 ## Workspace

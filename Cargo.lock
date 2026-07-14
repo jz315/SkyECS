@@ -1261,7 +1261,6 @@ dependencies = [
  "cgmath",
  "criterion",
  "flecs_ecs",
- "flecs_ecs_sys",
  "freecs",
  "hecs",
  "serde",
