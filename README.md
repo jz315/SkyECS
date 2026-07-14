@@ -9,29 +9,28 @@
 
 **A high-performance, typed, chunk-based Entity Component System for Rust.**
 
-
 [中文](README_zh.md)
 
-Sky ECS is the standalone ECS used by
-[SkyEngine](https://github.com/jz315/SkyEngine). It provides archetype storage,
-typed queries, parallel iteration, resources, deferred commands, and a small
-typed system scheduler.
+Sky ECS is a very fast Entity Component System (ECS) library for Rust, with
+leading results across multiple performance benchmarks.
 
-The repository includes a reproducible single-threaded comparison against
-`hecs`, `bevy_ecs`, `flecs_ecs`, `freecs`, and `shipyard`. Results are scoped to
-the measured safe public APIs and workloads rather than treated as a universal
-ECS ranking.
+> Sky ECS is also the built-in ECS component of the
+> [SkyEngine](https://github.com/jz315/SkyEngine) game engine.
+
+In cross-library comparisons against `hecs`, `bevy_ecs`, `flecs_ecs`, `freecs`,
+and `shipyard`, Sky ECS records the lowest times for **bulk insertion,
+entity creation/destruction, and mixed-frame** workloads.
 
 ## Features
 
-- Chunk-columnar archetype storage
-- Generational entity identifiers and cached structural transitions
-- Bundle-based `spawn` and `spawn_batch`
-- World-cached typed queries and reusable `PreparedQuery`
-- Entity and chunk iteration, including parallel variants
-- Optional query parameters and compile-time filters
-- Typed resources, systems, stages, fixed steps, and deferred commands
-- Runtime-typed and low-level APIs under `dynamic` and `expert`
+- Extreme performance: an Archetype architecture and deep core optimizations
+  provide exceptionally fast execution.
+- Native parallelism: built-in multithreading makes full use of multi-core CPUs.
+- Elegant and easy to use: intuitive APIs let developers focus on application
+  and game logic.
+- Dynamic extensibility: alongside the typed API, a complete dynamic API supports
+  runtime reflection and integration with languages such as C# and scripting
+  languages.
 
 ## Quick start
 
@@ -66,16 +65,18 @@ fn main() {
 }
 ```
 
-Use the same query with `par_for_each` or `par_for_each_chunk` when the workload
-is large enough to benefit from parallel execution.
+For larger workloads, replace serial iteration with `par_for_each` or
+`par_for_each_chunk` to take advantage of multiple CPU cores.
 
-The crate-level guide is in
-[`crates/sky_ecs/README.md`](crates/sky_ecs/README.md).
+See the [crate guide](crates/sky_ecs/README.md),
+[API documentation](https://docs.rs/sky_ecs), and
+[`examples/`](crates/sky_ecs/examples/) for more usage examples.
 
 ## Benchmarks
 
-The benchmark compares Sky ECS, hecs, Bevy ECS, Flecs, FreeCS, and Shipyard
-through functionality shared by all six libraries under the same environment.
+The benchmark uses functionality and public APIs shared by all six libraries to
+compare Sky ECS, hecs, Bevy ECS, Flecs, FreeCS, and Shipyard in the same
+environment.
 
 In the recorded results, Sky has the lowest times for bulk insertion, single
 insertion, spawn/despawn, and the mixed-frame scenario, while its iteration

@@ -25,7 +25,6 @@ Sky ECS 是一款非常快的 Rust 实体组件系统（ECS）库，在多项性
 - 优雅易用：自然直觉的用户接口，让开发者专注于核心业务与游戏逻辑的开发。
 - 动态拓展：除强类型接口外，提供完善的动态 API，便于运行时反射或与其他语言（如 C#、脚本语言）进行绑定与交互。
 
-
 ## 快速开始
 
 ```toml
@@ -66,11 +65,12 @@ fn main() {
 
 ## 性能测试
 
-Compare-ECS 使用安全公共 API，对比 Sky ECS、hecs、Bevy ECS、Flecs、
-FreeCS 和 Shipyard。当前记录中，Sky 在批量插入、单个插入、
-spawn/despawn 和混合帧场景中耗时最低，遍历性能与 Flecs 基本持平。
+Benchmark 使用六个库共有的功能与公共 API，在相同环境中对比
+Sky ECS、hecs、Bevy ECS、Flecs、FreeCS 和 Shipyard。
 
-代表性结果：
+当前记录中，Sky 在批量插入、单个插入、spawn/despawn 和混合帧场景中耗时最低，遍历性能与 Flecs 基本持平。
+
+主要结果：
 
 | 场景 | Sky | hecs | Bevy | Flecs | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
@@ -79,12 +79,6 @@ spawn/despawn 和混合帧场景中耗时最低，遍历性能与 Flecs 基本�
 | 遍历 10 万 | **52.31 µs** | 55.08 µs | 80.75 µs | **52.01 µs** | 79.49 µs | 114.18 µs |
 | Spawn/despawn 1 千 | **19.57 µs** | 24.51 µs | 63.54 µs | 157.58 µs | 72.28 µs | 59.71 µs |
 | 混合帧 | **181.68 µs** | 195.09 µs | 238.81 µs | 223.63 µs | 208.04 µs | 200.05 µs |
-
-运行对比测试：
-
-```bash
-cargo compare-ecs
-```
 
 完整的 19 项测试结果、环境、版本和测量说明见
 [性能测试文档](benches/BENCHMARKS_CN.md)。
