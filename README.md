@@ -74,54 +74,29 @@ The crate-level guide is in
 
 ## Benchmarks
 
-Compare-ECS v2 uses each ECS's recommended reusable safe query or view state,
-isolates construction and teardown, validates every adapter, and measures hot,
-warm, and cold random-access working sets.
+Compare-ECS uses safe public APIs to compare Sky ECS, hecs, Bevy ECS, Flecs,
+FreeCS, and Shipyard. In the recorded results, Sky has the lowest times for bulk
+insertion, single insertion, spawn/despawn, and the mixed-frame scenario, while
+its iteration performance is effectively tied with Flecs.
 
-Six-rotation cross-run medians recorded on 2026-07-14 on an i7-12700F:
-
-Bold marks the lowest median, plus Sky results within 1% of the lowest.
+Representative results:
 
 | Workload | Sky | hecs | Bevy | Flecs | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| Bulk insert 10k | **146.707 µs** | 242.587 µs | 287.617 µs | N/A | 261.048 µs | 157.979 µs |
-| Single insert 10k | **207.656 µs** | 490.967 µs | 654.194 µs | 3.433 ms | 882.560 µs | 732.709 µs |
-| Steady iteration 10k | **4.961 µs** | 5.096 µs | 7.693 µs | 5.146 µs | 7.784 µs | 11.029 µs |
-| Steady iteration 10k × 32 | **158.364 µs** | 165.264 µs | 241.443 µs | 160.181 µs | 243.145 µs | 315.386 µs |
-| Steady iteration 100k | **52.308 µs** | 55.084 µs | 80.748 µs | **52.013 µs** | 79.492 µs | 114.182 µs |
-| Fragmented iteration 26 × 400 | 0.711 µs | 2.507 µs | 5.712 µs | 1.030 µs | 4.774 µs | **0.522 µs** |
-| Random access, hot 10k | 15.080 µs | 128.483 µs | 35.095 µs | 314.902 µs | 14.632 µs | **10.157 µs** |
-| Random access, warm 100k | 221.952 µs | 1.291 ms | 511.700 µs | 3.214 ms | 224.437 µs | **154.510 µs** |
-| Random access, cold 1m | 5.624 ms | 15.090 ms | 16.485 ms | 51.450 ms | 5.737 ms | **3.759 ms** |
-| Spawn/despawn 1k | **19.573 µs** | 24.510 µs | 63.543 µs | 157.581 µs | 72.275 µs | 59.710 µs |
-| Add/remove component 1k | 45.521 µs | 57.667 µs | 83.604 µs | 118.230 µs | 98.812 µs | **25.174 µs** |
-| Diagnostic heavy compute | **1.871 ms** | **1.865 ms** | 1.870 ms | 1.873 ms | 1.871 ms | 1.870 ms |
-| Mixed frame | **181.680 µs** | 195.088 µs | 238.806 µs | 223.634 µs | 208.039 µs | 200.046 µs |
-| Mixed phase: movement | **12.596 µs** | 13.125 µs | 18.948 µs | **12.550 µs** | 18.983 µs | 26.415 µs |
-| Mixed phase: health × 8 | **5.274 µs** | 15.234 µs | 36.988 µs | 6.260 µs | 35.346 µs | 54.606 µs |
-| Mixed phase: heavy | **151.747 µs** | 155.301 µs | 153.572 µs | **151.016 µs** | 152.090 µs | 151.769 µs |
-| Mixed phase: random access | 2.980 µs | 6.827 µs | 1.889 µs | 16.154 µs | **0.615 µs** | 0.649 µs |
-| Mixed phase: structural churn | 10.869 µs | 14.916 µs | 57.986 µs | 30.062 µs | 23.769 µs | **6.382 µs** |
-| Mixed phase: spawn/despawn × 32 | **38.367 µs** | 51.285 µs | 541.702 µs | 320.296 µs | 139.507 µs | 147.644 µs |
+| Bulk insert 10k | **146.70 µs** | 242.59 µs | 287.62 µs | N/A | 261.05 µs | 157.98 µs |
+| Iterate 10k | **4.96 µs** | 5.10 µs | 7.69 µs | 5.15 µs | 7.78 µs | 11.03 µs |
+| Iterate 100k | **52.31 µs** | 55.08 µs | 80.75 µs | **52.01 µs** | 79.49 µs | 114.18 µs |
+| Spawn/despawn 1k | **19.57 µs** | 24.51 µs | 63.54 µs | 157.58 µs | 72.28 µs | 59.71 µs |
+| Mixed frame | **181.68 µs** | 195.09 µs | 238.81 µs | 223.63 µs | 208.04 µs | 200.05 µs |
 
-The health and spawn/despawn phase rows repeat their operation to reduce timing
-noise. Divide those totals by 8 and 32 respectively for a single-frame phase
-estimate; isolated phase estimates do not exactly sum to the complete frame.
-
-Sky leads the construction, spawn/despawn, and mixed-frame cases in this
-single-threaded snapshot and remains in the leading iteration group. Shipyard
-leads prepared random access and add/remove transitions. These results describe
-the tested workloads, not every ECS use case.
-
-Run one development pass or the six-order publication protocol with:
+Run the comparison suite with:
 
 ```bash
 cargo compare-ecs
-cargo compare-ecs-publish
 ```
 
-Methodology and measurement policy are documented in
-[`benches/BENCHMARKS.md`](benches/BENCHMARKS.md).
+See the [benchmark documentation](benches/BENCHMARKS.md) for all 19 workloads,
+the test environment, dependency versions, and measurement notes.
 
 ## Workspace
 
