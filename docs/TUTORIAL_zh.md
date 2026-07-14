@@ -157,12 +157,17 @@ assert_eq!(world.get_resource::<FrameCount>().unwrap().0, 60);
 ## 运行仓库示例
 
 ```bash
-cargo run -p sky_ecs --example hello_ecs
-cargo run -p sky_ecs --example queries
-cargo run -p sky_ecs --example commands
-cargo run -p sky_ecs --example systems
-cargo run -p sky_ecs --example tiny_defense
+cargo run -p sky_ecs --example step_01_world
+cargo run -p sky_ecs --example step_02_queries
+cargo run -p sky_ecs --example step_03_batches_and_chunks
+cargo run -p sky_ecs --example step_04_commands
+cargo run -p sky_ecs --example step_05_systems
+cargo run -p sky_ecs --example step_06_parallel
+cargo run -p sky_ecs --example step_07_tiny_defense
+cargo run -p sky_ecs --example step_08_dynamic
+cargo run -p sky_ecs --example step_09_plugin
 ```
 
-继续阅读 [API 指南](API_zh.md) 或
+第 01 至 07 步是核心路径，第 08 至 09 步介绍高级 API。先查看
+[示例索引](../crates/sky_ecs/examples/README_zh.md)，再继续阅读 [API 指南](API_zh.md) 或
 [Rust API 文档](https://docs.rs/sky_ecs)。

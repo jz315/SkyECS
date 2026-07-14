@@ -73,7 +73,7 @@ For larger workloads, replace serial iteration with `par_for_each` or
 - [Tutorial](docs/TUTORIAL.md)
 - [API guide](docs/API.md)
 - [Generated Rust API documentation](https://docs.rs/sky_ecs)
-- [Runnable examples](crates/sky_ecs/examples/)
+- [Progressive examples](crates/sky_ecs/examples/README.md)
 
 ## Benchmarks
 

@@ -65,7 +65,7 @@ fn main() {
 - [入门教程](docs/TUTORIAL_zh.md)
 - [API 指南](docs/API_zh.md)
 - [Rust API 文档](https://docs.rs/sky_ecs)
-- [可运行示例](crates/sky_ecs/examples/)
+- [渐进式示例](crates/sky_ecs/examples/README_zh.md)
 
 ## 性能测试
 

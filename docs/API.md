@@ -219,5 +219,5 @@ code should prefer typed bundles and queries.
 ## Further reading
 
 - [Tutorial](TUTORIAL.md)
-- [Examples](../crates/sky_ecs/examples/)
+- [Progressive examples](../crates/sky_ecs/examples/README.md)
 - [Generated Rust API documentation](https://docs.rs/sky_ecs)

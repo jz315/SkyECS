@@ -9,7 +9,7 @@ used independently.
 - [Tutorial](https://github.com/jz315/SkyECS/blob/main/docs/TUTORIAL.md) / [中文](https://github.com/jz315/SkyECS/blob/main/docs/TUTORIAL_zh.md)
 - [API guide](https://github.com/jz315/SkyECS/blob/main/docs/API.md) / [中文](https://github.com/jz315/SkyECS/blob/main/docs/API_zh.md)
 - [Generated Rust API documentation](https://docs.rs/sky_ecs)
-- [Runnable examples](https://github.com/jz315/SkyECS/tree/main/crates/sky_ecs/examples)
+- [Progressive examples](https://github.com/jz315/SkyECS/blob/main/crates/sky_ecs/examples/README.md) / [中文](https://github.com/jz315/SkyECS/blob/main/crates/sky_ecs/examples/README_zh.md)
 
 ## Features
 
