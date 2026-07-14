@@ -121,7 +121,29 @@ fn mixed_world() -> (World, Vec<FlecsEntity>, Vec<FlecsEntity>) {
 // ---------------------------------------------------------------------------
 
 pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    // Flecs exposes no equivalent safe bulk spawn API in this binding.
+    let transforms = vec![suite_transform(); SIMPLE_ENTITY_COUNT];
+    let positions = vec![suite_position(); SIMPLE_ENTITY_COUNT];
+    let rotations = vec![suite_rotation(); SIMPLE_ENTITY_COUNT];
+    let velocities = vec![suite_velocity(); SIMPLE_ENTITY_COUNT];
+
+    group.bench_function("bulk_insert_10k/flecs", |b| {
+        b.iter_batched_ref(
+            World::new,
+            |world| {
+                let entities = world
+                    .entity_bulk(SIMPLE_ENTITY_COUNT as u32)
+                    .set(&transforms)
+                    .set(&positions)
+                    .set(&rotations)
+                    .set(&velocities)
+                    .build();
+                black_box(entities);
+                black_box(&world);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
     group.bench_function("single_insert_10k/flecs", |b| {
         b.iter_batched_ref(
             World::new,
@@ -138,6 +160,24 @@ pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
 }
 
 pub fn validate_contract() {
+    let bulk_world = World::new();
+    let transforms = vec![suite_transform(); 16];
+    let positions = vec![suite_position(); 16];
+    let rotations = vec![suite_rotation(); 16];
+    let velocities = vec![suite_velocity(); 16];
+    let bulk_entities = bulk_world
+        .entity_bulk(16)
+        .set(&transforms)
+        .set(&positions)
+        .set(&rotations)
+        .set(&velocities)
+        .build();
+    assert_eq!(bulk_entities.len(), 16);
+    assert_eq!(
+        bulk_world.new_query::<&PositionComponent>().count() as usize,
+        16
+    );
+
     let world = world_with_entities(128);
     let query = world.new_query::<(&mut PositionComponent, &VelocityComponent)>();
     let mut count = 0;
@@ -192,6 +232,11 @@ pub fn validate_contract() {
     mixed_spawn_step_for_validation(&mixed, &mut spawned);
     assert_eq!(mixed.new_query::<&PositionComponent>().count(), expected);
     assert!(!mixed.entity_from_id(churn[0]).has(health_id));
+
+    let mut deferred_ids = Vec::with_capacity(ENTITY_OP_COUNT);
+    spawn_despawn_deferred(&mixed, &mut deferred_ids);
+    assert_eq!(mixed.new_query::<&PositionComponent>().count(), expected);
+    assert!(deferred_ids.iter().all(|&entity| !mixed.is_alive(entity)));
 }
 
 fn mixed_spawn_step_for_validation(world: &World, spawned: &mut Vec<FlecsEntity>) {
@@ -205,12 +250,38 @@ fn mixed_spawn_step_for_validation(world: &World, spawned: &mut Vec<FlecsEntity>
     }
 }
 
+fn spawn_despawn_direct(world: &World, ids: &mut Vec<FlecsEntity>) {
+    ids.clear();
+    for _ in 0..ENTITY_OP_COUNT {
+        let (position, velocity) = light_bundle();
+        ids.push(world.entity().set(position).set(velocity).id());
+    }
+    for &id in ids.iter() {
+        world.entity_from_id(id).destruct();
+    }
+}
+
+fn spawn_despawn_deferred(world: &World, ids: &mut Vec<FlecsEntity>) {
+    ids.clear();
+    world.defer_begin();
+    for _ in 0..ENTITY_OP_COUNT {
+        let (position, velocity) = light_bundle();
+        ids.push(world.entity().set(position).set(velocity).id());
+    }
+    for &id in ids.iter() {
+        world.entity_from_id(id).destruct();
+    }
+    world.defer_end();
+}
+
 // ---------------------------------------------------------------------------
 // Iteration benchmarks  (queries created OUTSIDE the timed loop)
 // ---------------------------------------------------------------------------
 
 pub fn bench_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {
     let world = world_with_entities(SIMPLE_ENTITY_COUNT);
+    // The reusable query object stays outside the timed loop. Flecs' uncached
+    // matching mode is faster for this workload than maintaining a table cache.
     let query = world.new_query::<(&mut PositionComponent, &VelocityComponent)>();
 
     group.bench_function("simple_10k/flecs", |b| {
@@ -334,14 +405,7 @@ pub fn bench_entity_ops(group: &mut BenchmarkGroup<'_, WallTime>) {
         let world = World::new();
         let mut ids = Vec::with_capacity(ENTITY_OP_COUNT);
         b.iter(|| {
-            ids.clear();
-            for _ in 0..ENTITY_OP_COUNT {
-                let (p, v) = light_bundle();
-                ids.push(world.entity().set(p).set(v).id());
-            }
-            for &id in &ids {
-                world.entity_from_id(id).destruct();
-            }
+            spawn_despawn_direct(&world, &mut ids);
             black_box(&world);
         });
     });
@@ -368,6 +432,26 @@ pub fn bench_entity_ops(group: &mut BenchmarkGroup<'_, WallTime>) {
     });
 }
 
+pub fn bench_spawn_despawn_modes(group: &mut BenchmarkGroup<'_, WallTime>) {
+    group.bench_function("direct_1k", |b| {
+        let world = World::new();
+        let mut ids = Vec::with_capacity(ENTITY_OP_COUNT);
+        b.iter(|| {
+            spawn_despawn_direct(&world, &mut ids);
+            black_box(&world);
+        });
+    });
+
+    group.bench_function("deferred_1k", |b| {
+        let world = World::new();
+        let mut ids = Vec::with_capacity(ENTITY_OP_COUNT);
+        b.iter(|| {
+            spawn_despawn_deferred(&world, &mut ids);
+            black_box(&world);
+        });
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Mixed frame benchmark  (queries created OUTSIDE the timed loop)
 // ---------------------------------------------------------------------------
@@ -376,7 +460,8 @@ pub fn bench_mixed_frame(group: &mut BenchmarkGroup<'_, WallTime>) {
     let (world, random_ids, churn_ids) = mixed_world();
     let mut spawned_ids = Vec::with_capacity(MIXED_FRAME_SPAWN_COUNT);
 
-    // Pre-build all queries outside the timed loop for fairness.
+    // Keep the reusable query objects outside the timed loop. Uncached matching
+    // avoids cache-maintenance overhead during this structural workload.
     let move_q = world.new_query::<(&mut PositionComponent, &VelocityComponent)>();
     let enemy_q = world.new_query::<(&mut Health, &Damage)>();
     let ally_q = world.new_query::<(&mut Health, &Regen)>();
