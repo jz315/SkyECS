@@ -1,7 +1,7 @@
 use crate::common::*;
 use crate::shared::sample_entities;
 use cgmath::{SquareMatrix, Transform as _};
-use criterion::{measurement::WallTime, BenchmarkGroup};
+use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
 use hecs::{Entity as HecsEntity, PreparedQuery, World};
 use std::hint::black_box;
 
@@ -65,7 +65,7 @@ fn mixed_move_step(
     world: &World,
     move_query: &mut PreparedQuery<(&mut PositionComponent, &VelocityComponent)>,
 ) {
-    for (_, (position, velocity)) in move_query.query(world).iter() {
+    for (position, velocity) in move_query.query(world).iter() {
         position.0 += velocity.0;
     }
 }
@@ -75,11 +75,11 @@ fn mixed_health_step(
     enemy_query: &mut PreparedQuery<(&mut Health, &Damage)>,
     ally_query: &mut PreparedQuery<(&mut Health, &Regen)>,
 ) {
-    for (_, (health, damage)) in enemy_query.query(world).iter() {
+    for (health, damage) in enemy_query.query(world).iter() {
         health.0 -= damage.0;
     }
 
-    for (_, (health, regen)) in ally_query.query(world).iter() {
+    for (health, regen) in ally_query.query(world).iter() {
         health.0 += regen.0;
     }
 }
@@ -88,7 +88,7 @@ fn mixed_heavy_step(
     world: &World,
     heavy_query: &mut PreparedQuery<(&mut PositionComponent, &TransformComponent)>,
 ) {
-    for (_, (position, transform)) in heavy_query.query(world).iter() {
+    for (position, transform) in heavy_query.query(world).iter() {
         let base = transform.0;
         let mut matrix = base;
         for _ in 0..MIXED_FRAME_INVERT_COUNT {
@@ -108,10 +108,14 @@ fn mixed_random_step(world: &World, random_entities: &[HecsEntity]) {
 
 fn mixed_churn_step(world: &mut World, churn_entities: &[HecsEntity]) {
     for &entity in churn_entities {
-        world.insert_one(entity, Health(100.0)).ok();
+        world
+            .insert_one(entity, Health(100.0))
+            .expect("churn entity must accept Health");
     }
     for &entity in churn_entities {
-        world.remove_one::<Health>(entity).ok();
+        world
+            .remove_one::<Health>(entity)
+            .expect("churn entity must contain Health");
     }
 }
 
@@ -121,7 +125,9 @@ fn mixed_spawn_step(world: &mut World, spawned_entities: &mut Vec<HecsEntity>) {
         spawned_entities.push(world.spawn(light_bundle()));
     }
     for &entity in spawned_entities.iter() {
-        world.despawn(entity).ok();
+        world
+            .despawn(entity)
+            .expect("mixed-frame spawned entity must be alive");
     }
 }
 
@@ -144,32 +150,86 @@ fn run_mixed_frame(
 }
 
 pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("batch_10k/hecs", |b| {
-        b.iter(|| {
-            let mut world = World::new();
-            world.spawn_batch((0..SIMPLE_ENTITY_COUNT).map(|_| suite_bundle()));
-            black_box(&world);
-        });
+    group.bench_function("bulk_insert_10k/hecs", |b| {
+        b.iter_batched_ref(
+            World::new,
+            |world| {
+                drop(world.spawn_batch((0..SIMPLE_ENTITY_COUNT).map(|_| suite_bundle())));
+                black_box(&world);
+            },
+            BatchSize::SmallInput,
+        );
     });
 
-    group.bench_function("single_10k/hecs", |b| {
-        b.iter(|| {
-            let mut world = World::new();
-            for _ in 0..SIMPLE_ENTITY_COUNT {
-                world.spawn(suite_bundle());
-            }
-            black_box(&world);
-        });
+    group.bench_function("single_insert_10k/hecs", |b| {
+        b.iter_batched_ref(
+            World::new,
+            |world| {
+                for _ in 0..SIMPLE_ENTITY_COUNT {
+                    world.spawn(suite_bundle());
+                }
+                black_box(&world);
+            },
+            BatchSize::SmallInput,
+        );
     });
+}
+
+pub fn validate_contract() {
+    let mut world = world_with_entities(128);
+    assert_eq!(world.len(), 128);
+    let mut count = 0;
+    let mut checksum = 0.0;
+    for (position, velocity) in world
+        .query::<(&mut PositionComponent, &VelocityComponent)>()
+        .iter()
+    {
+        position.0 += velocity.0;
+        count += 1;
+        checksum += position.0.x;
+    }
+    assert_eq!(count, 128);
+    assert_eq!(checksum, 256.0);
+
+    let entity = world.spawn(light_bundle());
+    assert!(world.get::<&PositionComponent>(entity).is_ok());
+    world.insert_one(entity, Health(100.0)).unwrap();
+    assert!(world.get::<&Health>(entity).is_ok());
+    world.remove_one::<Health>(entity).unwrap();
+    assert!(world.get::<&Health>(entity).is_err());
+    world.despawn(entity).unwrap();
+    assert!(!world.contains(entity));
+
+    let fragmented = fragmented_world();
+    assert_eq!(
+        fragmented.query::<&DataComponent>().iter().count(),
+        FRAGMENTED_VARIANT_COUNT * FRAGMENTED_ENTITIES_PER_VARIANT
+    );
+
+    let (mut mixed, random, churn) = mixed_world();
+    let expected = mixed.len();
+    let mut spawned = Vec::with_capacity(MIXED_FRAME_SPAWN_COUNT);
+    run_mixed_frame(
+        &mut mixed,
+        &mut PreparedQuery::default(),
+        &mut PreparedQuery::default(),
+        &mut PreparedQuery::default(),
+        &mut PreparedQuery::default(),
+        &random,
+        &churn,
+        &mut spawned,
+    );
+    assert_eq!(mixed.len(), expected);
+    assert!(mixed.get::<&Health>(churn[0]).is_err());
 }
 
 pub fn bench_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {
     let world = world_with_entities(SIMPLE_ENTITY_COUNT);
     let mut query = PreparedQuery::<(&mut PositionComponent, &VelocityComponent)>::default();
 
-    group.bench_function("simple/hecs", |b| {
+    group.bench_function("simple_10k/hecs", |b| {
         b.iter(|| {
-            for (_, (pos, vel)) in query.query(&world).iter() {
+            for (pos, vel) in query.query(&world).iter() {
                 pos.0 += vel.0;
             }
             black_box(&world);
@@ -184,7 +244,7 @@ pub fn bench_iteration_repeated(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.bench_function("simple_x32/hecs", |b| {
         b.iter(|| {
             for _ in 0..REPEATED_ITERATION_COUNT {
-                for (_, (pos, vel)) in query.query(&world).iter() {
+                for (pos, vel) in query.query(&world).iter() {
                     pos.0 += vel.0;
                 }
             }
@@ -199,7 +259,7 @@ pub fn bench_iteration_large(group: &mut BenchmarkGroup<'_, WallTime>) {
 
     group.bench_function("simple_100k/hecs", |b| {
         b.iter(|| {
-            for (_, (pos, vel)) in query.query(&world).iter() {
+            for (pos, vel) in query.query(&world).iter() {
                 pos.0 += vel.0;
             }
             black_box(&world);
@@ -213,9 +273,9 @@ pub fn bench_fragmented_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {
     let world = fragmented_world();
     let mut query = PreparedQuery::<&mut DataComponent>::default();
 
-    group.bench_function("fragmented/hecs", |b| {
+    group.bench_function("fragmented_26x400/hecs", |b| {
         b.iter(|| {
-            for (_, data) in query.query(&world).iter() {
+            for data in query.query(&world).iter() {
                 data.0 *= 2.0;
             }
             black_box(&world);
@@ -229,7 +289,7 @@ pub fn bench_heavy_compute(group: &mut BenchmarkGroup<'_, WallTime>) {
 
     group.bench_function("heavy/hecs", |b| {
         b.iter(|| {
-            for (_, (position, transform)) in query.query(&world).iter() {
+            for (position, transform) in query.query(&world).iter() {
                 let base = transform.0;
                 let mut matrix = base;
                 for _ in 0..HEAVY_INVERT_COUNT {
@@ -245,30 +305,38 @@ pub fn bench_heavy_compute(group: &mut BenchmarkGroup<'_, WallTime>) {
 }
 
 pub fn bench_random_access(group: &mut BenchmarkGroup<'_, WallTime>) {
-    let mut world = World::new();
-    let mut entities: Vec<_> = (0..SIMPLE_ENTITY_COUNT)
-        .map(|_| world.spawn(light_bundle()))
-        .collect();
-    deterministic_shuffle(&mut entities);
-
-    group.bench_function("get/hecs", |b| {
-        b.iter(|| {
-            for &entity in &entities {
-                let _ = black_box(world.get::<&PositionComponent>(entity));
-            }
+    for (name, count) in [
+        ("hot_10k", SIMPLE_ENTITY_COUNT),
+        ("warm_100k", WARM_RANDOM_ENTITY_COUNT),
+        ("cold_1m", COLD_RANDOM_ENTITY_COUNT),
+    ] {
+        let mut world = World::new();
+        let entities: Vec<_> = (0..count).map(|_| world.spawn(light_bundle())).collect();
+        let orders = deterministic_orders(&entities);
+        let mut order = 0;
+        group.bench_function(format!("{name}/hecs"), |b| {
+            b.iter(|| {
+                let entities = &orders[order % orders.len()];
+                order += 1;
+                for &entity in entities {
+                    black_box(world.get::<&PositionComponent>(entity).unwrap());
+                }
+            });
         });
-    });
+    }
 }
 
 pub fn bench_entity_ops(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.bench_function("spawn_despawn_1k/hecs", |b| {
         let mut world = World::new();
+        let mut entities = Vec::with_capacity(ENTITY_OP_COUNT);
         b.iter(|| {
-            let entities: Vec<_> = (0..ENTITY_OP_COUNT)
-                .map(|_| world.spawn(light_bundle()))
-                .collect();
-            for entity in entities {
-                world.despawn(entity).ok();
+            entities.clear();
+            for _ in 0..ENTITY_OP_COUNT {
+                entities.push(world.spawn(light_bundle()));
+            }
+            for &entity in &entities {
+                world.despawn(entity).expect("spawned entity must be alive");
             }
             black_box(&world);
         });
@@ -282,10 +350,14 @@ pub fn bench_entity_ops(group: &mut BenchmarkGroup<'_, WallTime>) {
 
         b.iter(|| {
             for &entity in &entities {
-                world.insert_one(entity, Health(100.0)).ok();
+                world
+                    .insert_one(entity, Health(100.0))
+                    .expect("entity must accept Health");
             }
             for &entity in &entities {
-                world.remove_one::<Health>(entity).ok();
+                world
+                    .remove_one::<Health>(entity)
+                    .expect("entity must contain Health");
             }
             black_box(&world);
         });

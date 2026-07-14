@@ -10,6 +10,9 @@ use cgmath::{Matrix4, Rad, Vector3};
 // ---------------------------------------------------------------------------
 
 pub const SIMPLE_ENTITY_COUNT: usize = 10_000;
+pub const WARM_RANDOM_ENTITY_COUNT: usize = 100_000;
+pub const COLD_RANDOM_ENTITY_COUNT: usize = 1_000_000;
+pub const RANDOM_ORDER_COUNT: usize = 4;
 pub const REPEATED_ITERATION_COUNT: usize = 32;
 pub const LARGE_ITERATION_ENTITY_COUNT: usize = 100_000;
 pub const FRAGMENTED_VARIANT_COUNT: usize = 26;
@@ -41,56 +44,139 @@ pub const HOT_PATH_DELTA: f32 = 0.1;
 // Components — used across all engines
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component, shipyard::Component,
+)]
 pub struct TransformComponent(pub Matrix4<f32>);
 
-#[derive(Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component, shipyard::Component,
+)]
 pub struct PositionComponent(pub Vector3<f32>);
 
-#[derive(Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component, shipyard::Component,
+)]
 pub struct RotationComponent(pub Vector3<f32>);
 
-#[derive(Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component, shipyard::Component,
+)]
 pub struct VelocityComponent(pub Vector3<f32>);
 
-#[derive(Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component, shipyard::Component,
+)]
 pub struct DataComponent(pub f32);
 
-#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+impl Default for TransformComponent {
+    fn default() -> Self {
+        Self(Matrix4::from_scale(1.0))
+    }
+}
+
+impl Default for PositionComponent {
+    fn default() -> Self {
+        Self(Vector3::new(0.0, 0.0, 0.0))
+    }
+}
+
+impl Default for RotationComponent {
+    fn default() -> Self {
+        Self(Vector3::new(0.0, 0.0, 0.0))
+    }
+}
+
+impl Default for VelocityComponent {
+    fn default() -> Self {
+        Self(Vector3::new(0.0, 0.0, 0.0))
+    }
+}
+
+impl Default for DataComponent {
+    fn default() -> Self {
+        Self(0.0)
+    }
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    bevy_ecs::prelude::Component,
+    flecs_ecs::prelude::Component,
+    shipyard::Component,
+)]
 pub struct Health(pub f32);
 
-#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    bevy_ecs::prelude::Component,
+    flecs_ecs::prelude::Component,
+    shipyard::Component,
+)]
 pub struct Damage(pub f32);
 
-#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    bevy_ecs::prelude::Component,
+    flecs_ecs::prelude::Component,
+    shipyard::Component,
+)]
 pub struct Regen(pub f32);
 
-#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    bevy_ecs::prelude::Component,
+    flecs_ecs::prelude::Component,
+    shipyard::Component,
+)]
 pub struct IsEnemy;
 
-#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    bevy_ecs::prelude::Component,
+    flecs_ecs::prelude::Component,
+    shipyard::Component,
+)]
 pub struct IsAlly;
 
 /// Lightweight 2-field components for the hot-path head-to-head benchmarks.
-#[derive(Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component, shipyard::Component,
+)]
 pub struct Position2D {
     pub x: f32,
     pub y: f32,
 }
 
-#[derive(Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component, shipyard::Component,
+)]
 pub struct Velocity2D {
     pub x: f32,
     pub y: f32,
 }
 
-#[derive(Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component, shipyard::Component,
+)]
 pub struct AuxA {
     pub x: f32,
     pub y: f32,
 }
 
-#[derive(Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component)]
+#[derive(
+    Clone, Copy, bevy_ecs::prelude::Component, flecs_ecs::prelude::Component, shipyard::Component,
+)]
 pub struct AuxB {
     pub x: f32,
     pub y: f32,
@@ -105,6 +191,7 @@ macro_rules! define_fragment_tags {
                 Default,
                 bevy_ecs::prelude::Component,
                 flecs_ecs::prelude::Component,
+                shipyard::Component,
             )]
             pub struct $name(pub f32);
         )+
@@ -222,7 +309,10 @@ pub fn mixed_heavy_bundle() -> (TransformComponent, PositionComponent, VelocityC
 /// Deterministic Fisher-Yates shuffle using xorshift64.
 /// Fixed seed so benchmark runs are reproducible without external deps.
 pub fn deterministic_shuffle<T>(slice: &mut [T]) {
-    let mut state: u64 = 0xDEAD_BEEF_CAFE_BABE;
+    deterministic_shuffle_with_seed(slice, 0xDEAD_BEEF_CAFE_BABE);
+}
+
+pub fn deterministic_shuffle_with_seed<T>(slice: &mut [T], mut state: u64) {
     for i in (1..slice.len()).rev() {
         state ^= state << 13;
         state ^= state >> 7;
@@ -230,4 +320,17 @@ pub fn deterministic_shuffle<T>(slice: &mut [T]) {
         let j = (state as usize) % (i + 1);
         slice.swap(i, j);
     }
+}
+
+pub fn deterministic_orders<T: Copy>(entities: &[T]) -> Vec<Vec<T>> {
+    (0..RANDOM_ORDER_COUNT)
+        .map(|order| {
+            let mut shuffled = entities.to_vec();
+            deterministic_shuffle_with_seed(
+                &mut shuffled,
+                0xDEAD_BEEF_CAFE_BABE ^ (order as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15),
+            );
+            shuffled
+        })
+        .collect()
 }

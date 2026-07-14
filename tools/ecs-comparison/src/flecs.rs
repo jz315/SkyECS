@@ -1,7 +1,7 @@
 use crate::common::*;
 use crate::shared::sample_entities;
 use cgmath::{SquareMatrix, Transform as _};
-use criterion::{measurement::WallTime, BenchmarkGroup};
+use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
 use flecs_ecs::core::{Entity as FlecsEntity, EntityViewGet, IdOperations, QueryAPI, World};
 use std::hint::black_box;
 
@@ -121,28 +121,88 @@ fn mixed_world() -> (World, Vec<FlecsEntity>, Vec<FlecsEntity>) {
 // ---------------------------------------------------------------------------
 
 pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    // flecs has no batch spawn API; both paths use single-entity spawning.
-    group.bench_function("batch_10k/flecs", |b| {
-        b.iter(|| {
-            let world = World::new();
-            for _ in 0..SIMPLE_ENTITY_COUNT {
-                let (t, p, r, v) = suite_bundle();
-                world.entity().set(t).set(p).set(r).set(v);
-            }
-            black_box(&world);
-        });
+    // Flecs exposes no equivalent safe bulk spawn API in this binding.
+    group.bench_function("single_insert_10k/flecs", |b| {
+        b.iter_batched_ref(
+            World::new,
+            |world| {
+                for _ in 0..SIMPLE_ENTITY_COUNT {
+                    let (t, p, r, v) = suite_bundle();
+                    world.entity().set(t).set(p).set(r).set(v);
+                }
+                black_box(&world);
+            },
+            BatchSize::SmallInput,
+        );
     });
+}
 
-    group.bench_function("single_10k/flecs", |b| {
-        b.iter(|| {
-            let world = World::new();
-            for _ in 0..SIMPLE_ENTITY_COUNT {
-                let (t, p, r, v) = suite_bundle();
-                world.entity().set(t).set(p).set(r).set(v);
-            }
-            black_box(&world);
-        });
+pub fn validate_contract() {
+    let world = world_with_entities(128);
+    let query = world.new_query::<(&mut PositionComponent, &VelocityComponent)>();
+    let mut count = 0;
+    let mut checksum = 0.0;
+    query.each(|(position, velocity)| {
+        position.0 += velocity.0;
+        count += 1;
+        checksum += position.0.x;
     });
+    assert_eq!(count, 128);
+    assert_eq!(checksum, 256.0);
+
+    let (position, velocity) = light_bundle();
+    let entity = world.entity().set(position).set(velocity);
+    let id = entity.id();
+    let health_id = world.component_id::<Health>();
+    assert!(entity.is_alive());
+    entity.set(Health(100.0));
+    assert!(entity.has(health_id));
+    entity.remove(health_id);
+    assert!(!entity.has(health_id));
+    entity.destruct();
+    assert!(!world.is_alive(id));
+
+    let fragmented = fragmented_world();
+    assert_eq!(
+        fragmented.new_query::<&DataComponent>().count() as usize,
+        FRAGMENTED_VARIANT_COUNT * FRAGMENTED_ENTITIES_PER_VARIANT
+    );
+
+    let (mixed, random, churn) = mixed_world();
+    let expected = mixed.new_query::<&PositionComponent>().count();
+    let mut spawned = Vec::with_capacity(MIXED_FRAME_SPAWN_COUNT);
+    let move_query = mixed.new_query::<(&mut PositionComponent, &VelocityComponent)>();
+    let enemy_query = mixed.new_query::<(&mut Health, &Damage)>();
+    let ally_query = mixed.new_query::<(&mut Health, &Regen)>();
+    let heavy_query = mixed.new_query::<(&mut PositionComponent, &TransformComponent)>();
+    move_query.each(|(position, velocity)| position.0 += velocity.0);
+    enemy_query.each(|(health, damage)| health.0 -= damage.0);
+    ally_query.each(|(health, regen)| health.0 += regen.0);
+    heavy_query.each(|_| {});
+    for &random_id in &random {
+        mixed
+            .entity_from_id(random_id)
+            .get::<&PositionComponent>(|_| {});
+    }
+    let health_id = mixed.component_id::<Health>();
+    for &churn_id in &churn {
+        mixed.entity_from_id(churn_id).set(Health(100.0));
+        mixed.entity_from_id(churn_id).remove(health_id);
+    }
+    mixed_spawn_step_for_validation(&mixed, &mut spawned);
+    assert_eq!(mixed.new_query::<&PositionComponent>().count(), expected);
+    assert!(!mixed.entity_from_id(churn[0]).has(health_id));
+}
+
+fn mixed_spawn_step_for_validation(world: &World, spawned: &mut Vec<FlecsEntity>) {
+    spawned.clear();
+    for _ in 0..MIXED_FRAME_SPAWN_COUNT {
+        let (position, velocity) = light_bundle();
+        spawned.push(world.entity().set(position).set(velocity).id());
+    }
+    for &entity in spawned.iter() {
+        world.entity_from_id(entity).destruct();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +213,7 @@ pub fn bench_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {
     let world = world_with_entities(SIMPLE_ENTITY_COUNT);
     let query = world.new_query::<(&mut PositionComponent, &VelocityComponent)>();
 
-    group.bench_function("simple/flecs", |b| {
+    group.bench_function("simple_10k/flecs", |b| {
         b.iter(|| {
             query.each(|(pos, vel)| {
                 pos.0 += vel.0;
@@ -199,7 +259,7 @@ pub fn bench_fragmented_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {
     let world = fragmented_world();
     let query = world.new_query::<&mut DataComponent>();
 
-    group.bench_function("fragmented/flecs", |b| {
+    group.bench_function("fragmented_26x400/flecs", |b| {
         b.iter(|| {
             query.each(|data| {
                 data.0 *= 2.0;
@@ -235,24 +295,34 @@ pub fn bench_heavy_compute(group: &mut BenchmarkGroup<'_, WallTime>) {
 // ---------------------------------------------------------------------------
 
 pub fn bench_random_access(group: &mut BenchmarkGroup<'_, WallTime>) {
-    let world = World::new();
-    let mut ids: Vec<FlecsEntity> = (0..SIMPLE_ENTITY_COUNT)
-        .map(|_| {
-            let (p, v) = light_bundle();
-            world.entity().set(p).set(v).id()
-        })
-        .collect();
-    deterministic_shuffle(&mut ids);
-
-    group.bench_function("get/flecs", |b| {
-        b.iter(|| {
-            for &id in &ids {
-                world.entity_from_id(id).get::<&PositionComponent>(|p| {
-                    black_box(p);
-                });
-            }
+    for (name, count) in [
+        ("hot_10k", SIMPLE_ENTITY_COUNT),
+        ("warm_100k", WARM_RANDOM_ENTITY_COUNT),
+        ("cold_1m", COLD_RANDOM_ENTITY_COUNT),
+    ] {
+        let world = World::new();
+        let ids: Vec<FlecsEntity> = (0..count)
+            .map(|_| {
+                let (position, velocity) = light_bundle();
+                world.entity().set(position).set(velocity).id()
+            })
+            .collect();
+        let orders = deterministic_orders(&ids);
+        let mut order = 0;
+        group.bench_function(format!("{name}/flecs"), |b| {
+            b.iter(|| {
+                let ids = &orders[order % orders.len()];
+                order += 1;
+                for &id in ids {
+                    world
+                        .entity_from_id(id)
+                        .get::<&PositionComponent>(|position| {
+                            black_box(position);
+                        });
+                }
+            });
         });
-    });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -262,14 +332,14 @@ pub fn bench_random_access(group: &mut BenchmarkGroup<'_, WallTime>) {
 pub fn bench_entity_ops(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.bench_function("spawn_despawn_1k/flecs", |b| {
         let world = World::new();
+        let mut ids = Vec::with_capacity(ENTITY_OP_COUNT);
         b.iter(|| {
-            let ids: Vec<FlecsEntity> = (0..ENTITY_OP_COUNT)
-                .map(|_| {
-                    let (p, v) = light_bundle();
-                    world.entity().set(p).set(v).id()
-                })
-                .collect();
-            for id in ids {
+            ids.clear();
+            for _ in 0..ENTITY_OP_COUNT {
+                let (p, v) = light_bundle();
+                ids.push(world.entity().set(p).set(v).id());
+            }
+            for &id in &ids {
                 world.entity_from_id(id).destruct();
             }
             black_box(&world);

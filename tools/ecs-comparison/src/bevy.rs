@@ -4,7 +4,7 @@ use bevy_ecs::entity::Entity as BevyEntity;
 use bevy_ecs::query::QueryState;
 use bevy_ecs::world::World;
 use cgmath::{SquareMatrix, Transform as _};
-use criterion::{measurement::WallTime, BenchmarkGroup};
+use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
 use std::hint::black_box;
 
 fn world_with_entities(n: usize) -> World {
@@ -146,30 +146,97 @@ fn run_mixed_frame(
 }
 
 pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("batch_10k/bevy", |b| {
-        b.iter(|| {
-            let mut world = World::new();
-            world.spawn_batch((0..SIMPLE_ENTITY_COUNT).map(|_| suite_bundle()));
-            black_box(&world);
-        });
+    group.bench_function("bulk_insert_10k/bevy", |b| {
+        b.iter_batched_ref(
+            World::new,
+            |world| {
+                world.spawn_batch((0..SIMPLE_ENTITY_COUNT).map(|_| suite_bundle()));
+                black_box(&world);
+            },
+            BatchSize::SmallInput,
+        );
     });
 
-    group.bench_function("single_10k/bevy", |b| {
-        b.iter(|| {
-            let mut world = World::new();
-            for _ in 0..SIMPLE_ENTITY_COUNT {
-                world.spawn(suite_bundle());
-            }
-            black_box(&world);
-        });
+    group.bench_function("single_insert_10k/bevy", |b| {
+        b.iter_batched_ref(
+            World::new,
+            |world| {
+                for _ in 0..SIMPLE_ENTITY_COUNT {
+                    world.spawn(suite_bundle());
+                }
+                black_box(&world);
+            },
+            BatchSize::SmallInput,
+        );
     });
+}
+
+pub fn validate_contract() {
+    let mut world = world_with_entities(128);
+    assert_eq!(
+        world.query::<&PositionComponent>().iter(&world).count(),
+        128
+    );
+    let mut count = 0;
+    let mut checksum = 0.0;
+    for (mut position, velocity) in world
+        .query::<(&mut PositionComponent, &VelocityComponent)>()
+        .iter_mut(&mut world)
+    {
+        position.0 += velocity.0;
+        count += 1;
+        checksum += position.0.x;
+    }
+    assert_eq!(count, 128);
+    assert_eq!(checksum, 256.0);
+
+    let entity = world.spawn(light_bundle()).id();
+    assert!(world.get::<PositionComponent>(entity).is_some());
+    world.entity_mut(entity).insert(Health(100.0));
+    assert!(world.get::<Health>(entity).is_some());
+    world.entity_mut(entity).remove::<Health>();
+    assert!(world.get::<Health>(entity).is_none());
+    assert!(world.despawn(entity));
+    assert!(!world.entities().contains(entity));
+
+    let mut fragmented = fragmented_world();
+    assert_eq!(
+        fragmented
+            .query::<&DataComponent>()
+            .iter(&fragmented)
+            .count(),
+        FRAGMENTED_VARIANT_COUNT * FRAGMENTED_ENTITIES_PER_VARIANT
+    );
+
+    let (mut mixed, random, churn) = mixed_world();
+    let expected = mixed.query::<&PositionComponent>().iter(&mixed).count();
+    let mut spawned = Vec::with_capacity(MIXED_FRAME_SPAWN_COUNT);
+    let mut move_query = mixed.query::<(&mut PositionComponent, &VelocityComponent)>();
+    let mut enemy_query = mixed.query::<(&mut Health, &Damage)>();
+    let mut ally_query = mixed.query::<(&mut Health, &Regen)>();
+    let mut heavy_query = mixed.query::<(&mut PositionComponent, &TransformComponent)>();
+    run_mixed_frame(
+        &mut mixed,
+        &mut move_query,
+        &mut enemy_query,
+        &mut ally_query,
+        &mut heavy_query,
+        &random,
+        &churn,
+        &mut spawned,
+    );
+    assert_eq!(
+        mixed.query::<&PositionComponent>().iter(&mixed).count(),
+        expected
+    );
+    assert!(mixed.get::<Health>(churn[0]).is_none());
 }
 
 pub fn bench_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {
     let mut world = world_with_entities(SIMPLE_ENTITY_COUNT);
     let mut query = world.query::<(&mut PositionComponent, &VelocityComponent)>();
 
-    group.bench_function("simple/bevy", |b| {
+    group.bench_function("simple_10k/bevy", |b| {
         b.iter(|| {
             for (mut pos, vel) in query.iter_mut(&mut world) {
                 pos.0 += vel.0;
@@ -215,7 +282,7 @@ pub fn bench_fragmented_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {
     let mut world = fragmented_world();
     let mut query = world.query::<&mut DataComponent>();
 
-    group.bench_function("fragmented/bevy", |b| {
+    group.bench_function("fragmented_26x400/bevy", |b| {
         b.iter(|| {
             for mut data in query.iter_mut(&mut world) {
                 data.0 *= 2.0;
@@ -247,30 +314,40 @@ pub fn bench_heavy_compute(group: &mut BenchmarkGroup<'_, WallTime>) {
 }
 
 pub fn bench_random_access(group: &mut BenchmarkGroup<'_, WallTime>) {
-    let mut world = World::new();
-    let mut entities: Vec<_> = (0..SIMPLE_ENTITY_COUNT)
-        .map(|_| world.spawn(light_bundle()).id())
-        .collect();
-    deterministic_shuffle(&mut entities);
-
-    group.bench_function("get/bevy", |b| {
-        b.iter(|| {
-            for &entity in &entities {
-                black_box(world.get::<PositionComponent>(entity));
-            }
+    for (name, count) in [
+        ("hot_10k", SIMPLE_ENTITY_COUNT),
+        ("warm_100k", WARM_RANDOM_ENTITY_COUNT),
+        ("cold_1m", COLD_RANDOM_ENTITY_COUNT),
+    ] {
+        let mut world = World::new();
+        let entities: Vec<_> = (0..count)
+            .map(|_| world.spawn(light_bundle()).id())
+            .collect();
+        let orders = deterministic_orders(&entities);
+        let mut order = 0;
+        group.bench_function(format!("{name}/bevy"), |b| {
+            b.iter(|| {
+                let entities = &orders[order % orders.len()];
+                order += 1;
+                for &entity in entities {
+                    black_box(world.get::<PositionComponent>(entity).unwrap());
+                }
+            });
         });
-    });
+    }
 }
 
 pub fn bench_entity_ops(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.bench_function("spawn_despawn_1k/bevy", |b| {
         let mut world = World::new();
+        let mut entities = Vec::with_capacity(ENTITY_OP_COUNT);
         b.iter(|| {
-            let entities: Vec<_> = (0..ENTITY_OP_COUNT)
-                .map(|_| world.spawn(light_bundle()).id())
-                .collect();
-            for entity in entities {
-                world.despawn(entity);
+            entities.clear();
+            for _ in 0..ENTITY_OP_COUNT {
+                entities.push(world.spawn(light_bundle()).id());
+            }
+            for &entity in &entities {
+                assert!(world.despawn(entity));
             }
             black_box(&world);
         });

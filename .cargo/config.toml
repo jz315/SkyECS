@@ -1,2 +1,3 @@
 [alias]
 compare-ecs = ["bench", "-p", "sky_ecs_comparison", "--bench", "fair"]
+compare-ecs-publish = ["run", "-p", "sky_ecs_comparison", "--release", "--bin", "compare-ecs-publish"]
