@@ -3,6 +3,7 @@
 pub mod bevy;
 pub mod common;
 pub mod flecs;
+pub mod flecs_cpp;
 pub mod freecs;
 pub mod hecs;
 pub mod shared;
@@ -17,16 +18,18 @@ pub enum Engine {
     Hecs,
     Bevy,
     Flecs,
+    FlecsCpp,
     Freecs,
     Shipyard,
 }
 
 impl Engine {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Sky,
         Self::Hecs,
         Self::Bevy,
         Self::Flecs,
+        Self::FlecsCpp,
         Self::Freecs,
         Self::Shipyard,
     ];
@@ -37,6 +40,7 @@ impl Engine {
             Self::Hecs => "hecs",
             Self::Bevy => "bevy",
             Self::Flecs => "flecs",
+            Self::FlecsCpp => "flecs_cpp",
             Self::Freecs => "freecs",
             Self::Shipyard => "shipyard",
         }
@@ -60,7 +64,7 @@ pub fn engine_order() -> Vec<Engine> {
     assert_eq!(
         engines.len(),
         Engine::ALL.len(),
-        "SKY_ECS_ORDER must list all six engines"
+        "SKY_ECS_ORDER must list all seven engines"
     );
     for engine in Engine::ALL {
         assert_eq!(

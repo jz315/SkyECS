@@ -1257,9 +1257,11 @@ name = "sky_ecs_comparison"
 version = "0.1.0"
 dependencies = [
  "bevy_ecs",
+ "cc",
  "cgmath",
  "criterion",
  "flecs_ecs",
+ "flecs_ecs_sys",
  "freecs",
  "hecs",
  "serde",

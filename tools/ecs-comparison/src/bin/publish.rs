@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-const DEFAULT_RUN_COUNT: usize = 6;
+const DEFAULT_RUN_COUNT: usize = 7;
 
 struct Options {
     runs: usize,
@@ -93,7 +93,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
             "--runs" => {
                 options.runs = args.next().ok_or("--runs requires a value")?.parse()?;
                 if !(1..=Engine::ALL.len()).contains(&options.runs) {
-                    return Err("--runs must be between 1 and 6".into());
+                    return Err("--runs must be between 1 and 7".into());
                 }
             }
             "--filter" => options.filter = Some(args.next().ok_or("--filter requires a value")?),

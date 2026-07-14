@@ -3,7 +3,9 @@
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion,
 };
-use sky_ecs_comparison::{bevy, engine_order, flecs, freecs, hecs, shipyard, sky, Engine};
+use sky_ecs_comparison::{
+    bevy, engine_order, flecs, flecs_cpp, freecs, hecs, shipyard, sky, Engine,
+};
 use std::time::Duration;
 
 macro_rules! dispatch {
@@ -13,6 +15,7 @@ macro_rules! dispatch {
             Engine::Hecs => hecs::$function($group),
             Engine::Bevy => bevy::$function($group),
             Engine::Flecs => flecs::$function($group),
+            Engine::FlecsCpp => flecs_cpp::$function($group),
             Engine::Freecs => freecs::$function($group),
             Engine::Shipyard => shipyard::$function($group),
         }

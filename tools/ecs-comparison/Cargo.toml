@@ -5,6 +5,10 @@ edition.workspace = true
 # Bevy ECS 0.19 requires Rust 1.95; the published Sky ECS crates remain at 1.85.
 rust-version = "1.95"
 publish = false
+build = "build.rs"
+
+[build-dependencies]
+cc = "1.2"
 
 [dependencies]
 sky_ecs = { path = "../../crates/sky_ecs" }
@@ -13,6 +17,7 @@ cgmath = "0.18"
 hecs = "0.11.0"
 bevy_ecs = "0.19.0"
 flecs_ecs = "0.2.2"
+flecs_ecs_sys = "=0.2.1"
 freecs = { version = "3.13.0", default-features = false }
 shipyard = { version = "0.11.5", default-features = false, features = ["std", "proc"] }
 serde = { version = "1", features = ["derive"] }
