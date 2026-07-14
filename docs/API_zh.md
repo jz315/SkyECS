@@ -347,5 +347,5 @@ fn main() {
 ## 11. 继续阅读
 
 - [从零开始的教程](TUTORIAL_zh.md)
-- [仓库可运行示例](../crates/sky_ecs/examples/)
+- [渐进式可运行示例](../crates/sky_ecs/examples/README_zh.md)
 - [Rustdoc 生成的逐项 API](https://docs.rs/sky_ecs)

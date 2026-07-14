@@ -162,12 +162,17 @@ parallel execution.
 ## Run the repository examples
 
 ```bash
-cargo run -p sky_ecs --example hello_ecs
-cargo run -p sky_ecs --example queries
-cargo run -p sky_ecs --example commands
-cargo run -p sky_ecs --example systems
-cargo run -p sky_ecs --example tiny_defense
+cargo run -p sky_ecs --example step_01_world
+cargo run -p sky_ecs --example step_02_queries
+cargo run -p sky_ecs --example step_03_batches_and_chunks
+cargo run -p sky_ecs --example step_04_commands
+cargo run -p sky_ecs --example step_05_systems
+cargo run -p sky_ecs --example step_06_parallel
+cargo run -p sky_ecs --example step_07_tiny_defense
+cargo run -p sky_ecs --example step_08_dynamic
+cargo run -p sky_ecs --example step_09_plugin
 ```
 
-Continue with the [API guide](API.md) or the
+Steps 01-07 are the core path; steps 08-09 cover advanced APIs. See the
+[example index](../crates/sky_ecs/examples/README.md), then continue with the [API guide](API.md) or the
 [generated Rust documentation](https://docs.rs/sky_ecs).
