@@ -70,6 +70,10 @@ Compare-ECS 使用安全公共 API，对比 Sky ECS、hecs、Bevy ECS、Flecs、
 FreeCS 和 Shipyard。当前记录中，Sky 在批量插入、单个插入、
 spawn/despawn 和混合帧场景中耗时最低，遍历性能与 Flecs 基本持平。
 
+代表性结果：批量插入 1 万个实体耗时 146.7 µs，遍历 1 万个实体耗时
+4.96 µs，spawn/despawn 1 千个实体耗时 19.57 µs，混合帧耗时 181.68 µs。
+10 万实体遍历中，Sky 为 52.31 µs，Flecs 为 52.01 µs，差距不足 1%。
+
 运行对比测试：
 
 ```bash
