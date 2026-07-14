@@ -74,12 +74,14 @@ The crate-level guide is in
 
 ## Benchmarks
 
-Compare-ECS uses safe public APIs to compare Sky ECS, hecs, Bevy ECS, Flecs,
-FreeCS, and Shipyard. In the recorded results, Sky has the lowest times for bulk
-insertion, single insertion, spawn/despawn, and the mixed-frame scenario, while
-its iteration performance is effectively tied with Flecs.
+The benchmark compares Sky ECS, hecs, Bevy ECS, Flecs, FreeCS, and Shipyard
+through functionality shared by all six libraries under the same environment.
 
-Representative results:
+In the recorded results, Sky has the lowest times for bulk insertion, single
+insertion, spawn/despawn, and the mixed-frame scenario, while its iteration
+performance is effectively tied with Flecs.
+
+Key results:
 
 | Workload | Sky | hecs | Bevy | Flecs | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
@@ -88,12 +90,6 @@ Representative results:
 | Iterate 100k | **52.31 µs** | 55.08 µs | 80.75 µs | **52.01 µs** | 79.49 µs | 114.18 µs |
 | Spawn/despawn 1k | **19.57 µs** | 24.51 µs | 63.54 µs | 157.58 µs | 72.28 µs | 59.71 µs |
 | Mixed frame | **181.68 µs** | 195.09 µs | 238.81 µs | 223.63 µs | 208.04 µs | 200.05 µs |
-
-Run the comparison suite with:
-
-```bash
-cargo compare-ecs
-```
 
 See the [benchmark documentation](benches/BENCHMARKS.md) for all 19 workloads,
 the test environment, dependency versions, and measurement notes.
