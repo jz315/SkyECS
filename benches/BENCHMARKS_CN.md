@@ -1,110 +1,49 @@
-# ECS Benchmark 指南
+# ECS Benchmark
 
-SkyEngine 刻意保留两条 benchmark 轨道。它们回答的问题不同，结果不能混在同一张表中。
+Compare-ECS 使用安全公共 API，对比 Sky ECS、hecs、Bevy ECS、Flecs、FreeCS 和 Shipyard。各库都使用推荐的可复用 query、view 或 accessor。当前只测单线程，不代表调度、并行或内存表现。
 
-## 1. 跨引擎公平对比
-
-`cargo compare-ecs` 是 Sky/hecs/Bevy/Flecs 的唯一标准对比。workload 只使用四个引擎都能表达的安全公共 API，query/prepared 状态在计时区间外创建。
+## 运行
 
 ```bash
 cargo compare-ecs
-cargo compare-ecs -- sky
-cargo compare-ecs -- fair_random_access/get/sky --exact
+cargo compare-ecs -- fair_prepared_iteration/simple_10k/sky --exact
+cargo compare-ecs-publish
 ```
 
-第三方 ECS 依赖只放在 `tools/ecs-comparison`。Sky 专属内部机制和 archetype 微基准不得混入此套件。
+`cargo compare-ecs-publish` 执行六轮 Latin-square 顺序轮换，并将 Criterion 原始数据、环境信息、置信区间和跨运行中位数写入 `target/fair-reports/`。
 
-### 历史跨引擎快照
+## 实测结果
 
-下表来自 Windows 11、i7-12700F 的一次历史记录，只用于背景参考，不代表当前版本承诺。
+数据来自六轮报告 `1783975835`，记录于 2026-07-14：Windows 11、i7-12700F、Rust 1.96.0。版本：Sky ECS 0.1.1、hecs 0.11.0、Bevy ECS 0.19.0、flecs_ecs 0.2.2、FreeCS 3.13.0、Shipyard 0.11.5。
 
-| Workload | Sky | hecs | Bevy | Flecs |
-|---|---:|---:|---:|---:|
-| 批量插入 1 万 | 120 µs | 294 µs | 277 µs | 5.67 ms |
-| 简单遍历 1 万 | 1.93 µs | 5.62 µs | 8.23 µs | 2.04 µs |
-| 随机访问 1 万 | 73 µs | 145 µs | 30 µs | 342 µs |
-| spawn/despawn 1 千 | 26.3 µs | 25.2 µs | 59.3 µs | 164.6 µs |
-| 混合帧 | 181 µs | 211 µs | 224 µs | 220 µs |
+加粗表示该项最低中位数，以及与最低值相差不超过 1% 的 Sky 结果。
 
-引用跨引擎结论前必须在当前 revision 重跑，不能把这份历史快照与当前本地微基准拼表。
+| Workload | Sky | hecs | Bevy | Flecs | FreeCS | Shipyard |
+|---|---:|---:|---:|---:|---:|---:|
+| 批量插入 1 万 | **146.7 µs** | 242.6 µs | 287.6 µs | N/A | 261.0 µs | 158.0 µs |
+| 单个插入 1 万 | **207.7 µs** | 491.0 µs | 654.2 µs | 3.43 ms | 882.6 µs | 732.7 µs |
+| Prepared 遍历 1 万 | **4.96 µs** | 5.10 µs | 7.69 µs | 5.15 µs | 7.78 µs | 11.03 µs |
+| Prepared 遍历 1 万 × 32 | **158.364 µs** | 165.264 µs | 241.443 µs | 160.181 µs | 243.145 µs | 315.386 µs |
+| Prepared 遍历 10 万 | **52.308 µs** | 55.084 µs | 80.748 µs | **52.013 µs** | 79.492 µs | 114.182 µs |
+| 碎片遍历 26 × 400 | 0.711 µs | 2.507 µs | 5.712 µs | 1.030 µs | 4.774 µs | **0.522 µs** |
+| Prepared 随机访问 1 万 | 15.08 µs | 128.48 µs | 35.10 µs | 314.90 µs | 14.63 µs | **10.16 µs** |
+| Prepared 随机访问 10 万 | 221.952 µs | 1.291 ms | 511.700 µs | 3.214 ms | 224.437 µs | **154.510 µs** |
+| Prepared 随机访问 100 万 | 5.624 ms | 15.090 ms | 16.485 ms | 51.450 ms | 5.737 ms | **3.759 ms** |
+| Spawn/despawn 1 千 | **19.57 µs** | 24.51 µs | 63.54 µs | 157.58 µs | 72.28 µs | 59.71 µs |
+| Add/remove component 1 千 | 45.52 µs | 57.67 µs | 83.60 µs | 118.23 µs | 98.81 µs | **25.17 µs** |
+| 诊断项：heavy compute | **1.871 ms** | **1.865 ms** | 1.870 ms | 1.873 ms | 1.871 ms | 1.870 ms |
+| 混合帧 | **181.68 µs** | 195.09 µs | 238.81 µs | 223.63 µs | 208.04 µs | 200.05 µs |
+| 混合帧阶段：movement | **12.596 µs** | 13.125 µs | 18.948 µs | **12.550 µs** | 18.983 µs | 26.415 µs |
+| 混合帧阶段：health × 8 | **5.274 µs** | 15.234 µs | 36.988 µs | 6.260 µs | 35.346 µs | 54.606 µs |
+| 混合帧阶段：heavy | **151.747 µs** | 155.301 µs | 153.572 µs | **151.016 µs** | 152.090 µs | 151.769 µs |
+| 混合帧阶段：随机访问 | 2.980 µs | 6.827 µs | 1.889 µs | 16.154 µs | **0.615 µs** | 0.649 µs |
+| 混合帧阶段：结构变更 | 10.869 µs | 14.916 µs | 57.986 µs | 30.062 µs | 23.769 µs | **6.382 µs** |
+| 混合帧阶段：spawn/despawn × 32 | **38.367 µs** | 51.285 µs | 541.702 µs | 320.296 µs | 139.507 µs | 147.644 µs |
 
-## 2. Sky 本地热路径基准
+## 说明
 
-`benches/` 下的 Criterion targets 用于机制级回归。源码按 `ecs/`、`math/` 与 feature-gated `ui/` 分组；Cargo target 名称保持不变：
-
-| Target | 范围 |
-|---|---|
-| `bound_query` | World cache hit，以及 tuple/`QueryData`/`PreparedQuery` 遍历开销 |
-| `archetype_match` | 首次 prepare、filter、cache hit、增量 refresh |
-| `parallel_query` | 顺序/并行 query，包括 bound facade |
-| `parallel_job_cache` | 结构变更后的并行 job plan 重建 |
-| `system_schedule` | typed dispatch、冲突 wave、system 并行 |
-
-```bash
-cargo bench --bench bound_query
-cargo bench --bench archetype_match
-cargo bench --bench parallel_query
-cargo bench --bench parallel_job_cache
-cargo bench --bench system_schedule
-```
-
-`archetype_match` 使用独立 target/process，避免百万实体并行 workload 的温度和调度状态污染亚微秒匹配测量。
-
-## 3. Archetype prepare 覆盖
-
-独立 target 覆盖：
-
-- 1、2、8、16 个必需组件的 fresh full scan；
-- 密集命中、提前拒绝、optional 缺失；
-- prepared-query epoch cache hit；
-- 单个 matching/non-matching archetype 增量追加；
-- `clear` 后重建、相同 epoch 下切换不同 `World`；
-- 单 `With`/`Without`、选择性 filter、重复/矛盾 AND、`Any` fallback。
-
-增量场景使用 `iter_batched`：World 变更在 setup 完成，计时区间只包含 query refresh。因此这些数字只描述 prepare/matching，不等价于遍历性能或整帧同比提升。
-
-历史直接 A/B 曾确认自适应有序匹配、固定 component-index map、编译 AND filter 有明显收益。旧的单轮绝对纳秒值已删除，因为它们不是可复现的正式运行记录；新的优化决策必须重跑 named baseline。
-
-## 4. 可复现 A/B 流程
-
-在固定本机环境执行：
-
-```powershell
-pwsh tools/bench-ecs.ps1 -Phase Before -Baseline adaptive-match
-# 应用实现变更
-pwsh tools/bench-ecs.ps1 -Phase After -Baseline adaptive-match
-```
-
-驱动会让每个关键 benchmark ID 在独立进程运行，固定 `RAYON_NUM_THREADS=8`，默认 before/after 各三轮，并在进程间冷却。`-IncludeParallel` 加入并行 facade；`-Only archetype_cache/prepared_epoch_hit` 可选择单项。
-
-`target/criterion/` 下的报告记录 CPU、OS、Rust 版本、Git revision/dirty 状态、时间、Criterion baseline 名称、每轮 95% CI，以及三轮中位数的中位数。
-
-接受优化必须同时满足：
-
-- 目标场景中位数至少提升 5%，且至少 2/3 轮的 95% 比较区间排除零；
-- 相邻常见路径不得稳定回退超过 3%；低于 500 ns 的路径容忍线为 5%；
-- 结论只来自直接 named-baseline A/B，不能比较不同时刻的绝对值。
-
-绝对耗时始终与机器、时间相关。普通 CI 不设置性能阈值。
-
-## 5. 正确性与 allocation invariant
-
-独立 allocator integration test 将 World/query 构造放在计数区间外，并对 8 与 64 个 matching archetype 执行 16-component 首次 prepare：
-
-```bash
-cargo test -p sky_ecs --test query_allocations
-```
-
-测试拒绝 allocation 随 matching-archetype 数线性增长。内部测试还断言 `ComponentIndexMap` 是固定内联容量、无 `Drop`，且布局不包含指针大小的堆存储字段。
-
-合并 benchmark 或 ECS 热路径改动前运行：
-
-```bash
-cargo test -p sky_ecs
-cargo test --features app -- --test-threads=1
-cargo clippy --all-targets --features app -- -D warnings
-cargo check --examples --features app
-cargo bench --no-run
-```
-
-`cargo compare-ecs` 只作为独立 smoke/regression 运行；结果不要与本地 archetype microbench 混表。
+- Flecs 的批量插入为 `N/A`，因为 Rust binding 没有等价的安全批量 API。
+- Heavy compute 是诊断项，不用于排名 ECS 开销。
+- Health 和 spawn/despawn 分别重复 8 次和 32 次；换算单帧时需除以对应次数。
+- 阶段测试使用独立 World，不会与完整混合帧完全相加。
+- 冷随机访问 100 万实体的跨轮噪声较大，只保留数据，不作为首页结论。

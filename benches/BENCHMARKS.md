@@ -1,110 +1,49 @@
-# ECS Benchmark Guide
+# ECS Benchmarks
 
-SkyEngine deliberately uses two benchmark tracks. Their numbers answer different questions and must not be combined in one result table.
+Compare-ECS compares Sky ECS with hecs, Bevy ECS, Flecs, FreeCS, and Shipyard through safe public APIs. Each library uses its recommended reusable query, view, or accessor state. The suite is single-threaded; it does not make claims about scheduling, parallelism, or memory use.
 
-## 1. Cross-engine comparison
-
-`cargo compare-ecs` is the canonical Sky/hecs/Bevy/Flecs comparison. Workloads use safe public APIs available in all four engines, and prepared/query state is created outside the timed loop.
+## Run
 
 ```bash
 cargo compare-ecs
-cargo compare-ecs -- sky
-cargo compare-ecs -- fair_random_access/get/sky --exact
+cargo compare-ecs -- fair_prepared_iteration/simple_10k/sky --exact
+cargo compare-ecs-publish
 ```
 
-Third-party ECS dependencies remain isolated in `tools/ecs-comparison`. Sky-specific internals and archetype microbenchmarks do not belong in this suite.
+`cargo compare-ecs-publish` runs six Latin-square order rotations and writes raw Criterion data, environment metadata, confidence intervals, and cross-run medians to `target/fair-reports/`.
 
-### Historical cross-engine snapshot
+## Recorded results
 
-The following is a historical snapshot from Windows 11 on an i7-12700F. It is machine- and revision-specific and is retained only as context, not as a current performance claim.
+Cross-run medians from report `1783975835`, recorded on 2026-07-14 on Windows 11, i7-12700F, and Rust 1.96.0. Versions: Sky ECS 0.1.1, hecs 0.11.0, Bevy ECS 0.19.0, flecs_ecs 0.2.2, FreeCS 3.13.0, Shipyard 0.11.5.
 
-| Workload | Sky | hecs | Bevy | Flecs |
-|---|---:|---:|---:|---:|
-| batch insert 10k | 120 µs | 294 µs | 277 µs | 5.67 ms |
-| simple iteration 10k | 1.93 µs | 5.62 µs | 8.23 µs | 2.04 µs |
-| random get 10k | 73 µs | 145 µs | 30 µs | 342 µs |
-| spawn/despawn 1k | 26.3 µs | 25.2 µs | 59.3 µs | 164.6 µs |
-| mixed frame | 181 µs | 211 µs | 224 µs | 220 µs |
+Bold marks the lowest median and also marks Sky when it is within 1% of the lowest.
 
-Re-run the suite before citing comparisons; never mix this snapshot with current local microbenchmark data.
+| Workload | Sky | hecs | Bevy | Flecs | FreeCS | Shipyard |
+|---|---:|---:|---:|---:|---:|---:|
+| Bulk insert 10k | **146.7 µs** | 242.6 µs | 287.6 µs | N/A | 261.0 µs | 158.0 µs |
+| Single insert 10k | **207.7 µs** | 491.0 µs | 654.2 µs | 3.43 ms | 882.6 µs | 732.7 µs |
+| Prepared iteration 10k | **4.96 µs** | 5.10 µs | 7.69 µs | 5.15 µs | 7.78 µs | 11.03 µs |
+| Prepared iteration 10k × 32 | **158.364 µs** | 165.264 µs | 241.443 µs | 160.181 µs | 243.145 µs | 315.386 µs |
+| Prepared iteration 100k | **52.308 µs** | 55.084 µs | 80.748 µs | **52.013 µs** | 79.492 µs | 114.182 µs |
+| Fragmented iteration 26 × 400 | 0.711 µs | 2.507 µs | 5.712 µs | 1.030 µs | 4.774 µs | **0.522 µs** |
+| Prepared random access 10k | 15.08 µs | 128.48 µs | 35.10 µs | 314.90 µs | 14.63 µs | **10.16 µs** |
+| Prepared random access 100k | 221.952 µs | 1.291 ms | 511.700 µs | 3.214 ms | 224.437 µs | **154.510 µs** |
+| Prepared random access 1m | 5.624 ms | 15.090 ms | 16.485 ms | 51.450 ms | 5.737 ms | **3.759 ms** |
+| Spawn/despawn 1k | **19.57 µs** | 24.51 µs | 63.54 µs | 157.58 µs | 72.28 µs | 59.71 µs |
+| Add/remove component 1k | 45.52 µs | 57.67 µs | 83.60 µs | 118.23 µs | 98.81 µs | **25.17 µs** |
+| Diagnostic heavy compute | **1.871 ms** | **1.865 ms** | 1.870 ms | 1.873 ms | 1.871 ms | 1.870 ms |
+| Mixed frame | **181.68 µs** | 195.09 µs | 238.81 µs | 223.63 µs | 208.04 µs | 200.05 µs |
+| Mixed phase: movement | **12.596 µs** | 13.125 µs | 18.948 µs | **12.550 µs** | 18.983 µs | 26.415 µs |
+| Mixed phase: health × 8 | **5.274 µs** | 15.234 µs | 36.988 µs | 6.260 µs | 35.346 µs | 54.606 µs |
+| Mixed phase: heavy | **151.747 µs** | 155.301 µs | 153.572 µs | **151.016 µs** | 152.090 µs | 151.769 µs |
+| Mixed phase: random access | 2.980 µs | 6.827 µs | 1.889 µs | 16.154 µs | **0.615 µs** | 0.649 µs |
+| Mixed phase: structural churn | 10.869 µs | 14.916 µs | 57.986 µs | 30.062 µs | 23.769 µs | **6.382 µs** |
+| Mixed phase: spawn/despawn × 32 | **38.367 µs** | 51.285 µs | 541.702 µs | 320.296 µs | 139.507 µs | 147.644 µs |
 
-## 2. Sky-local hot-path benchmarks
+## Notes
 
-Criterion benches under `benches/` are mechanism-level regression tools. Sources are grouped by domain: `ecs/`, `math/`, and feature-gated `ui/`; Cargo target names remain stable.
-
-| Target | Scope |
-|---|---|
-| `bound_query` | World cache hit and tuple/`QueryData`/`PreparedQuery` traversal overhead |
-| `archetype_match` | fresh prepare, filters, cache hit, and incremental refresh |
-| `parallel_query` | sequential and parallel query execution, including the bound facade |
-| `parallel_job_cache` | parallel job-plan rebuild after structural churn |
-| `system_schedule` | typed dispatch, conflict waves, and system parallelism |
-
-```bash
-cargo bench --bench bound_query
-cargo bench --bench archetype_match
-cargo bench --bench parallel_query
-cargo bench --bench parallel_job_cache
-cargo bench --bench system_schedule
-```
-
-`archetype_match` is a separate process target so million-entity parallel workloads cannot thermally bias its sub-microsecond measurements.
-
-## 3. Archetype prepare coverage
-
-The archetype target covers:
-
-- fresh full scans with 1, 2, 8, and 16 required components;
-- dense matches, early rejection, and missing optional components;
-- prepared-query epoch cache hits;
-- one matching or non-matching archetype appended after preparation;
-- rebuild after `clear`, and switching to a different `World` with the same epoch;
-- single `With`/`Without`, selective filters, redundant and contradictory AND filters, and `Any` fallback.
-
-Incremental cases use `iter_batched`: world mutation happens in setup and only query refresh is timed. These results describe prepare/matching cost, not entity traversal or whole-frame speed.
-
-Historical direct A/B experiments found meaningful improvements from adaptive sorted matching, a fixed component-index map, and compiled AND filters. Their old one-shot absolute nanosecond values were removed because they are not reproducible run records. Re-measure with named baselines for every new decision.
-
-## 4. Reproducible A/B procedure
-
-Use the local driver on a stable machine:
-
-```powershell
-pwsh tools/bench-ecs.ps1 -Phase Before -Baseline adaptive-match
-# apply the implementation change
-pwsh tools/bench-ecs.ps1 -Phase After -Baseline adaptive-match
-```
-
-The driver runs each key benchmark ID in a separate process, fixes `RAYON_NUM_THREADS=8`, performs three rounds by default, and cools down between processes. `-IncludeParallel` adds parallel facade cases; `-Only archetype_cache/prepared_epoch_hit` selects individual IDs.
-
-Reports under `target/criterion/` record CPU, OS, Rust version, Git revision/dirty state, timestamp, Criterion baseline names, per-round 95% confidence intervals, and the median of the three round medians.
-
-Accept an optimization only when:
-
-- the target median improves by at least 5%, and at least two of three runs have a 95% comparison interval excluding zero;
-- adjacent common paths do not regress consistently by more than 3%; paths below 500 ns use a 5% tolerance;
-- the conclusion comes from direct named-baseline A/B data, not absolute values collected at different times.
-
-Absolute times are always machine- and time-specific. Ordinary CI does not enforce performance thresholds.
-
-## 5. Correctness and allocation invariants
-
-The standalone allocator test keeps world/query construction outside the counted region and prepares a 16-component query against 8 and 64 matching archetypes:
-
-```bash
-cargo test -p sky_ecs --test query_allocations
-```
-
-It rejects allocation growth proportional to matching-archetype count. Internal tests also assert that `ComponentIndexMap` has fixed inline capacity, no `Drop`, and no pointer-sized heap-storage field.
-
-Before merging benchmark or ECS hot-path changes, run:
-
-```bash
-cargo test -p sky_ecs
-cargo test --features app -- --test-threads=1
-cargo clippy --all-targets --features app -- -D warnings
-cargo check --examples --features app
-cargo bench --no-run
-```
-
-Run `cargo compare-ecs` separately as a smoke/regression check; do not place its results beside local archetype microbenchmarks.
+- Flecs bulk insertion is `N/A` because the Rust binding has no equivalent safe bulk API.
+- Heavy compute is diagnostic and is not used to rank ECS overhead.
+- Health and spawn/despawn phases repeat 8 and 32 times; divide by those factors for a single-frame estimate.
+- Phase benchmarks use isolated worlds, so they do not sum exactly to the complete mixed frame.
+- Cold 1m random access showed substantial cross-run noise; keep it as data, not a headline claim.

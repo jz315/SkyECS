@@ -1,38 +1,23 @@
 # Sky ECS
 
-**Sky ECS is a high-performance, typed, chunk-based Entity Component System for Rust.**
+Sky ECS is a typed, chunk-based Entity Component System for Rust. It is the ECS
+used by [SkyEngine](https://github.com/jz315/SkyEngine), but the crate can be
+used independently.
 
-It is built for the part of your game or simulation that cannot afford to be
-casual: hot iteration loops, large worlds, predictable frame time, and systems
-that scale across CPU cores without giving up a direct API.
+## Features
 
-> ## Performance first
->
-> Sky ECS is **the fastest Rust ECS in our fair, safe public-API benchmark
-> suite**. In the repository's current Criterion snapshot, Sky leads
-> the tested `hecs`, `bevy_ecs`, and `flecs_ecs` implementations in simple
-> iteration, bulk insertion, and mixed-frame simulation.
->
-> Performance is workload-, hardware-, compiler-, and revision-dependent.
-> Treat that as a strong, reproducible benchmark claim—not an unverifiable
-> universal promise. Run the included comparison suite on your target machine.
+- Chunk-columnar archetype storage
+- Generational entity identifiers
+- Bundle-based spawning and cached structural transitions
+- World-bound typed queries and reusable `PreparedQuery`
+- Optional query parameters and `With`, `Without`, and `Any` filters
+- Entity and chunk iteration, with sequential and parallel variants
+- Named query items through `#[derive(QueryData)]`
+- Typed resources, systems, stages, fixed steps, and deferred commands
+- Runtime-typed access under `sky_ecs::dynamic`
+- Low-level storage APIs under `sky_ecs::expert`
 
-## Why Sky ECS
-
-- **Chunk-columnar storage** keeps component data dense and iteration friendly.
-- **Typed, world-bound queries** cache matching archetype plans and refresh only
-  when structure changes.
-- **Parallel by default when it pays off**: cached stripe jobs use Rayon and
-  automatically stay serial below the useful threshold.
-- **Ergonomic systems without hidden cost**: typed `View`, `ParView`, `Res`,
-  `ResMut`, and `Commands` infer access and form deterministic compatible waves.
-- **Structural changes made for real engines**: generational entities, cached
-  transitions, deferred/coalesced commands, correct non-`Copy` drop behavior.
-- **Escape hatches with clear boundaries**: `dynamic` supports tools and
-  scripting; `expert` exposes low-level internals deliberately, without
-  compromising the typed hot path.
-
-## Start here
+## Usage
 
 ```toml
 [dependencies]
@@ -65,43 +50,59 @@ fn main() {
 }
 ```
 
-For large, CPU-heavy worlds, keep the same query shape and switch to parallel
-iteration:
+For repeated random access to one component type, bind a component accessor to
+the world before entering the hot loop:
 
 ```rust
-world
-    .query_mut::<(&mut Position, &Velocity)>()
-    .par_for_each(|(position, velocity)| {
-        position.x += velocity.x / 60.0;
-        position.y += velocity.y / 60.0;
-    });
+let positions = world.accessor::<Position>();
+
+for entity in entities {
+    if let Some(position) = positions.get(entity) {
+        println!("({}, {})", position.x, position.y);
+    }
+}
 ```
 
-## The performance model
+The accessor resolves matching component columns once and keeps a read-only
+borrow of the world while it is alive. Use `World::get` for occasional lookups,
+or when the world must be structurally changed between accesses.
 
-Sky ECS is an archetype ECS with columnar chunk storage. Entities with the same
-component set share chunks, so a typed query can walk contiguous component
-columns rather than chasing a pointer graph.
-
-For the fast path, prefer:
-
-- `world.spawn((A, B, ...))` and `spawn_batch(...)` for construction;
-- `world.query::<Q>()` / `world.query_mut::<Q>()` for normal iteration;
-- `for_each_chunk` or `par_for_each_chunk` when slices help your inner loop;
-- `PreparedQuery` only when an explicit reusable plan is truly needed;
-- stable archetypes during the hottest phase of a frame.
-
-Frequent add/remove component operations necessarily migrate entities between
-archetypes. Sky caches those transitions, but workloads that churn structure
-constantly should still batch or defer changes through `Commands`.
-
-## Queries that stay readable
-
-Named query items make wide queries self-documenting, with no runtime
-reflection or dynamic dispatch in the typed path.
+Repeated random updates use an exclusive accessor:
 
 ```rust
-use sky_ecs::{QueryData, World};
+let mut positions = world.accessor_mut::<Position>();
+
+for entity in entities {
+    if let Some(position) = positions.get_mut(entity) {
+        position.x += 1.0;
+    }
+}
+```
+
+## Queries
+
+Queries are created from a `World`. Matching archetype plans are cached by the
+world and refreshed after structural changes.
+
+```rust
+use sky_ecs::{With, Without};
+
+struct Player;
+struct Disabled;
+
+let query = world
+    .query::<(&Position, Option<&Velocity>)>()
+    .filter::<(With<Player>, Without<Disabled>)>();
+```
+
+Use `query_mut` when a query contains mutable component references. Use
+`PreparedQuery` when the query plan needs to be stored explicitly or reused
+across worlds.
+
+Named query items are available for wider queries:
+
+```rust
+use sky_ecs::QueryData;
 
 #[derive(QueryData)]
 struct Movement<'w> {
@@ -109,39 +110,36 @@ struct Movement<'w> {
     velocity: &'w Velocity,
 }
 
-fn advance(world: &mut World) {
-    world.query_mut::<Movement>().for_each(|body| {
-        body.position.x += body.velocity.x;
-        body.position.y += body.velocity.y;
+world.query_mut::<Movement>().for_each(|body| {
+    body.position.x += body.velocity.x;
+    body.position.y += body.velocity.y;
+});
+```
+
+Parallel iteration uses the same query types:
+
+```rust
+world
+    .query_mut::<(&mut Position, &Velocity)>()
+    .par_for_each(|(position, velocity)| {
+        position.x += velocity.x;
+        position.y += velocity.y;
     });
-}
 ```
 
-Queries support optional components and compile-time filters:
+Small workloads fall back to sequential iteration. `par_for_each_chunk` is
+available when the inner loop benefits from component slices.
+
+## Systems
+
+System access is inferred from typed parameters. Compatible systems may run in
+parallel, while conflicting systems keep registration order.
 
 ```rust
-use sky_ecs::{Any, With, Without};
+use sky_ecs::{Res, Time, Update, View, World};
 
-let query = world
-    .query::<(&Position, Option<&Velocity>)>()
-    .filter::<(With<Player>, Without<Disabled>)>();
-
-let visible_or_selected = world
-    .query::<&Position>()
-    .filter::<Any<(With<Visible>, With<Selected>)>>();
-```
-
-## Systems and scheduling
-
-Install typed systems directly on stages. Access is inferred from parameters;
-compatible systems can run in deterministic parallel waves, while exclusive
-systems remain explicit barriers.
-
-```rust
-use sky_ecs::{ParView, Res, Time, Update, World};
-
-fn movement(mut bodies: ParView<(&mut Position, &Velocity)>, time: Res<Time>) {
-    bodies.par_for_each(|(position, velocity)| {
+fn movement(bodies: View<(&mut Position, &Velocity)>, time: Res<Time>) {
+    bodies.for_each(|(position, velocity)| {
         position.x += velocity.x * time.delta;
         position.y += velocity.y * time.delta;
     });
@@ -152,53 +150,49 @@ world.stage(Update).add(movement);
 world.tick_with_delta(1.0 / 60.0).unwrap();
 ```
 
-Deferred structural work belongs in `Commands`; command application coalesces
-multiple changes to an entity and preserves first-seen entity order.
+Structural changes made by systems can be deferred through `Commands`. Outside
+the scheduler, use an owned `CommandBuffer`.
 
-## Benchmarks: prove it on your hardware
+## Benchmarks
 
-The repository ships two deliberately separate benchmark tracks:
+The repository includes a Criterion comparison against `hecs`, `bevy_ecs`,
+`flecs_ecs`, `freecs`, and `shipyard`. Compare-ECS v2 limits conclusions to its
+single-threaded safe-public-API workloads, uses each library's recommended
+reusable query or view state, and validates all adapters before measurement.
 
-1. `cargo compare-ecs` is the canonical fair comparison against `hecs`,
-   `bevy_ecs`, and `flecs_ecs`. Every workload uses safe public APIs that all
-   four can express, and query/prepared state is created outside the timed loop.
-2. `cargo bench` tracks Sky ECS's internal hot paths and protects against
-   regressions. Its results must not be presented as a cross-engine comparison.
-
-From a checkout of [SkyECS](https://github.com/jz315/SkyECS):
+In the complete six-rotation snapshot recorded on 2026-07-14, Sky has the
+lowest cross-run median for bulk and single insertion, steady 10k iteration,
+spawn/despawn, and the mixed-frame scenario. Shipyard leads prepared random
+access and add/remove transitions; Flecs and Sky are effectively tied for steady
+iteration at 100k entities. See the benchmark guide for the full table and
+measurement boundaries.
 
 ```bash
 cargo compare-ecs
-cargo compare-ecs -- fair_iteration/simple/sky --exact
+cargo compare-ecs-publish
 ```
 
-The recorded historical snapshot, methodology, and citation rules live in
-the [benchmark guide](https://github.com/jz315/SkyECS/blob/main/benches/BENCHMARKS.md).
-Re-run before publishing new numbers: benchmark results are evidence, not a
-permanent entitlement.
+The methodology and recorded results are kept in the
+[benchmark guide](https://github.com/jz315/SkyECS/blob/main/benches/BENCHMARKS.md).
+Internal Sky ECS benchmarks are kept separate and run with `cargo bench`.
 
-## API map
+## API overview
 
-| Need | Use |
-| --- | --- |
-| Normal read/write iteration | `World::query` / `World::query_mut` |
-| Reusable or cross-world plan | `PreparedQuery` |
-| Entity-level parallel work | `par_for_each` |
-| Chunk-slice parallel work | `par_for_each_chunk` |
-| Filter archetypes | `With<T>`, `Without<T>`, `Any<(...)>` |
-| Deferred structural changes | `Commands` or `CommandBuffer` |
+| Need | API |
+|---|---|
+| Read-only query | `World::query` |
+| Mutable query | `World::query_mut` |
+| Repeated random component access | `World::accessor`, `World::accessor_mut` |
+| Explicit reusable query plan | `PreparedQuery` |
+| Parallel entity iteration | `par_for_each` |
+| Parallel chunk iteration | `par_for_each_chunk` |
+| Archetype filters | `With<T>`, `Without<T>`, `Any<(...)>` |
+| Deferred structural changes | `Commands`, `CommandBuffer` |
 | Runtime-known component types | `sky_ecs::dynamic` |
-| Low-level archetype/storage work | `sky_ecs::expert` |
+| Low-level storage access | `sky_ecs::expert` |
 
-## Status and ecosystem
-
-`sky_ecs` is an independent ECS crate and the ECS foundation used by
-[SkyEngine](https://github.com/jz315/SkyEngine), which re-exports it as
-`sky_engine::ecs`.
-
-The crate is actively evolving. If you depend on it directly, pin a compatible
-version and follow release notes for API changes.
+Sky ECS requires Rust 1.85 or newer. The crate is currently versioned as `0.x`.
 
 ## License
 
-MIT. See the repository [LICENSE](https://github.com/jz315/SkyECS/blob/main/LICENSE).
+MIT. See [LICENSE](https://github.com/jz315/SkyECS/blob/main/LICENSE).
