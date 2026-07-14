@@ -1,6 +1,5 @@
 # Sky ECS
 
-
 [![Crates.io](https://img.shields.io/crates/v/sky_ecs.svg)](https://crates.io/crates/sky_ecs)
 [![Documentation](https://docs.rs/sky_ecs/badge.svg)](https://docs.rs/sky_ecs)
 [![CI](https://github.com/jz315/SkyECS/actions/workflows/ci.yml/badge.svg)](https://github.com/jz315/SkyECS/actions/workflows/ci.yml)
@@ -20,12 +19,24 @@ Sky ECS 是一款非常快的 Rust 实体组件系统（ECS）库，在多项性
 `flecs_ecs`、`freecs` 和 `shipyard`，在**批量插入、创建/销毁、混合帧**三项场景中耗时最低。
 
 ## 特性
+
 - 极致性能：Archetype架构，深度的核心优化，带来极速的性能体验。
 - 原生并行：内置多线程，充分利用多核 CPU 。
 - 优雅易用：自然直觉的用户接口，让开发者专注于核心业务与游戏逻辑的开发。
 - 动态拓展：除强类型接口外，提供完善的动态 API，便于运行时反射或与其他语言（如 C#、脚本语言）进行绑定与交互。
 
+## 主要接口
 
+| 需求 | 接口 |
+|---|---|
+| 创建实体 | `World::spawn` / `World::spawn_batch` |
+| 只读遍历 | `World::query::<Q>()` |
+| 可变遍历 | `World::query_mut::<Q>()` |
+| 编译期过滤 | `With<T>` / `Without<T>` / `Any<(...)>` |
+| 并行遍历 | `par_for_each` / `par_for_each_chunk` |
+| 延迟结构变更 | `Commands` / `CommandBuffer` |
+| 资源与系统 | `Res<T>` / `ResMut<T>` / `View<Q>` / `ParView<Q>` |
+| 运行时类型 | `sky_ecs::dynamic` |
 
 ## 快速开始
 
@@ -60,15 +71,16 @@ fn main() {
 }
 ```
 
-当数据规模较大时，可将串行遍历替换为 `par_for_each` 或 `par_for_each_chunk` 并行遍历接口，充分利用多核性能。
+实体通过 bundle 创建，查询类型在编译期确定。当数据规模较大时，
+可将串行遍历替换为 `par_for_each` 或 `par_for_each_chunk`，充分利用多核性能。
 
-完整 API 文档与使用教程详见：[`crates/sky_ecs/README.md`](crates/sky_ecs/README.md)。
+更多用法参见 [crate 使用指南](crates/sky_ecs/README.md)、
+[API 文档](https://docs.rs/sky_ecs) 和 [`examples/`](crates/sky_ecs/examples/)。
 
-
-## Benchmark
+## 性能测试
 
 Compare-ECS v2 只比较六个 ECS 都能通过安全公共 API 表达的单线程场景，
-每个库都使用其推荐的可复用 query、view 或 accessor 稳态路径。构建与析构边界、
+每个库都使用其推荐的可复用查询状态。构建与析构边界、
 临时缓冲区和正确性校验均已统一，随机访问覆盖热、温、冷三档工作集。
 
 2026-07-14 在 i7-12700F 上完成六轮顺序轮换，跨运行中位数如下：
