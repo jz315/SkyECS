@@ -5,11 +5,13 @@
 [![CI](https://github.com/jz315/SkyECS/actions/workflows/ci.yml/badge.svg)](https://github.com/jz315/SkyECS/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+[中文](README_zh.md)
+
 ---
 
 **A high-performance, typed, chunk-based Entity Component System for Rust.**
 
-[中文](README_zh.md)
+
 
 Sky ECS is a very fast Entity Component System (ECS) library for Rust, with
 leading results across multiple performance benchmarks.
