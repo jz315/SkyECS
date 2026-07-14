@@ -31,7 +31,7 @@ Sky ECS 是一款非常快的 Rust 实体组件系统（ECS）库，在多项性
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.1"
+sky_ecs = "0.1.2"
 ```
 
 ```rust

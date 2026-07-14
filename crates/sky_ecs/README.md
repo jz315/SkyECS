@@ -21,7 +21,7 @@ used independently.
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.1"
+sky_ecs = "0.1.2"
 ```
 
 ```rust
