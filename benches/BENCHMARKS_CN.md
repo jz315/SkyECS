@@ -7,6 +7,9 @@ Compare-ECS 使用安全公共 API，对比 Sky ECS、hecs、Bevy ECS、Flecs、
 ```bash
 cargo compare-ecs
 cargo compare-ecs -- fair_prepared_iteration/simple_10k/sky --exact
+cargo compare-ecs -- fair_construction/bulk_insert_10k/flecs --exact
+cargo compare-ecs -- fair_diagnostic_flecs_spawn_despawn/direct_1k --exact
+cargo compare-ecs -- fair_diagnostic_flecs_spawn_despawn/deferred_1k --exact
 cargo compare-ecs-publish
 ```
 
@@ -20,7 +23,7 @@ cargo compare-ecs-publish
 
 | Workload | Sky | hecs | Bevy | Flecs | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| 批量插入 1 万 | **146.7 µs** | 242.6 µs | 287.6 µs | N/A | 261.0 µs | 158.0 µs |
+| 批量插入 1 万 | **146.7 µs** | 242.6 µs | 287.6 µs | 273.84 µs† | 261.0 µs | 158.0 µs |
 | 单个插入 1 万 | **207.7 µs** | 491.0 µs | 654.2 µs | 3.43 ms | 882.6 µs | 732.7 µs |
 | Prepared 遍历 1 万 | **4.96 µs** | 5.10 µs | 7.69 µs | 5.15 µs | 7.78 µs | 11.03 µs |
 | Prepared 遍历 1 万 × 32 | **158.364 µs** | 165.264 µs | 241.443 µs | 160.181 µs | 243.145 µs | 315.386 µs |
@@ -42,8 +45,6 @@ cargo compare-ecs-publish
 
 ## 说明
 
-- Flecs 的批量插入为 `N/A`，因为 Rust binding 没有等价的安全批量 API。
-- Heavy compute 是诊断项，不用于排名 ECS 开销。
 - Health 和 spawn/despawn 分别重复 8 次和 32 次；换算单帧时需除以对应次数。
 - 阶段测试使用独立 World，不会与完整混合帧完全相加。
 - 冷随机访问 100 万实体的跨轮噪声较大，只保留数据，不作为首页结论。

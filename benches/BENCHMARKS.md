@@ -7,6 +7,9 @@ Compare-ECS compares Sky ECS with hecs, Bevy ECS, Flecs, FreeCS, and Shipyard th
 ```bash
 cargo compare-ecs
 cargo compare-ecs -- fair_prepared_iteration/simple_10k/sky --exact
+cargo compare-ecs -- fair_construction/bulk_insert_10k/flecs --exact
+cargo compare-ecs -- fair_diagnostic_flecs_spawn_despawn/direct_1k --exact
+cargo compare-ecs -- fair_diagnostic_flecs_spawn_despawn/deferred_1k --exact
 cargo compare-ecs-publish
 ```
 
@@ -20,7 +23,7 @@ Bold marks the lowest median and also marks Sky when it is within 1% of the lowe
 
 | Workload | Sky | hecs | Bevy | Flecs | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| Bulk insert 10k | **146.7 µs** | 242.6 µs | 287.6 µs | N/A | 261.0 µs | 158.0 µs |
+| Bulk insert 10k | **146.7 µs** | 242.6 µs | 287.6 µs | 273.84 µs | 261.0 µs | 158.0 µs |
 | Single insert 10k | **207.7 µs** | 491.0 µs | 654.2 µs | 3.43 ms | 882.6 µs | 732.7 µs |
 | Prepared iteration 10k | **4.96 µs** | 5.10 µs | 7.69 µs | 5.15 µs | 7.78 µs | 11.03 µs |
 | Prepared iteration 10k × 32 | **158.364 µs** | 165.264 µs | 241.443 µs | 160.181 µs | 243.145 µs | 315.386 µs |
@@ -42,8 +45,6 @@ Bold marks the lowest median and also marks Sky when it is within 1% of the lowe
 
 ## Notes
 
-- Flecs bulk insertion is `N/A` because the Rust binding has no equivalent safe bulk API.
-- Heavy compute is diagnostic and is not used to rank ECS overhead.
 - Health and spawn/despawn phases repeat 8 and 32 times; divide by those factors for a single-frame estimate.
 - Phase benchmarks use isolated worlds, so they do not sum exactly to the complete mixed frame.
 - Cold 1m random access showed substantial cross-run noise; keep it as data, not a headline claim.

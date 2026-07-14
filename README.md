@@ -91,7 +91,7 @@ Key results:
 
 | Workload | Sky | hecs | Bevy | Flecs | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| Bulk insert 10k | **146.70 µs** | 242.59 µs | 287.62 µs | N/A | 261.05 µs | 157.98 µs |
+| Bulk insert 10k | **146.70 µs** | 242.59 µs | 287.62 µs | 273.84 µs† | 261.05 µs | 157.98 µs |
 | Iterate 10k | **4.96 µs** | 5.10 µs | 7.69 µs | 5.15 µs | 7.78 µs | 11.03 µs |
 | Iterate 100k | **52.31 µs** | 55.08 µs | 80.75 µs | **52.01 µs** | 79.49 µs | 114.18 µs |
 | Spawn/despawn 1k | **19.57 µs** | 24.51 µs | 63.54 µs | 157.58 µs | 72.28 µs | 59.71 µs |
@@ -99,6 +99,9 @@ Key results:
 
 See the [benchmark documentation](benches/BENCHMARKS.md) for all 19 workloads,
 the test environment, dependency versions, and measurement notes.
+
+† The Flecs bulk value is from a targeted correction run and is not part of the
+archived six-rotation medians; see the benchmark documentation for details.
 
 ## Workspace
 

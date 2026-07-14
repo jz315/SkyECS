@@ -92,6 +92,12 @@ fn bench_entity_ops(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_flecs_spawn_despawn_modes(c: &mut Criterion) {
+    let mut group = fair_group(c, "fair_diagnostic_flecs_spawn_despawn");
+    flecs::bench_spawn_despawn_modes(&mut group);
+    group.finish();
+}
+
 fn bench_mixed_frame(c: &mut Criterion) {
     let mut group = fair_group(c, "fair_scenario_mixed_frame");
     for engine in engine_order() {
@@ -118,6 +124,7 @@ criterion_group!(
     bench_heavy_compute,
     bench_random_access,
     bench_entity_ops,
+    bench_flecs_spawn_despawn_modes,
     bench_mixed_frame,
     bench_mixed_frame_phases,
 );

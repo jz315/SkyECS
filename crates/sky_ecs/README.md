@@ -167,9 +167,11 @@ The repository includes a Criterion comparison against `hecs`, `bevy_ecs`,
 single-threaded safe-public-API workloads, uses each library's recommended
 reusable query or view state, and validates all adapters before measurement.
 
-In the complete six-rotation snapshot recorded on 2026-07-14, Sky has the
-lowest cross-run median for bulk and single insertion, steady 10k iteration,
-spawn/despawn, and the mixed-frame scenario. Shipyard leads prepared random
+In the six-rotation snapshot recorded on 2026-07-14, Sky has the lowest
+cross-run median for single insertion, steady 10k iteration, spawn/despawn, and
+the mixed-frame scenario. A later targeted correction measured Flecs' safe bulk
+path at `273.84 µs`, compared with Sky's recorded `146.70 µs`; that targeted
+value is not part of the six-rotation medians. Shipyard leads prepared random
 access and add/remove transitions; Flecs and Sky are effectively tied for steady
 iteration at 100k entities. See the benchmark guide for the full table and
 measurement boundaries.
