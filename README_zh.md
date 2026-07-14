@@ -60,8 +60,12 @@ fn main() {
 
 当数据规模较大时，可将串行遍历替换为 `par_for_each` 或 `par_for_each_chunk`，充分利用多核性能。
 
-更多用法参见 [crate 使用指南](crates/sky_ecs/README.md)、
-[API 文档](https://docs.rs/sky_ecs) 和 [`examples/`](crates/sky_ecs/examples/)。
+## 文档
+
+- [入门教程](docs/TUTORIAL_zh.md)
+- [API 指南](docs/API_zh.md)
+- [Rust API 文档](https://docs.rs/sky_ecs)
+- [可运行示例](crates/sky_ecs/examples/)
 
 ## 性能测试
 

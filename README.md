@@ -68,9 +68,12 @@ fn main() {
 For larger workloads, replace serial iteration with `par_for_each` or
 `par_for_each_chunk` to take advantage of multiple CPU cores.
 
-See the [crate guide](crates/sky_ecs/README.md),
-[API documentation](https://docs.rs/sky_ecs), and
-[`examples/`](crates/sky_ecs/examples/) for more usage examples.
+## Documentation
+
+- [Tutorial](docs/TUTORIAL.md)
+- [API guide](docs/API.md)
+- [Generated Rust API documentation](https://docs.rs/sky_ecs)
+- [Runnable examples](crates/sky_ecs/examples/)
 
 ## Benchmarks
 
