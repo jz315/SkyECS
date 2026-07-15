@@ -71,6 +71,12 @@ const ENEMY_HEALTH_MASK: u64 = HEALTH_MASK | DAMAGE_MASK;
 const ALLY_HEALTH_MASK: u64 = HEALTH_MASK | REGEN_MASK;
 const HEAVY_MASK: u64 = POSITION_MASK | TRANSFORM_MASK;
 
+fn prepared_insert_world() -> World {
+    // FreeCS declares its component schema in the `ecs!` expansion, so a new
+    // empty World is already at its zero-entity prepared schema state.
+    World::default()
+}
+
 fn spawn_suite_batch(world: &mut World, count: usize) -> Vec<Entity> {
     world.spawn_batch(SUITE_MASK, count, |table, index| {
         let (transform, position, rotation, velocity) = suite_bundle();
@@ -81,8 +87,23 @@ fn spawn_suite_batch(world: &mut World, count: usize) -> Vec<Entity> {
     })
 }
 
-fn spawn_suite_one(world: &mut World) -> Entity {
-    spawn_suite_batch(world, 1)
+fn spawn_suite_bundles(world: &mut World, bundles: &[SuiteBundle]) -> Vec<Entity> {
+    let mut bundles = bundles.iter().copied();
+    world.spawn_batch(SUITE_MASK, bundles.len(), |table, index| {
+        // FreeCS passes the absolute row in the destination table, not the
+        // batch-local offset. Consume the prepared inputs in call order.
+        let (transform, position, rotation, velocity) = bundles
+            .next()
+            .expect("FreeCS should initialize each requested entity once");
+        table.transform[index] = transform;
+        table.position[index] = position;
+        table.rotation[index] = rotation;
+        table.velocity[index] = velocity;
+    })
+}
+
+fn spawn_suite_bundle(world: &mut World, bundle: SuiteBundle) -> Entity {
+    spawn_suite_bundles(world, std::slice::from_ref(&bundle))
         .pop()
         .expect("FreeCS should return the spawned entity")
 }
@@ -125,6 +146,44 @@ fn fragmented_world() -> World {
     }
 
     world
+}
+
+fn random_fragmented_world(component_count: usize, entity_count: usize) -> (World, usize) {
+    let masks = random_fragment_masks_for(component_count, entity_count);
+    let expected = random_fragment_match_count(&masks);
+    let mut world = World::default();
+
+    for mask in masks {
+        let entity = world
+            .spawn_batch(0, 1, |_, _| {})
+            .pop()
+            .expect("empty entity spawn should return its ID");
+        macro_rules! component {
+            ($bit:expr, $setter:ident, $component:ident) => {
+                if mask & (1 << $bit) != 0 {
+                    world.$setter(entity, $component(10.0));
+                }
+            };
+        }
+        component!(0, set_fragment_a, FragmentA);
+        component!(1, set_fragment_b, FragmentB);
+        component!(2, set_fragment_c, FragmentC);
+        component!(3, set_fragment_d, FragmentD);
+        component!(4, set_fragment_e, FragmentE);
+        component!(5, set_fragment_f, FragmentF);
+        component!(6, set_fragment_g, FragmentG);
+        component!(7, set_fragment_h, FragmentH);
+        component!(8, set_fragment_i, FragmentI);
+        component!(9, set_fragment_j, FragmentJ);
+        component!(10, set_fragment_k, FragmentK);
+        component!(11, set_fragment_l, FragmentL);
+        component!(12, set_fragment_m, FragmentM);
+        component!(13, set_fragment_n, FragmentN);
+        component!(14, set_fragment_o, FragmentO);
+        component!(15, set_fragment_p, FragmentP);
+    }
+
+    (world, expected)
 }
 
 fn heavy_world() -> World {
@@ -232,10 +291,15 @@ fn mixed_heavy_step(world: &mut World) {
     });
 }
 
-fn mixed_random_step(world: &World, random_entities: &[Entity]) {
+fn mixed_random_step(world: &World, random_entities: &[Entity]) -> u64 {
+    let mut checksum = 0_u64;
     for &entity in random_entities {
-        black_box(world.get_position(entity));
+        let position = world
+            .get_position(entity)
+            .expect("sampled entity must contain PositionComponent");
+        checksum = add_position_checksum(checksum, position);
     }
+    checksum
 }
 
 fn mixed_churn_step(world: &mut World, churn_entities: &[Entity]) {
@@ -243,7 +307,7 @@ fn mixed_churn_step(world: &mut World, churn_entities: &[Entity]) {
         world.set_health(entity, Health(100.0));
     }
     for &entity in churn_entities {
-        world.remove_health(entity);
+        assert!(world.remove_health(entity));
     }
 }
 
@@ -252,7 +316,10 @@ fn mixed_spawn_step(world: &mut World, spawned_entities: &mut Vec<Entity>) {
     for _ in 0..MIXED_FRAME_SPAWN_COUNT {
         spawned_entities.push(spawn_light_one(world));
     }
-    black_box(world.despawn_entities(spawned_entities));
+    for &entity in spawned_entities.iter() {
+        let despawned = world.despawn_entities(std::slice::from_ref(&entity));
+        assert_eq!(despawned.as_slice(), [entity]);
+    }
 }
 
 fn run_mixed_frame(
@@ -260,18 +327,30 @@ fn run_mixed_frame(
     random_entities: &[Entity],
     churn_entities: &[Entity],
     spawned_entities: &mut Vec<Entity>,
-) {
+) -> u64 {
     mixed_move_step(world);
     mixed_health_step(world);
     mixed_heavy_step(world);
-    mixed_random_step(world, random_entities);
+    let checksum = mixed_random_step(world, random_entities);
     mixed_churn_step(world, churn_entities);
     mixed_spawn_step(world, spawned_entities);
+    checksum
 }
 
 pub fn validate_contract() {
-    let mut world = world_with_entities(128);
-    assert_eq!(world.entity_count(), 128);
+    let mut construction_world = prepared_insert_world();
+    assert_eq!(construction_world.entity_count(), 0);
+    let construction_bundles = suite_bundles(2);
+    let mut construction_entities =
+        spawn_suite_bundles(&mut construction_world, &construction_bundles);
+    construction_entities.push(spawn_suite_bundle(&mut construction_world, suite_bundle()));
+    assert_eq!(construction_world.entity_count(), 3);
+    assert!(construction_entities
+        .iter()
+        .all(|&entity| construction_world.get_position(entity).is_some()));
+
+    let mut world = world_with_entities(CONTRACT_ENTITY_COUNT);
+    assert_eq!(world.entity_count(), CONTRACT_ENTITY_COUNT);
     let mut count = 0;
     let mut checksum = 0.0;
     world.for_each_mut(MOVE_MASK, 0, |_entity, table, index| {
@@ -279,7 +358,7 @@ pub fn validate_contract() {
         count += 1;
         checksum += table.position[index].0.x;
     });
-    assert_eq!(count, 128);
+    assert_eq!(count, CONTRACT_ENTITY_COUNT);
     assert_eq!(checksum, 256.0);
 
     let entity = spawn_light_one(&mut world);
@@ -287,10 +366,26 @@ pub fn validate_contract() {
     assert!(world.get_position(entity).is_some());
     world.set_health(entity, Health(100.0));
     assert!(world.get_health(entity).is_some());
-    world.remove_health(entity);
+    assert!(world.remove_health(entity));
     assert!(world.get_health(entity).is_none());
     assert_eq!(world.despawn_entities(&[entity]), vec![entity]);
     assert!(!world.contains_entity(entity));
+    assert!(world.get_position(entity).is_none());
+
+    let mut random_world = World::default();
+    let random_entities = spawn_light_batch(&mut random_world, CONTRACT_ENTITY_COUNT);
+    let random_checksum = random_entities.iter().fold(0_u64, |checksum, &entity| {
+        add_position_checksum(
+            checksum,
+            random_world
+                .get_position(entity)
+                .expect("contract entity must be readable through generated getter"),
+        )
+    });
+    assert_eq!(
+        random_checksum,
+        position_checksum_value(1.0, CONTRACT_ENTITY_COUNT)
+    );
 
     let mut fragmented = fragmented_world();
     let mut fragmented_count = 0;
@@ -300,20 +395,87 @@ pub fn validate_contract() {
         FRAGMENTED_VARIANT_COUNT * FRAGMENTED_ENTITIES_PER_VARIANT
     );
 
+    for component_count in RANDOM_FRAGMENT_COMPONENT_COUNTS {
+        let (random_fragmented, expected) =
+            random_fragmented_world(component_count, CONTRACT_RANDOM_FRAGMENT_ENTITY_COUNT);
+        let query_mask = A_MASK | B_MASK | C_MASK | D_MASK;
+        let mut matched = 0;
+        let mut values = 0.0;
+        random_fragmented.for_each(query_mask, 0, |_, table, index| {
+            matched += 1;
+            values += table.fragment_a[index].0
+                + table.fragment_b[index].0
+                + table.fragment_c[index].0
+                + table.fragment_d[index].0;
+        });
+        assert_eq!(matched, expected);
+        assert_approx_eq(values, expected as f32 * 40.0);
+    }
+
+    let base_count = world.entity_count();
+    let entity_ops: Vec<_> = (0..ENTITY_OP_COUNT)
+        .map(|_| spawn_light_one(&mut world))
+        .collect();
+    assert_eq!(world.entity_count(), base_count + ENTITY_OP_COUNT);
+    for &entity in &entity_ops {
+        assert_eq!(
+            world.despawn_entities(std::slice::from_ref(&entity)),
+            vec![entity]
+        );
+    }
+    assert_eq!(world.entity_count(), base_count);
+    assert!(entity_ops
+        .iter()
+        .all(|&entity| !world.contains_entity(entity)));
+
     let (mut mixed, random, churn) = mixed_world();
     let expected = mixed.entity_count();
     let mut spawned = Vec::with_capacity(MIXED_FRAME_SPAWN_COUNT);
-    run_mixed_frame(&mut mixed, &random, &churn, &mut spawned);
+    for &entity in &churn {
+        mixed.set_health(entity, Health(100.0));
+    }
+    assert!(churn
+        .iter()
+        .all(|&entity| mixed.get_health(entity).is_some()));
+    for &entity in &churn {
+        assert!(mixed.remove_health(entity));
+    }
+
+    let random_checksum = run_mixed_frame(&mut mixed, &random, &churn, &mut spawned);
+    assert_ne!(random_checksum, 0);
     assert_eq!(mixed.entity_count(), expected);
     assert!(mixed.get_health(churn[0]).is_none());
+    assert!(spawned.iter().all(|&entity| !mixed.contains_entity(entity)));
+
+    let mut position_count = 0;
+    let mut position_sum = 0.0;
+    mixed.for_each(POSITION_MASK, 0, |_, table, index| {
+        position_count += 1;
+        position_sum += table.position[index].0.x;
+    });
+    assert_eq!(
+        position_count,
+        MIXED_FRAME_MOVERS + MIXED_FRAME_ENEMIES + MIXED_FRAME_ALLIES + MIXED_FRAME_HEAVY
+    );
+    assert_approx_eq(position_sum, 18_500.0);
+
+    let mut health_count = 0;
+    let mut health_sum = 0.0;
+    mixed.for_each(HEALTH_MASK, 0, |_, table, index| {
+        health_count += 1;
+        health_sum += table.health[index].0;
+    });
+    assert_eq!(health_count, MIXED_FRAME_ENEMIES + MIXED_FRAME_ALLIES);
+    assert_approx_eq(health_sum, 638_400.0);
 }
 
 pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
+    let bundles = suite_bundles(SIMPLE_ENTITY_COUNT);
     group.bench_function("bulk_insert_10k/freecs", |b| {
         b.iter_batched_ref(
-            World::default,
+            prepared_insert_world,
             |world| {
-                black_box(spawn_suite_batch(world, SIMPLE_ENTITY_COUNT));
+                black_box(spawn_suite_bundles(world, &bundles));
                 black_box(&world);
             },
             BatchSize::SmallInput,
@@ -322,10 +484,10 @@ pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
 
     group.bench_function("single_insert_10k/freecs", |b| {
         b.iter_batched_ref(
-            World::default,
+            prepared_insert_world,
             |world| {
-                for _ in 0..SIMPLE_ENTITY_COUNT {
-                    black_box(spawn_suite_one(world));
+                for &bundle in &bundles {
+                    let _ = spawn_suite_bundle(world, bundle);
                 }
                 black_box(&world);
             },
@@ -387,11 +549,42 @@ pub fn bench_fragmented_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.bench_function("fragmented_26x400/freecs", |b| {
         b.iter(|| {
             world.for_each_mut(DATA_MASK, 0, |_entity, table, index| {
-                table.data[index].0 *= 2.0;
+                table.data[index].0 = -table.data[index].0;
             });
             black_box(&world);
         });
     });
+}
+
+pub fn bench_random_fragmented_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {
+    for component_count in RANDOM_FRAGMENT_COMPONENT_COUNTS {
+        let (mut world, expected) =
+            random_fragmented_world(component_count, RANDOM_FRAGMENT_ENTITY_COUNT);
+        let query_mask = A_MASK | B_MASK | C_MASK | D_MASK;
+        warm_query(&mut world, query_mask);
+        let mut initial_count = 0;
+        world.for_each(query_mask, 0, |_, _, _| initial_count += 1);
+        assert_eq!(initial_count, expected);
+
+        group.bench_function(
+            format!("random_{component_count}_components_4_terms/freecs"),
+            |b| {
+                let mut checksum = 0_u64;
+                b.iter(|| {
+                    world.for_each(query_mask, 0, |entity, table, index| {
+                        checksum = checksum
+                            .wrapping_add(entity.id as u64)
+                            .wrapping_add((entity.generation as u64) << 32)
+                            .wrapping_add(table.fragment_a[index].0 as u64)
+                            .wrapping_add(table.fragment_b[index].0 as u64)
+                            .wrapping_add(table.fragment_c[index].0 as u64)
+                            .wrapping_add(table.fragment_d[index].0 as u64);
+                    });
+                });
+                black_box(checksum);
+            },
+        );
+    }
 }
 
 pub fn bench_heavy_compute(group: &mut BenchmarkGroup<'_, WallTime>) {
@@ -429,9 +622,14 @@ pub fn bench_random_access(group: &mut BenchmarkGroup<'_, WallTime>) {
             b.iter(|| {
                 let entities = &orders[order % orders.len()];
                 order += 1;
+                let mut checksum = 0_u64;
                 for &entity in entities {
-                    black_box(world.get_position(entity).unwrap());
+                    let position = world
+                        .get_position(entity)
+                        .expect("random-access entity must contain PositionComponent");
+                    checksum = add_position_checksum(checksum, position);
                 }
+                black_box(checksum);
             });
         });
     }
@@ -446,7 +644,10 @@ pub fn bench_entity_ops(group: &mut BenchmarkGroup<'_, WallTime>) {
             for _ in 0..ENTITY_OP_COUNT {
                 entities.push(spawn_light_one(&mut world));
             }
-            black_box(world.despawn_entities(&entities));
+            for &entity in &entities {
+                let despawned = world.despawn_entities(std::slice::from_ref(&entity));
+                assert_eq!(despawned.as_slice(), [entity]);
+            }
             black_box(&world);
         });
     });
@@ -460,7 +661,7 @@ pub fn bench_entity_ops(group: &mut BenchmarkGroup<'_, WallTime>) {
                 world.set_health(entity, Health(100.0));
             }
             for &entity in &entities {
-                world.remove_health(entity);
+                assert!(world.remove_health(entity));
             }
             black_box(&world);
         });
@@ -474,12 +675,13 @@ pub fn bench_mixed_frame(group: &mut BenchmarkGroup<'_, WallTime>) {
 
     group.bench_function("frame/freecs", |b| {
         b.iter(|| {
-            run_mixed_frame(
+            let checksum = run_mixed_frame(
                 &mut world,
                 &random_entities,
                 &churn_entities,
                 &mut spawned_entities,
             );
+            black_box(checksum);
             black_box(&world);
         });
     });
@@ -492,6 +694,7 @@ pub fn bench_mixed_frame_phases(group: &mut BenchmarkGroup<'_, WallTime>) {
         group.bench_function("movement/freecs", |b| {
             b.iter(|| {
                 mixed_move_step(&mut world);
+                black_box(&world);
             });
         });
     }
@@ -525,7 +728,8 @@ pub fn bench_mixed_frame_phases(group: &mut BenchmarkGroup<'_, WallTime>) {
         let (world, random_entities, _) = mixed_world();
         group.bench_function("random_access/freecs", |b| {
             b.iter(|| {
-                mixed_random_step(&world, &random_entities);
+                let checksum = mixed_random_step(&world, &random_entities);
+                black_box(checksum);
                 black_box(&world);
             });
         });

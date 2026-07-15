@@ -1263,6 +1263,7 @@ dependencies = [
  "flecs_ecs",
  "freecs",
  "hecs",
+ "libloading",
  "serde",
  "serde_json",
  "shipyard",

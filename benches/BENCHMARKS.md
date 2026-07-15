@@ -7,10 +7,9 @@ Compare-ECS compares seven ECS implementations through public APIs. Each impleme
 ```bash
 cargo compare-ecs
 cargo compare-ecs -- fair_prepared_iteration/simple_10k/sky --exact
-cargo compare-ecs -- fair_construction/bulk_insert_10k/flecs --exact
+cargo compare-ecs -- fair_prepared_construction/bulk_insert_10k/flecs --exact
 cargo compare-ecs -- fair_prepared_iteration/simple_10k/flecs_cpp --exact
-cargo compare-ecs -- fair_diagnostic_flecs_spawn_despawn/direct_1k --exact
-cargo compare-ecs -- fair_diagnostic_flecs_spawn_despawn/deferred_1k --exact
+cargo compare-ecs -- fair_prepared_random_fragmented_iteration/random_16_components_4_terms/sky --exact
 cargo compare-ecs-publish
 ```
 
@@ -18,34 +17,46 @@ cargo compare-ecs-publish
 
 ## Recorded results
 
-Cross-run medians from report `1783975835`, recorded on 2026-07-14 on Windows 11, i7-12700F, and Rust 1.96.0. Versions: Sky ECS 0.1.1, hecs 0.11.0, Bevy ECS 0.19.0, flecs_ecs 0.2.2, FreeCS 3.13.0, Shipyard 0.11.5.
+The values were recorded on 2026-07-15 and 2026-07-16 on Windows 11, i7-12700F, and Rust 1.96.0. Versions: Sky ECS 0.1.2, hecs 0.11.0, Bevy ECS 0.19.0, flecs_ecs 0.2.2 / flecs_ecs_sys 0.2.1 (Flecs 4.1.2), native Flecs 4.1.6, FreeCS 3.13.0, Shipyard 0.11.5.
 
-Bold marks the lowest median and also marks Sky when it is within 1% of the lowest.
+Each run uses a 3-second warmup, an at-least-5-second measurement target, and 100 samples. Most cells come from the seven-run report `1784070754`. Construction rows and Flecs cells affected by the adapter audit were replaced with targeted single-run measurements using the corrected protocol. This is therefore an interim audited snapshot, not one uniform seven-run publication report. Rust benchmarks use opt-level 3, fat LTO, and one codegen unit; native code uses `/O2 /GL /LTCG /DNDEBUG` on MSVC.
+
+Bold marks only the lowest displayed median in each row.
+
+### General workloads
 
 | Workload | Sky | hecs | Bevy | Flecs | Flecs C++ | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Bulk insert 10k | **146.7 µs** | 242.6 µs | 287.6 µs | 273.84 µs | 223.310 µs | 261.0 µs | 158.0 µs |
-| Single insert 10k | **207.7 µs** | 491.0 µs | 654.2 µs | 3.43 ms | 2.952 ms | 882.6 µs | 732.7 µs |
-| Prepared iteration 10k | **4.96 µs** | 5.10 µs | 7.69 µs | 5.15 µs | 8.094 µs | 7.78 µs | 11.03 µs |
-| Prepared iteration 10k × 32 | **158.364 µs** | 165.264 µs | 241.443 µs | 160.181 µs | 243.220 µs | 243.145 µs | 315.386 µs |
-| Prepared iteration 100k | **52.308 µs** | 55.084 µs | 80.748 µs | **52.013 µs** | 63.463 µs | 79.492 µs | 114.182 µs |
-| Fragmented iteration 26 × 400 | 0.711 µs | 2.507 µs | 5.712 µs | 1.030 µs | 3.218 µs | 4.774 µs | **0.522 µs** |
-| Prepared random access 10k | 15.08 µs | 128.48 µs | 35.10 µs | 314.90 µs | 141.880 µs | 14.63 µs | **10.16 µs** |
-| Prepared random access 100k | 221.952 µs | 1.291 ms | 511.700 µs | 3.214 ms | 2.152 ms | 224.437 µs | **154.510 µs** |
-| Prepared random access 1m | 5.624 ms | 15.090 ms | 16.485 ms | 51.450 ms | 75.622 ms | 5.737 ms | **3.759 ms** |
-| Spawn/despawn 1k | **19.57 µs** | 24.51 µs | 63.54 µs | 157.58 µs | 145.020 µs | 72.28 µs | 59.71 µs |
-| Add/remove component 1k | 45.52 µs | 57.67 µs | 83.60 µs | 118.23 µs | 99.694 µs | 98.81 µs | **25.17 µs** |
-| Diagnostic heavy compute | **1.871 ms** | **1.865 ms** | 1.870 ms | 1.873 ms | 2.115 ms | 1.871 ms | 1.870 ms |
-| Mixed frame | **181.68 µs** | 195.09 µs | 238.81 µs | 223.63 µs | 222.830 µs | 208.04 µs | 200.05 µs |
-| Mixed phase: movement | **12.596 µs** | 13.125 µs | 18.948 µs | **12.550 µs** | 16.098 µs | 18.983 µs | 26.415 µs |
-| Mixed phase: health × 8 | **5.274 µs** | 15.234 µs | 36.988 µs | 6.260 µs | 16.473 µs | 35.346 µs | 54.606 µs |
-| Mixed phase: heavy | **151.747 µs** | 155.301 µs | 153.572 µs | **151.016 µs** | 156.990 µs | 152.090 µs | 151.769 µs |
-| Mixed phase: random access | 2.980 µs | 6.827 µs | 1.889 µs | 16.154 µs | 6.755 µs | **0.615 µs** | 0.649 µs |
-| Mixed phase: structural churn | 10.869 µs | 14.916 µs | 57.986 µs | 30.062 µs | 22.733 µs | 23.769 µs | **6.382 µs** |
-| Mixed phase: spawn/despawn × 32 | **38.367 µs** | 51.285 µs | 541.702 µs | 320.296 µs | 270.430 µs | 139.507 µs | 147.644 µs |
+| Bulk insert 10k | **145.190 µs** | 202.710 µs | 292.650 µs | 236.920 µs | 208.840 µs | 265.580 µs | 203.980 µs |
+| Single insert 10k | **203.260 µs** | 462.420 µs | 620.530 µs | 1.463 ms | 816.190 µs | 882.020 µs | 850.420 µs |
+| Prepared iteration 10k | **5.210 µs** | 5.369 µs | 8.081 µs | 5.462 µs | 6.329 µs | 6.877 µs | 11.331 µs |
+| Prepared iteration 10k × 32 | **169.053 µs** | 186.137 µs | 256.030 µs | 178.321 µs | 201.566 µs | 221.393 µs | 363.175 µs |
+| Prepared iteration 100k | **55.760 µs** | 56.823 µs | 85.049 µs | 57.751 µs | 68.062 µs | 70.409 µs | 116.538 µs |
+| Fragmented iteration 26 × 400 | 0.759 µs | 2.831 µs | 5.977 µs | 0.864 µs | 2.638 µs | 3.514 µs | **0.425 µs** |
+| Diagnostic: heavy compute | 2.686 ms | 2.704 ms | 2.701 ms | 2.668 ms | **2.112 ms** | 2.697 ms | 2.698 ms |
+| Prepared random access 10k | 15.417 µs | **11.335 µs** | 31.256 µs | 19.897 µs | 16.855 µs | 16.108 µs | 11.629 µs |
+| Prepared random access 100k | 363.353 µs | 271.961 µs | 622.662 µs | 552.997 µs | 476.131 µs | 369.625 µs | **266.522 µs** |
+| Prepared random access 1m | 19.286 ms | **14.444 ms** | 34.059 ms | 22.042 ms | 18.804 ms | 22.808 ms | 14.522 ms |
+| Spawn/despawn 1k | **16.838 µs** | 20.555 µs | 61.772 µs | 38.421 µs | 23.377 µs | 93.516 µs | 62.399 µs |
+| Add/remove component 1k | 42.137 µs | 55.100 µs | 82.276 µs | 123.161 µs | 86.407 µs | 93.187 µs | **25.706 µs** |
+| Mixed frame | **183.609 µs** | 260.778 µs | 273.461 µs | 207.863 µs | 219.231 µs | 274.591 µs | 207.077 µs |
+| Mixed phase: movement | **13.398 µs** | 13.662 µs | 19.909 µs | 13.439 µs | 17.305 µs | 17.331 µs | 30.372 µs |
+| Mixed phase: health × 8 | **5.515 µs** | 14.384 µs | 38.776 µs | 6.186 µs | 18.232 µs | 28.821 µs | 56.449 µs |
+| Mixed phase: heavy | 153.917 µs | 219.528 µs | 218.822 µs | 153.630 µs | 172.184 µs | 217.562 µs | **153.279 µs** |
+| Mixed phase: random access | 0.948 µs | 0.671 µs | 1.760 µs | 0.570 µs | **0.509 µs** | 0.978 µs | 0.699 µs |
+| Mixed phase: structural churn | 9.999 µs | 13.979 µs | 20.060 µs | 31.313 µs | 21.315 µs | 22.686 µs | **6.521 µs** |
+| Mixed phase: spawn/despawn × 32 | **33.105 µs** | 41.747 µs | 105.745 µs | 75.959 µs | 54.802 µs | 184.668 µs | 154.394 µs |
+
+### random-fragmentation benchmark
+
+| Components | Sky | hecs | Bevy | Flecs | Flecs C++ | FreeCS | Shipyard |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 6 | 17.871 µs | 19.295 µs | 18.319 µs | **17.421 µs** | 20.152 µs | 18.987 µs | 339.577 µs |
+| 8 | **18.053 µs** | 20.250 µs | 18.553 µs | 23.854 µs | 20.330 µs | 19.309 µs | 344.216 µs |
+| 10 | **18.951 µs** | 22.843 µs | 19.756 µs | 19.787 µs | 23.078 µs | 20.198 µs | 348.449 µs |
+| 16 | 176.976 µs | 257.070 µs | 210.504 µs | 192.009 µs | **100.852 µs** | 101.143 µs | 367.474 µs |
 
 ## Notes
 
 - Health and spawn/despawn phases repeat 8 and 32 times; divide by those factors for a single-frame estimate.
 - Phase benchmarks use isolated worlds, so they do not sum exactly to the complete mixed frame.
-- Cold 1m random access showed substantial cross-run noise; keep it as data, not a headline claim.

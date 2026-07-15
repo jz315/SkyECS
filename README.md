@@ -82,22 +82,22 @@ For larger workloads, replace serial iteration with `par_for_each` or
 The benchmark uses shared workloads and public APIs to compare seven ECS
 implementations in the same environment.
 
-In the recorded results, Sky has the lowest times for bulk insertion, single
-insertion, spawn/despawn, and the mixed-frame scenario, while its iteration
-performance is effectively tied with Flecs.
+On the recorded machine, Sky records the lowest median for bulk and
+single insertion, 10k and 100k prepared iteration, spawn/despawn, and the
+mixed-frame scenario.
 
 Key results:
 
 | Workload | Sky | hecs | Bevy | Flecs | Flecs C++ | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Bulk insert 10k | **146.70 µs** | 242.59 µs | 287.62 µs | 273.84 µs | 223.31 µs | 261.05 µs | 157.98 µs |
-| Iterate 10k | **4.96 µs** | 5.10 µs | 7.69 µs | 5.15 µs | 8.09 µs | 7.78 µs | 11.03 µs |
-| Iterate 100k | **52.31 µs** | 55.08 µs | 80.75 µs | **52.01 µs** | 63.46 µs | 79.49 µs | 114.18 µs |
-| Spawn/despawn 1k | **19.57 µs** | 24.51 µs | 63.54 µs | 157.58 µs | 145.02 µs | 72.28 µs | 59.71 µs |
-| Mixed frame | **181.68 µs** | 195.09 µs | 238.81 µs | 223.63 µs | 222.83 µs | 208.04 µs | 200.05 µs |
+| Bulk insert 10k | **145.19 µs** | 202.71 µs | 292.65 µs | 236.92 µs | 208.84 µs | 265.58 µs | 203.98 µs |
+| Prepared iteration 10k | **5.21 µs** | 5.37 µs | 8.08 µs | 5.46 µs | 6.33 µs | 6.88 µs | 11.33 µs |
+| Prepared iteration 100k | **55.76 µs** | 56.82 µs | 85.05 µs | 57.75 µs | 68.06 µs | 70.41 µs | 116.54 µs |
+| Spawn/despawn 1k | **16.84 µs** | 20.56 µs | 61.77 µs | 38.42 µs | 23.38 µs | 93.52 µs | 62.40 µs |
+| Mixed frame | **183.61 µs** | 260.78 µs | 273.46 µs | 207.86 µs | 219.23 µs | 274.59 µs | 207.08 µs |
 
-See the [benchmark documentation](benches/BENCHMARKS.md) for all 19 workloads,
-the test environment, dependency versions, and measurement notes.
+See the [benchmark documentation](benches/BENCHMARKS.md) for the complete workload list,
+Flecs audit provenance, test environment, dependency versions, and measurement notes.
 
 
 ## Workspace

@@ -17,6 +17,9 @@ pub const REPEATED_ITERATION_COUNT: usize = 32;
 pub const LARGE_ITERATION_ENTITY_COUNT: usize = 100_000;
 pub const FRAGMENTED_VARIANT_COUNT: usize = 26;
 pub const FRAGMENTED_ENTITIES_PER_VARIANT: usize = 400;
+pub const RANDOM_FRAGMENT_ENTITY_COUNT: usize = 65_536;
+pub const RANDOM_FRAGMENT_COMPONENT_COUNTS: [usize; 4] = [6, 8, 10, 16];
+pub const RANDOM_FRAGMENT_QUERY_MASK: u16 = 0b1111;
 pub const HEAVY_ENTITY_COUNT: usize = 1_000;
 pub const HEAVY_INVERT_COUNT: usize = 100;
 pub const ENTITY_OP_COUNT: usize = 1_000;
@@ -30,6 +33,8 @@ pub const MIXED_FRAME_SPAWN_COUNT: usize = 64;
 pub const MIXED_FRAME_INVERT_COUNT: usize = 8;
 pub const MIXED_PHASE_HEALTH_REPEAT: usize = 8;
 pub const MIXED_PHASE_SPAWN_REPEAT: usize = 32;
+pub const CONTRACT_ENTITY_COUNT: usize = 128;
+pub const CONTRACT_RANDOM_FRAGMENT_ENTITY_COUNT: usize = 2_048;
 
 /// Entity count for system schedule benchmarks.
 pub const SCHEDULE_ENTITY_COUNT: usize = 10_000;
@@ -224,18 +229,24 @@ pub fn heavy_matrix() -> Matrix4<f32> {
     Matrix4::<f32>::from_angle_x(Rad(1.2))
 }
 
-pub fn suite_bundle() -> (
+pub type SuiteBundle = (
     TransformComponent,
     PositionComponent,
     RotationComponent,
     VelocityComponent,
-) {
+);
+
+pub fn suite_bundle() -> SuiteBundle {
     (
         suite_transform(),
         suite_position(),
         suite_rotation(),
         suite_velocity(),
     )
+}
+
+pub fn suite_bundles(count: usize) -> Vec<SuiteBundle> {
+    vec![suite_bundle(); count]
 }
 
 pub fn light_bundle() -> (PositionComponent, VelocityComponent) {
@@ -333,4 +344,77 @@ pub fn deterministic_orders<T: Copy>(entities: &[T]) -> Vec<Vec<T>> {
             shuffled
         })
         .collect()
+}
+
+#[inline(always)]
+pub fn add_position_checksum(checksum: u64, position: &PositionComponent) -> u64 {
+    checksum.wrapping_add(position.0.x.to_bits() as u64)
+}
+
+pub fn position_checksum_value(position_x: f32, count: usize) -> u64 {
+    (position_x.to_bits() as u64).wrapping_mul(count as u64)
+}
+
+pub fn assert_approx_eq(actual: f32, expected: f32) {
+    let tolerance = expected.abs().max(1.0) * 1.0e-4;
+    assert!(
+        (actual - expected).abs() <= tolerance,
+        "expected {expected}, got {actual}"
+    );
+}
+
+/// Reproducible counterpart of Sander Mertens' random-component fragmentation
+/// workload: 65,536 entities independently receive subsets of 6, 8, 10, or 16 components.
+///
+/// Source: https://gist.github.com/SanderMertens/b98ea829a1477f9b8620dd5878f707a3#file-bevy_bench-rs-L1719
+pub fn random_fragment_masks(component_count: usize) -> Vec<u16> {
+    random_fragment_masks_for(component_count, RANDOM_FRAGMENT_ENTITY_COUNT)
+}
+
+pub fn random_fragment_masks_for(component_count: usize, entity_count: usize) -> Vec<u16> {
+    assert!((1..=16).contains(&component_count));
+    let active_mask = if component_count == 16 {
+        u16::MAX
+    } else {
+        (1_u16 << component_count) - 1
+    };
+    let mut state = 0x243F_6A88_85A3_08D3_u64;
+    (0..entity_count)
+        .map(|_| {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut value = state;
+            value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            (value ^ (value >> 31)) as u16 & active_mask
+        })
+        .collect()
+}
+
+pub fn random_fragment_match_count(masks: &[u16]) -> usize {
+    masks
+        .iter()
+        .filter(|&&mask| mask & RANDOM_FRAGMENT_QUERY_MASK == RANDOM_FRAGMENT_QUERY_MASK)
+        .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn random_fragment_workload_is_stable() {
+        let masks = random_fragment_masks(16);
+        assert_eq!(masks.len(), RANDOM_FRAGMENT_ENTITY_COUNT);
+        assert_eq!(random_fragment_match_count(&masks), 4_103);
+        for component_count in RANDOM_FRAGMENT_COMPONENT_COUNTS {
+            let inactive_mask = if component_count == 16 {
+                0
+            } else {
+                u16::MAX << component_count
+            };
+            assert!(random_fragment_masks(component_count)
+                .iter()
+                .all(|mask| *mask & inactive_mask == 0));
+        }
+    }
 }

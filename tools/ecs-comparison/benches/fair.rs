@@ -32,7 +32,7 @@ fn fair_group<'a>(c: &'a mut Criterion, name: &str) -> BenchmarkGroup<'a, WallTi
 }
 
 fn bench_insert(c: &mut Criterion) {
-    let mut group = fair_group(c, "fair_construction");
+    let mut group = fair_group(c, "fair_prepared_construction");
     for engine in engine_order() {
         dispatch!(engine, bench_insert, &mut group);
     }
@@ -71,6 +71,14 @@ fn bench_fragmented_iteration(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_random_fragmented_iteration(c: &mut Criterion) {
+    let mut group = fair_group(c, "fair_prepared_random_fragmented_iteration");
+    for engine in engine_order() {
+        dispatch!(engine, bench_random_fragmented_iteration, &mut group);
+    }
+    group.finish();
+}
+
 fn bench_heavy_compute(c: &mut Criterion) {
     let mut group = fair_group(c, "fair_diagnostic_heavy_compute");
     for engine in engine_order() {
@@ -92,12 +100,6 @@ fn bench_entity_ops(c: &mut Criterion) {
     for engine in engine_order() {
         dispatch!(engine, bench_entity_ops, &mut group);
     }
-    group.finish();
-}
-
-fn bench_flecs_spawn_despawn_modes(c: &mut Criterion) {
-    let mut group = fair_group(c, "fair_diagnostic_flecs_spawn_despawn");
-    flecs::bench_spawn_despawn_modes(&mut group);
     group.finish();
 }
 
@@ -124,10 +126,10 @@ criterion_group!(
     bench_iteration_repeated,
     bench_iteration_large,
     bench_fragmented_iteration,
+    bench_random_fragmented_iteration,
     bench_heavy_compute,
     bench_random_access,
     bench_entity_ops,
-    bench_flecs_spawn_despawn_modes,
     bench_mixed_frame,
     bench_mixed_frame_phases,
 );

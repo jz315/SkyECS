@@ -46,7 +46,7 @@ impl Engine {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|engine| engine.name() == value)
     }
 }
