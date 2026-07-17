@@ -30,7 +30,9 @@ unsafe impl Sync for ParallelChunkJob {}
 impl ParallelChunkJob {
     #[inline(always)]
     unsafe fn entities<'w>(&self) -> &'w [EntityId] {
-        slice::from_raw_parts(self.entities.0.add(self.start), self.len)
+        // SAFETY: job construction bounds `start..start + len` to the source
+        // chunk's live entity slice, which remains stable for the job's run.
+        unsafe { slice::from_raw_parts(self.entities.0.add(self.start), self.len) }
     }
 }
 
@@ -38,6 +40,7 @@ impl ParallelChunkJob {
 pub(crate) struct ParallelJobCache {
     cached_world: Option<Arc<()>>,
     cached_storage_epoch: Option<u64>,
+    cached_thread_count: usize,
     jobs: Arc<Vec<ParallelChunkJob>>,
     total_entities: usize,
     #[cfg(test)]
@@ -47,6 +50,13 @@ pub(crate) struct ParallelJobCache {
 pub(crate) struct ParallelJobSnapshot {
     jobs: Arc<Vec<ParallelChunkJob>>,
     total_entities: usize,
+}
+
+impl ParallelJobSnapshot {
+    #[inline(always)]
+    pub(crate) fn will_run_parallel(&self) -> bool {
+        should_parallel(self.total_entities, self.jobs.len())
+    }
 }
 
 fn visit_chunks<'w, F>(archetypes: &[CachedArchetype], world: &'w World, mut f: F)
@@ -73,14 +83,33 @@ fn collect_chunk_jobs(
     }
     cache.cached_world = Some(Arc::clone(world.cache_token()));
     cache.cached_storage_epoch = Some(world.storage_epoch());
-    let mut jobs = Vec::new();
-    let mut total_entities = 0usize;
-    visit_chunks(prepared, world, |cached, chunk| {
-        if chunk.entity_count == 0 {
-            return;
-        }
-        total_entities += chunk.entity_count;
+    let thread_count = rayon::current_num_threads();
+    cache.cached_thread_count = thread_count;
 
+    let mut total_entities = 0usize;
+    let mut job_count = 0usize;
+    visit_chunks(prepared, world, |_cached, chunk| {
+        total_entities += chunk.entity_count;
+        job_count += chunk.entity_count.div_ceil(TARGET_STRIPE_ENTITIES);
+    });
+
+    if Arc::strong_count(&cache.jobs) != 1 {
+        cache.jobs = Arc::new(Vec::new());
+    }
+    let jobs = Arc::get_mut(&mut cache.jobs)
+        .expect("parallel job buffer must be uniquely owned while rebuilding");
+    jobs.clear();
+
+    // A small workload will use the sequential path regardless of its query
+    // shape. Do not resolve component pointers or allocate stripe records for
+    // jobs that cannot run in this Rayon pool.
+    if !should_parallel_for(thread_count, total_entities, job_count) {
+        cache.total_entities = total_entities;
+        return total_entities;
+    }
+
+    jobs.reserve(job_count);
+    visit_chunks(prepared, world, |cached, chunk| {
         let mut component_ptrs = [std::ptr::null_mut(); super::MAX_QUERY_COMPONENTS];
         for (slot, &index) in cached.component_indices.iter().enumerate() {
             component_ptrs[slot] = resolve_column_ptr(chunk, index);
@@ -99,7 +128,6 @@ fn collect_chunk_jobs(
             start += len;
         }
     });
-    cache.jobs = Arc::new(jobs);
     cache.total_entities = total_entities;
     total_entities
 }
@@ -111,6 +139,7 @@ fn cached_total_entities(cache: &ParallelJobCache, world: &World) -> Option<usiz
         .as_ref()
         .is_some_and(|cached| Arc::ptr_eq(cached, world.cache_token()))
         || cache.cached_storage_epoch != Some(world.storage_epoch())
+        || cache.cached_thread_count != rayon::current_num_threads()
     {
         return None;
     }
@@ -167,13 +196,17 @@ pub(crate) fn rebuild_count(cache: &ParallelJobCache) -> usize {
     cache.rebuild_count
 }
 
-fn should_parallel(total_entities: usize, job_count: usize) -> bool {
-    let thread_count = rayon::current_num_threads();
+fn should_parallel_for(thread_count: usize, total_entities: usize, job_count: usize) -> bool {
     if job_count <= 1 || job_count < thread_count * 2 {
         return false;
     }
 
     total_entities >= thread_count * TARGET_STRIPE_ENTITIES * MIN_PARALLEL_STRIPES_PER_THREAD
+}
+
+#[inline(always)]
+fn should_parallel(total_entities: usize, job_count: usize) -> bool {
+    should_parallel_for(rayon::current_num_threads(), total_entities, job_count)
 }
 
 fn seq_for_each_chunk<Q, F>(prepared: &[CachedArchetype], world: &World, f: &F)
@@ -316,8 +349,9 @@ pub(crate) fn par_for_each_chunk_with_entities<Q, F>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::{create_archetype, World};
-    use super::super::PreparedQuery;
+    use super::super::super::World;
+    use super::super::{PreparedCache, PreparedQuery, QuerySpec};
+    use super::{prepare_job_cache, ParallelJobCache};
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Mutex, MutexGuard};
@@ -352,16 +386,23 @@ mod tests {
         }
     }
 
-    fn spawn(world: &mut World, archetype: super::super::super::Archetype, count: usize) {
-        for _ in 0..count {
-            unsafe {
-                world.add_entity(archetype);
-            }
-        }
-    }
-
     fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         mutex.lock().expect("test mutex poisoned")
+    }
+
+    #[test]
+    fn small_workloads_do_not_materialize_parallel_jobs() {
+        let mut world = World::new();
+        world.spawn_batch((0..128).map(|_| (Position::default(), Velocity::default())));
+
+        let descriptor = <(&Position, &Velocity) as QuerySpec>::descriptor();
+        let mut prepared = PreparedCache::default();
+        prepared.prepare::<()>(&world, &descriptor);
+        let mut jobs = ParallelJobCache::default();
+        prepare_job_cache(&mut jobs, prepared.archetypes.as_slice(), &world);
+
+        assert_eq!(jobs.total_entities, 128);
+        assert!(jobs.jobs.is_empty());
     }
 
     #[test]
@@ -403,12 +444,8 @@ mod tests {
 
     #[test]
     fn par_for_each_chunk_matches_sequential_updates() {
-        let archetype = create_archetype()
-            .add_rust_component::<Position>()
-            .add_rust_component::<Velocity>()
-            .build();
         let mut world = World::new();
-        spawn(&mut world, archetype, 128);
+        world.spawn_batch((0..128).map(|_| (Position::default(), Velocity::default())));
 
         let mut init = PreparedQuery::<&mut Velocity>::new();
         init.for_each(&mut world, |velocity| {
@@ -433,19 +470,11 @@ mod tests {
 
     #[test]
     fn par_for_each_chunk_runs_across_multiple_matching_archetypes() {
-        let base = create_archetype()
-            .add_rust_component::<Position>()
-            .add_rust_component::<Velocity>()
-            .build();
-        let extended = create_archetype()
-            .add_rust_component::<Position>()
-            .add_rust_component::<Velocity>()
-            .add_rust_component::<Extra>()
-            .build();
-
         let mut world = World::new();
-        spawn(&mut world, base, 96);
-        spawn(&mut world, extended, 96);
+        world.spawn_batch((0..96).map(|_| (Position::default(), Velocity::default())));
+        world.spawn_batch(
+            (0..96).map(|_| (Position::default(), Velocity::default(), Extra::default())),
+        );
 
         let mut init = PreparedQuery::<&mut Velocity>::new();
         init.for_each(&mut world, |velocity| {
@@ -509,13 +538,9 @@ mod tests {
 
     #[test]
     fn par_for_each_chunk_with_entities_provides_matching_entity_slices() {
-        let archetype = create_archetype()
-            .add_rust_component::<Position>()
-            .add_rust_component::<Velocity>()
-            .build();
         let mut world = World::new();
         let ids: Vec<_> = (0..64)
-            .map(|_| unsafe { world.add_entity(archetype) })
+            .map(|_| world.spawn((Position::default(), Velocity::default())))
             .collect();
 
         let seen = Mutex::new(Vec::new());

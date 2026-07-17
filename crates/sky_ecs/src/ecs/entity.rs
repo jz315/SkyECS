@@ -88,13 +88,14 @@ impl EntityRecord {
 
     #[inline(always)]
     pub(crate) fn set_location(&mut self, location: EntityLocation) {
-        debug_assert!(location.data_index < Self::VACANT_DATA_INDEX as usize);
-        debug_assert!(location.chunk_index <= u32::MAX as usize);
-        debug_assert!(location.entity_index <= u32::MAX as usize);
-
-        self.data_index = location.data_index as u32;
-        self.chunk_index = location.chunk_index as u32;
-        self.entity_index = location.entity_index as u32;
+        self.data_index = u32::try_from(location.data_index)
+            .ok()
+            .filter(|&index| index != Self::VACANT_DATA_INDEX)
+            .expect("World storage index limit exhausted");
+        self.chunk_index =
+            u32::try_from(location.chunk_index).expect("chunk index limit exhausted");
+        self.entity_index =
+            u32::try_from(location.entity_index).expect("chunk entity index limit exhausted");
     }
 
     #[inline(always)]

@@ -17,6 +17,22 @@ pub unsafe trait QueryParam {
 
     fn component() -> QueryComponent;
 
+    /// Resolves this parameter's column pointer for one matching chunk.
+    ///
+    /// Required parameters override this to avoid the optional-component
+    /// sentinel check in the chunk-iteration hot path. Custom parameters keep
+    /// the conservative default.
+    ///
+    /// # Safety
+    ///
+    /// `component_index` must be the cached index produced for this parameter
+    /// and `chunk` must belong to the matching archetype.
+    #[doc(hidden)]
+    #[inline(always)]
+    unsafe fn resolve_column(chunk: &Chunk, component_index: u8) -> *mut u8 {
+        resolve_column_ptr(chunk, component_index)
+    }
+
     /// # Safety
     ///
     /// `ptr` must address a live, correctly aligned column of this component
@@ -49,13 +65,23 @@ unsafe impl<T: 'static> QueryParam for &T {
     }
 
     #[inline(always)]
+    unsafe fn resolve_column(chunk: &Chunk, component_index: u8) -> *mut u8 {
+        debug_assert_ne!(component_index, u8::MAX);
+        chunk.column_ptr(component_index as usize)
+    }
+
+    #[inline(always)]
     unsafe fn slice_from_raw<'w>(ptr: *mut u8, start: usize, len: usize) -> Self::Slice<'w> {
-        slice::from_raw_parts((ptr as *const T).add(start), len)
+        // SAFETY: the QueryParam contract guarantees an initialized, aligned
+        // column and an in-bounds `start..start + len` range.
+        unsafe { slice::from_raw_parts((ptr as *const T).add(start), len) }
     }
 
     #[inline(always)]
     unsafe fn item_from_raw<'w>(ptr: *mut u8, index: usize) -> Self::Item<'w> {
-        &*((ptr as *const T).add(index))
+        // SAFETY: the QueryParam contract guarantees that `index` selects a
+        // live, aligned `T` and that shared access is permitted.
+        unsafe { &*((ptr as *const T).add(index)) }
     }
 }
 
@@ -71,13 +97,23 @@ unsafe impl<T: 'static> QueryParam for &mut T {
     }
 
     #[inline(always)]
+    unsafe fn resolve_column(chunk: &Chunk, component_index: u8) -> *mut u8 {
+        debug_assert_ne!(component_index, u8::MAX);
+        chunk.column_ptr(component_index as usize)
+    }
+
+    #[inline(always)]
     unsafe fn slice_from_raw<'w>(ptr: *mut u8, start: usize, len: usize) -> Self::Slice<'w> {
-        slice::from_raw_parts_mut((ptr as *mut T).add(start), len)
+        // SAFETY: the QueryParam contract guarantees an initialized, aligned,
+        // exclusively borrowed range for the returned mutable slice.
+        unsafe { slice::from_raw_parts_mut((ptr as *mut T).add(start), len) }
     }
 
     #[inline(always)]
     unsafe fn item_from_raw<'w>(ptr: *mut u8, index: usize) -> Self::Item<'w> {
-        &mut *((ptr as *mut T).add(index))
+        // SAFETY: the QueryParam contract guarantees a live, aligned `T` at
+        // `index` and exclusive access for the yielded item.
+        unsafe { &mut *((ptr as *mut T).add(index)) }
     }
 }
 
@@ -95,7 +131,9 @@ unsafe impl<T: 'static> QueryParam for Option<&T> {
         if ptr.is_null() {
             None
         } else {
-            Some(slice::from_raw_parts((ptr as *const T).add(start), len))
+            // SAFETY: a non-null optional pointer obeys the same initialized,
+            // aligned and in-bounds contract as a required shared column.
+            Some(unsafe { slice::from_raw_parts((ptr as *const T).add(start), len) })
         }
     }
 
@@ -104,7 +142,9 @@ unsafe impl<T: 'static> QueryParam for Option<&T> {
         if ptr.is_null() {
             None
         } else {
-            Some(&*((ptr as *const T).add(index)))
+            // SAFETY: a non-null optional pointer identifies a live shared
+            // component row at the caller-validated index.
+            Some(unsafe { &*((ptr as *const T).add(index)) })
         }
     }
 }
@@ -125,7 +165,9 @@ unsafe impl<T: 'static> QueryParam for Option<&mut T> {
         if ptr.is_null() {
             None
         } else {
-            Some(slice::from_raw_parts_mut((ptr as *mut T).add(start), len))
+            // SAFETY: a non-null optional pointer obeys the caller-provided
+            // exclusive, initialized and in-bounds range contract.
+            Some(unsafe { slice::from_raw_parts_mut((ptr as *mut T).add(start), len) })
         }
     }
 
@@ -134,7 +176,9 @@ unsafe impl<T: 'static> QueryParam for Option<&mut T> {
         if ptr.is_null() {
             None
         } else {
-            Some(&mut *((ptr as *mut T).add(index)))
+            // SAFETY: a non-null optional pointer identifies a live component
+            // row for which the query executor holds exclusive access.
+            Some(unsafe { &mut *((ptr as *mut T).add(index)) })
         }
     }
 }
@@ -234,11 +278,15 @@ unsafe impl<P: QueryParam> QuerySpec for P {
 
     #[inline(always)]
     unsafe fn chunk_from_raw<'w>(chunk: &'w Chunk, component_indices: &[u8]) -> Self::Chunk<'w> {
-        P::slice_from_raw(
-            resolve_column_ptr(chunk, component_indices[0]),
-            0,
-            chunk.entity_count,
-        )
+        // SAFETY: QuerySpec callers provide the descriptor-matched column map;
+        // the cached index and full live chunk range therefore satisfy P.
+        unsafe {
+            P::slice_from_raw(
+                P::resolve_column(chunk, *component_indices.get_unchecked(0)),
+                0,
+                chunk.entity_count,
+            )
+        }
     }
 
     #[inline(always)]
@@ -247,7 +295,9 @@ unsafe impl<P: QueryParam> QuerySpec for P {
         start: usize,
         len: usize,
     ) -> Self::Chunk<'w> {
-        P::slice_from_raw(component_ptrs[0], start, len)
+        // SAFETY: the caller guarantees that slot zero belongs to P and that
+        // the requested range is initialized, in bounds, and correctly aliased.
+        unsafe { P::slice_from_raw(component_ptrs[0], start, len) }
     }
 
     #[inline(always)]
@@ -255,9 +305,13 @@ unsafe impl<P: QueryParam> QuerySpec for P {
     where
         Func: FnMut(Self::Item<'w>),
     {
-        let base = resolve_column_ptr(chunk, component_indices[0]);
-        for entity_index in 0..chunk.entity_count {
-            f(P::item_from_raw(base, entity_index));
+        // SAFETY: the matched column map resolves P's live column, and every
+        // loop index is within the chunk's initialized entity range.
+        unsafe {
+            let base = P::resolve_column(chunk, *component_indices.get_unchecked(0));
+            for entity_index in 0..chunk.entity_count {
+                f(P::item_from_raw(base, entity_index));
+            }
         }
     }
 
@@ -270,9 +324,13 @@ unsafe impl<P: QueryParam> QuerySpec for P {
     ) where
         Func: FnMut(Self::Item<'w>),
     {
-        let base = component_ptrs[0];
-        for entity_index in start..start + len {
-            f(P::item_from_raw(base, entity_index));
+        // SAFETY: the caller supplies P's column pointer and an initialized,
+        // in-bounds range while upholding P's aliasing mode.
+        unsafe {
+            let base = component_ptrs[0];
+            for entity_index in start..start + len {
+                f(P::item_from_raw(base, entity_index));
+            }
         }
     }
 }
@@ -297,15 +355,22 @@ macro_rules! impl_query_spec_tuple {
                 chunk: &'w Chunk,
                 component_indices: &[u8],
             ) -> Self::Chunk<'w> {
-                (
-                    $(
-                        $Param::slice_from_raw(
-                            resolve_column_ptr(chunk, component_indices[$index]),
-                            0,
-                            chunk.entity_count,
-                        ),
-                    )+
-                )
+                // SAFETY: the descriptor-matched map has one valid slot per
+                // parameter, and the live chunk range satisfies each parameter.
+                unsafe {
+                    (
+                        $(
+                            $Param::slice_from_raw(
+                                $Param::resolve_column(
+                                    chunk,
+                                    *component_indices.get_unchecked($index),
+                                ),
+                                0,
+                                chunk.entity_count,
+                            ),
+                        )+
+                    )
+                }
             }
 
             #[inline(always)]
@@ -314,11 +379,15 @@ macro_rules! impl_query_spec_tuple {
                 start: usize,
                 len: usize,
             ) -> Self::Chunk<'w> {
-                (
-                    $(
-                        $Param::slice_from_raw(component_ptrs[$index], start, len),
-                    )+
-                )
+                // SAFETY: pointer slots correspond to their tuple parameters;
+                // the caller validates the range and combined aliasing contract.
+                unsafe {
+                    (
+                        $(
+                            $Param::slice_from_raw(component_ptrs[$index], start, len),
+                        )+
+                    )
+                }
             }
 
             #[inline(always)]
@@ -330,14 +399,21 @@ macro_rules! impl_query_spec_tuple {
             where
                 Func: FnMut(Self::Item<'w>),
             {
-                $(let $base = resolve_column_ptr(chunk, component_indices[$index]);)+
+                // SAFETY: cached indices match their tuple parameters, every
+                // loop index is live, and QuerySpec prevents alias conflicts.
+                unsafe {
+                    $(let $base = $Param::resolve_column(
+                        chunk,
+                        *component_indices.get_unchecked($index),
+                    );)+
 
-                for entity_index in 0..chunk.entity_count {
-                    f((
-                        $(
-                            $Param::item_from_raw($base, entity_index),
-                        )+
-                    ));
+                    for entity_index in 0..chunk.entity_count {
+                        f((
+                            $(
+                                $Param::item_from_raw($base, entity_index),
+                            )+
+                        ));
+                    }
                 }
             }
 
@@ -351,14 +427,18 @@ macro_rules! impl_query_spec_tuple {
             where
                 Func: FnMut(Self::Item<'w>),
             {
-                $(let $base = component_ptrs[$index];)+
+                // SAFETY: pointer slots match their tuple parameters, and the
+                // caller provides a live in-bounds range with valid aliasing.
+                unsafe {
+                    $(let $base = component_ptrs[$index];)+
 
-                for entity_index in start..start + len {
-                    f((
-                        $(
-                            $Param::item_from_raw($base, entity_index),
-                        )+
-                    ));
+                    for entity_index in start..start + len {
+                        f((
+                            $(
+                                $Param::item_from_raw($base, entity_index),
+                            )+
+                        ));
+                    }
                 }
             }
         }

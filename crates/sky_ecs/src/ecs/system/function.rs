@@ -155,7 +155,11 @@ where
             .state
             .as_mut()
             .expect("typed system must be initialized before run");
+        // SAFETY: the scheduler passes this system's unique command buffer for
+        // the duration of this invocation.
         let context = unsafe { SystemParamContext::new(commands) };
+        // SAFETY: the compiled wave enforces the access set registered by
+        // `Params`; state and context are invocation-local and uniquely held.
         let params = unsafe { Func::Params::get(world, state, context) };
         self.function.run(params);
     }

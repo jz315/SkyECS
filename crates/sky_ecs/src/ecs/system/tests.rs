@@ -107,6 +107,40 @@ fn commands_apply_at_stage_boundary() {
 }
 
 #[test]
+fn empty_command_buffer_resets_recent_diagnostics_without_losing_totals() {
+    let emit = Arc::new(AtomicBool::new(true));
+    let system_emit = emit.clone();
+    let mut world = World::new();
+    world
+        .stage(Update)
+        .add_named("conditional_command", move |mut commands: Commands<'_>| {
+            if system_emit.swap(false, Ordering::Relaxed) {
+                commands.spawn((Position(9.0),));
+            }
+        });
+
+    world.tick_with_delta(0.016).unwrap();
+    world.tick_with_delta(0.016).unwrap();
+
+    let diagnostics = world.schedule_diagnostics();
+    let commands = diagnostics
+        .stages
+        .iter()
+        .flat_map(|stage| &stage.segments)
+        .flat_map(|segment| &segment.waves)
+        .flatten()
+        .find(|system| system.name == "conditional_command")
+        .unwrap()
+        .commands;
+    assert_eq!(commands.last_enqueued, 0);
+    assert_eq!(commands.last_applied, 0);
+    assert_eq!(commands.last_discarded, 0);
+    assert_eq!(commands.total_enqueued, 1);
+    assert_eq!(commands.total_applied, 1);
+    assert_eq!(commands.total_discarded, 0);
+}
+
+#[test]
 fn exclusive_system_is_a_barrier() {
     let mut world = World::new();
     world.insert_resource(Trace::default());

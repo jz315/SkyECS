@@ -1,12 +1,12 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
+use super::erased_value::InsertValue;
 use super::{Bundle, EntityId, World};
 use crate::ecs::{component_type, ComponentType};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::any::Any;
-use std::mem::{self, MaybeUninit};
-use std::ptr;
-use std::ptr::NonNull;
+use std::mem;
 
 // ---------------------------------------------------------------------------
 // Deferred command trait – closures applied to &mut World
@@ -32,7 +32,8 @@ where
 // ---------------------------------------------------------------------------
 
 trait SpawnBatchCommand {
-    fn apply(self: Box<Self>, world: &mut World);
+    fn apply(&mut self, world: &mut World);
+    fn clear(&mut self);
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
@@ -44,8 +45,12 @@ impl<B> SpawnBatchCommand for TypedSpawnBatch<B>
 where
     B: Bundle,
 {
-    fn apply(self: Box<Self>, world: &mut World) {
-        world.spawn_batch(self.bundles);
+    fn apply(&mut self, world: &mut World) {
+        world.spawn_batch(self.bundles.drain(..));
+    }
+
+    fn clear(&mut self) {
+        self.bundles.clear();
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -54,160 +59,52 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// InsertValue – inline-or-heap component payload
-// ---------------------------------------------------------------------------
-
-const INLINE_INSERT_BYTES: usize = 16;
-
-#[repr(align(16))]
-pub(crate) struct InlineInsertBytes([MaybeUninit<u8>; INLINE_INSERT_BYTES]);
-
-pub(crate) enum InsertValue {
-    Inline {
-        len: usize,
-        bytes: InlineInsertBytes,
-        drop_fn: Option<unsafe fn(*mut u8)>,
-    },
-    Heap {
-        data: NonNull<u8>,
-        len: usize,
-        layout: Layout,
-        drop_fn: Option<unsafe fn(*mut u8)>,
-    },
-    /// Sentinel: the value has been consumed (written to a chunk).
-    Consumed,
-}
-
-impl InsertValue {
-    pub(crate) fn from_value<T>(value: T) -> Self
-    where
-        T: 'static,
-    {
-        let len = mem::size_of::<T>();
-        let align = mem::align_of::<T>();
-        let drop_fn: Option<unsafe fn(*mut u8)> = if mem::needs_drop::<T>() {
-            Some(sky_type::drop_in_place_erased::<T>)
-        } else {
-            None
-        };
-
-        // Wrap in ManuallyDrop so the original value isn't dropped after
-        // we memcpy its bytes into our buffer.
-        let value = mem::ManuallyDrop::new(value);
-
-        if len <= INLINE_INSERT_BYTES && align <= mem::align_of::<InlineInsertBytes>() {
-            let mut bytes = InlineInsertBytes([MaybeUninit::<u8>::uninit(); INLINE_INSERT_BYTES]);
-            unsafe {
-                ptr::copy_nonoverlapping(
-                    (&*value as *const T).cast::<u8>(),
-                    bytes.0.as_mut_ptr().cast::<u8>(),
-                    len,
-                );
-            }
-            Self::Inline {
-                len,
-                bytes,
-                drop_fn,
-            }
-        } else {
-            let layout = Layout::from_size_align(len.max(1), align).unwrap();
-            let data = unsafe {
-                let raw = alloc(layout);
-                NonNull::new(raw).unwrap_or_else(|| handle_alloc_error(layout))
-            };
-            unsafe {
-                ptr::copy_nonoverlapping((&*value as *const T).cast::<u8>(), data.as_ptr(), len);
-            }
-            Self::Heap {
-                data,
-                len,
-                layout,
-                drop_fn,
-            }
-        }
-    }
-
-    /// Write the stored bytes to `dst` and mark this value as consumed.
-    ///
-    /// After this call, ownership of the component value has transferred
-    /// to the destination buffer; this `InsertValue` will NOT run the
-    /// type-erased drop.
-    #[inline(always)]
-    pub(crate) fn write(&mut self, dst: *mut u8) {
-        // Safety: we copy the stored bytes to the destination.
-        // The destination is expected to be a properly-aligned,
-        // uninitialised (or already-dropped) slot.
-        unsafe {
-            match self {
-                Self::Inline {
-                    len,
-                    bytes,
-                    drop_fn,
-                } => {
-                    ptr::copy_nonoverlapping(bytes.0.as_ptr().cast::<u8>(), dst, *len);
-                    // Clear drop_fn BEFORE we replace self, so the implicit
-                    // Drop triggered by `*self = Consumed` does NOT call
-                    // the destructor on bytes that were already moved out.
-                    *drop_fn = None;
-                }
-                Self::Heap {
-                    data, len, drop_fn, ..
-                } => {
-                    ptr::copy_nonoverlapping(data.as_ptr(), dst, *len);
-                    *drop_fn = None;
-                }
-                Self::Consumed => {
-                    debug_assert!(false, "InsertValue::write called on a consumed value");
-                    return;
-                }
-            }
-        }
-
-        // Mark as consumed (no-op from drop perspective since drop_fn is
-        // already None, but semantically clearer).
-        *self = Self::Consumed;
-    }
-}
-
-impl Drop for InsertValue {
-    fn drop(&mut self) {
-        match self {
-            Self::Inline {
-                bytes,
-                drop_fn: Some(drop_fn),
-                ..
-            } => {
-                // Safety: the value was never consumed and the bytes
-                // represent a valid, initialised value of the original type.
-                unsafe {
-                    drop_fn(bytes.0.as_mut_ptr().cast::<u8>());
-                }
-            }
-            Self::Heap {
-                data,
-                layout,
-                drop_fn: Some(drop_fn),
-                ..
-            } => unsafe {
-                drop_fn(data.as_ptr());
-                dealloc(data.as_ptr(), *layout);
-            },
-            Self::Heap { data, layout, .. } => unsafe {
-                dealloc(data.as_ptr(), *layout);
-            },
-            _ => {}
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Command queue
 // ---------------------------------------------------------------------------
 
 enum Command {
+    Vacant,
     EntityBatch(PendingEntityBuffer),
     SpawnBatch(Box<dyn SpawnBatchCommand>),
     Deferred(Box<dyn DeferredWorldCommand>),
+}
+
+impl Command {
+    fn apply(self, world: &mut World) -> Self {
+        match self {
+            Self::Vacant => Self::Vacant,
+            Self::EntityBatch(mut batch) => {
+                batch.flush(world);
+                Self::EntityBatch(batch)
+            }
+            Self::SpawnBatch(mut batch) => {
+                batch.apply(world);
+                Self::SpawnBatch(batch)
+            }
+            Self::Deferred(command) => {
+                command.apply(world);
+                Self::Vacant
+            }
+        }
+    }
+
+    fn clear(self) -> Self {
+        match self {
+            Self::Vacant => Self::Vacant,
+            Self::EntityBatch(mut batch) => {
+                batch.clear();
+                Self::EntityBatch(batch)
+            }
+            Self::SpawnBatch(mut batch) => {
+                batch.clear();
+                Self::SpawnBatch(batch)
+            }
+            Self::Deferred(command) => {
+                drop(command);
+                Self::Vacant
+            }
+        }
+    }
 }
 
 enum EntityCommand {
@@ -227,14 +124,14 @@ enum EntityCommand {
 // Per-entity coalesced command state
 // ---------------------------------------------------------------------------
 
-enum PendingComponentCommand {
+pub(super) enum PendingComponentCommand {
     Insert(InsertValue),
     Remove,
 }
 
-struct PendingComponentEntry {
-    component: ComponentType,
-    command: PendingComponentCommand,
+pub(super) struct PendingComponentEntry {
+    pub(super) component: ComponentType,
+    pub(super) command: PendingComponentCommand,
 }
 
 #[derive(Default)]
@@ -334,24 +231,25 @@ impl PendingEntityBuffer {
         }
     }
 
-    fn flush(self, world: &mut World) {
-        for (entity, pending) in self.entries {
+    fn flush(&mut self, world: &mut World) {
+        // The map is only needed while recording. Clear it before any user
+        // destructor can unwind so the buffer is observably empty on panic,
+        // while retaining its allocation for the next frame.
+        self.index.clear();
+        for (entity, pending) in self.entries.drain(..) {
             if pending.despawn {
                 world.despawn(entity);
                 continue;
             }
 
-            for entry in pending.components {
-                match entry.command {
-                    PendingComponentCommand::Insert(mut value) => {
-                        world.insert_dynamic(entity, entry.component, &mut value);
-                    }
-                    PendingComponentCommand::Remove => {
-                        world.remove_dynamic(entity, entry.component);
-                    }
-                }
-            }
+            let mut components = pending.components;
+            world.apply_component_commands(entity, &mut components);
         }
+    }
+
+    fn clear(&mut self) {
+        self.index.clear();
+        self.entries.clear();
     }
 }
 
@@ -387,21 +285,99 @@ impl PendingEntityBuffer {
 #[derive(Default)]
 pub struct CommandBuffer {
     queue: Vec<Command>,
+    active_commands: usize,
     queued_count: usize,
 }
 
-struct CommandApplyGuard {
-    world: *mut World,
+/// Temporarily owns the active command prefix while preserving reusable slots.
+///
+/// Each command is replaced with `Vacant` before it can run user code. If that
+/// code unwinds, `Drop` discards the unvisited commands and the public buffer
+/// has already been restored to its empty invariant.
+struct ActiveCommands<'a> {
+    slots: &'a mut [Command],
+    next: usize,
+}
+
+impl<'a> ActiveCommands<'a> {
+    fn new(slots: &'a mut [Command]) -> Self {
+        Self { slots, next: 0 }
+    }
+
+    fn next(&mut self) -> Option<(usize, Command)> {
+        if self.next == self.slots.len() {
+            return None;
+        }
+        let index = self.next;
+        self.next += 1;
+        Some((index, mem::replace(&mut self.slots[index], Command::Vacant)))
+    }
+
+    fn restore(&mut self, index: usize, command: Command) {
+        debug_assert!(matches!(self.slots[index], Command::Vacant));
+        self.slots[index] = command;
+    }
+}
+
+impl Drop for ActiveCommands<'_> {
+    fn drop(&mut self) {
+        let already_panicking = std::thread::panicking();
+        let mut first_cleanup_panic = None;
+
+        for slot in &mut self.slots[self.next..] {
+            let command = mem::replace(slot, Command::Vacant);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                drop(command);
+            }));
+
+            if let Err(payload) = result {
+                if already_panicking || first_cleanup_panic.is_some() {
+                    // Cleanup must not replace an in-flight panic or trigger a
+                    // double-panic abort. Most panic payloads can still be
+                    // released normally; only an adversarial payload whose
+                    // own destructor panics has to be leaked as a last resort.
+                    drop_panic_payload_without_unwinding(payload);
+                } else {
+                    first_cleanup_panic = Some(payload);
+                }
+            }
+        }
+
+        if let Some(payload) = first_cleanup_panic {
+            // No panic was active when cleanup began. Finish clearing every
+            // slot, then propagate the first cleanup failure.
+            std::panic::resume_unwind(payload);
+        }
+    }
+}
+
+fn drop_panic_payload_without_unwinding(payload: Box<dyn Any + Send>) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(payload)));
+    if let Err(nested_payload) = result {
+        // A panic payload is user-owned and may itself have a panicking Drop.
+        // Letting that unwind while another panic is active would abort the
+        // process, so this final adversarial payload is intentionally leaked.
+        mem::forget(nested_payload);
+    }
+}
+
+struct CommandApplyGuard<'w> {
+    world: &'w mut World,
     completed: bool,
 }
 
-impl CommandApplyGuard {
-    fn new(world: &mut World) -> Self {
+impl<'w> CommandApplyGuard<'w> {
+    fn new(world: &'w mut World) -> Self {
         world.assert_command_apply_allowed();
         Self {
-            world: std::ptr::from_mut(world),
+            world,
             completed: false,
         }
+    }
+
+    #[inline(always)]
+    fn world(&mut self) -> &mut World {
+        self.world
     }
 
     fn complete(mut self) {
@@ -409,12 +385,10 @@ impl CommandApplyGuard {
     }
 }
 
-impl Drop for CommandApplyGuard {
+impl Drop for CommandApplyGuard<'_> {
     fn drop(&mut self) {
         if !self.completed && std::thread::panicking() {
-            // Safety: the guard never outlives CommandBuffer::apply's borrowed
-            // World, and apply cannot return while this guard is alive.
-            unsafe { &mut *self.world }.poison_after_command_panic();
+            self.world.poison_after_command_panic();
         }
     }
 }
@@ -440,21 +414,27 @@ impl CommandBuffer {
         F: FnOnce(&mut World) + 'static,
     {
         self.queued_count += 1;
-        self.queue
-            .push(Command::Deferred(Box::new(FnDeferredCommand(f))));
+        self.activate(Command::Deferred(Box::new(FnDeferredCommand(f))));
     }
 
     fn push_entity(&mut self, command: EntityCommand) {
         self.queued_count += 1;
 
-        if let Some(Command::EntityBatch(batch)) = self.queue.last_mut() {
+        if let Some(Command::EntityBatch(batch)) = self.active_last_mut() {
+            batch.push(command);
+            return;
+        }
+
+        let index = self.active_commands;
+        self.active_commands += 1;
+        if let Some(Command::EntityBatch(batch)) = self.queue.get_mut(index) {
             batch.push(command);
             return;
         }
 
         let mut batch = PendingEntityBuffer::default();
         batch.push(command);
-        self.queue.push(Command::EntityBatch(batch));
+        self.replace_or_push(index, Command::EntityBatch(batch));
     }
 
     /// Records a deferred spawn.  Consecutive spawns of the same bundle
@@ -465,17 +445,28 @@ impl CommandBuffer {
     {
         self.queued_count += 1;
 
-        if let Some(Command::SpawnBatch(batch)) = self.queue.last_mut() {
+        if let Some(Command::SpawnBatch(batch)) = self.active_last_mut() {
             if let Some(batch) = batch.as_any_mut().downcast_mut::<TypedSpawnBatch<B>>() {
                 batch.bundles.push(bundle);
                 return;
             }
         }
 
-        self.queue
-            .push(Command::SpawnBatch(Box::new(TypedSpawnBatch {
+        let index = self.active_commands;
+        self.active_commands += 1;
+        if let Some(Command::SpawnBatch(batch)) = self.queue.get_mut(index) {
+            if let Some(batch) = batch.as_any_mut().downcast_mut::<TypedSpawnBatch<B>>() {
+                batch.bundles.push(bundle);
+                return;
+            }
+        }
+
+        self.replace_or_push(
+            index,
+            Command::SpawnBatch(Box::new(TypedSpawnBatch {
                 bundles: vec![bundle],
-            })));
+            })),
+        );
     }
 
     /// Records a deferred entity despawn.
@@ -536,29 +527,51 @@ impl CommandBuffer {
     /// application and schedule ticks rather than running with a partial
     /// commit. The World remains inspectable and may be shut down.
     pub fn apply(&mut self, world: &mut World) {
-        let apply_guard = CommandApplyGuard::new(world);
+        let mut apply_guard = CommandApplyGuard::new(world);
         // Restore the observable invariant before user-owned drops/deferred
-        // work can unwind. On success the emptied Vec (and its capacity) is
-        // returned; on panic `self` already contains a valid empty queue.
+        // work can unwind. The active prefix remains as reusable empty slots
+        // after a successful pass.
+        let active_commands = mem::take(&mut self.active_commands);
         self.queued_count = 0;
-        let mut queue = std::mem::take(&mut self.queue);
-        for command in queue.drain(..) {
-            match command {
-                Command::EntityBatch(batch) => batch.flush(world),
-                Command::SpawnBatch(batch) => batch.apply(world),
-                Command::Deferred(command) => command.apply(world),
-            }
+        let mut commands = ActiveCommands::new(&mut self.queue[..active_commands]);
+        while let Some((index, command)) = commands.next() {
+            let command = command.apply(apply_guard.world());
+            commands.restore(index, command);
         }
-        self.queue = queue;
+        drop(commands);
         apply_guard.complete();
     }
 
     /// Discards every pending command while preserving allocated capacity.
     pub fn clear(&mut self) {
+        let active_commands = mem::take(&mut self.active_commands);
         self.queued_count = 0;
-        let mut queue = std::mem::take(&mut self.queue);
-        queue.clear();
-        self.queue = queue;
+        let mut commands = ActiveCommands::new(&mut self.queue[..active_commands]);
+        while let Some((index, command)) = commands.next() {
+            let command = command.clear();
+            commands.restore(index, command);
+        }
+    }
+
+    fn active_last_mut(&mut self) -> Option<&mut Command> {
+        self.active_commands
+            .checked_sub(1)
+            .map(|index| &mut self.queue[index])
+    }
+
+    fn activate(&mut self, command: Command) {
+        let index = self.active_commands;
+        self.active_commands += 1;
+        self.replace_or_push(index, command);
+    }
+
+    fn replace_or_push(&mut self, index: usize, command: Command) {
+        if let Some(slot) = self.queue.get_mut(index) {
+            *slot = command;
+        } else {
+            debug_assert_eq!(index, self.queue.len());
+            self.queue.push(command);
+        }
     }
 }
 
@@ -576,8 +589,14 @@ pub struct Commands<'w> {
 }
 
 impl<'w> Commands<'w> {
+    /// # Safety
+    ///
+    /// `buffer` must be non-null, point to a live `CommandBuffer`, and be
+    /// exclusively borrowed for the returned lifetime.
     pub(crate) unsafe fn from_ptr(buffer: *mut CommandBuffer) -> Self {
         Self {
+            // SAFETY: the caller provides validity, alignment, and exclusive
+            // access for `'w` as required by this constructor.
             buffer: unsafe { &mut *buffer },
         }
     }
@@ -627,5 +646,179 @@ impl<'w> Commands<'w> {
         R: 'static,
     {
         self.buffer.remove_resource::<R>();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    #[derive(Clone, Copy)]
+    struct Marker;
+
+    #[test]
+    fn entity_batches_preserve_first_seen_order_and_reuse_storage() {
+        let mut world = World::new();
+        let entities = (0..64).map(|_| world.spawn((Marker,))).collect::<Vec<_>>();
+        let mut commands = CommandBuffer::new();
+
+        commands.despawn(entities[7]);
+        commands.remove::<Marker>(entities[2]);
+        commands.insert(entities[7], Marker);
+        commands.despawn(entities[40]);
+
+        let (entries_capacity, index_capacity) = match &commands.queue[0] {
+            Command::EntityBatch(batch) => {
+                assert_eq!(
+                    batch
+                        .entries
+                        .iter()
+                        .map(|(entity, _)| *entity)
+                        .collect::<Vec<_>>(),
+                    vec![entities[7], entities[2], entities[40]]
+                );
+                (batch.entries.capacity(), batch.index.capacity())
+            }
+            _ => panic!("expected an entity batch"),
+        };
+
+        commands.apply(&mut world);
+        assert!(commands.is_empty());
+        match &commands.queue[0] {
+            Command::EntityBatch(batch) => {
+                assert!(batch.entries.is_empty());
+                assert!(batch.index.is_empty());
+                assert_eq!(batch.entries.capacity(), entries_capacity);
+                assert_eq!(batch.index.capacity(), index_capacity);
+            }
+            _ => panic!("expected the reusable entity batch"),
+        }
+
+        let replacements = (0..3).map(|_| world.spawn((Marker,))).collect::<Vec<_>>();
+        for entity in &replacements {
+            commands.despawn(*entity);
+        }
+        match &commands.queue[0] {
+            Command::EntityBatch(batch) => {
+                assert_eq!(batch.entries.capacity(), entries_capacity);
+                assert_eq!(batch.index.capacity(), index_capacity);
+            }
+            _ => panic!("expected the reused entity batch"),
+        }
+    }
+
+    #[test]
+    fn typed_spawn_batches_reuse_bundle_capacity() {
+        let mut world = World::new();
+        let mut commands = CommandBuffer::new();
+        for _ in 0..64 {
+            commands.spawn((Marker,));
+        }
+
+        let capacity = match &mut commands.queue[0] {
+            Command::SpawnBatch(batch) => batch
+                .as_any_mut()
+                .downcast_mut::<TypedSpawnBatch<(Marker,)>>()
+                .unwrap()
+                .bundles
+                .capacity(),
+            _ => panic!("expected a typed spawn batch"),
+        };
+
+        commands.apply(&mut world);
+        assert_eq!(world.entity_count(), 64);
+        match &mut commands.queue[0] {
+            Command::SpawnBatch(batch) => {
+                let batch = batch
+                    .as_any_mut()
+                    .downcast_mut::<TypedSpawnBatch<(Marker,)>>()
+                    .unwrap();
+                assert!(batch.bundles.is_empty());
+                assert_eq!(batch.bundles.capacity(), capacity);
+            }
+            _ => panic!("expected the reusable spawn batch"),
+        }
+
+        for _ in 0..64 {
+            commands.spawn((Marker,));
+        }
+        match &mut commands.queue[0] {
+            Command::SpawnBatch(batch) => assert_eq!(
+                batch
+                    .as_any_mut()
+                    .downcast_mut::<TypedSpawnBatch<(Marker,)>>()
+                    .unwrap()
+                    .bundles
+                    .capacity(),
+                capacity
+            ),
+            _ => panic!("expected the reused spawn batch"),
+        }
+    }
+
+    struct DropCounter(Arc<AtomicUsize>);
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    struct PanicOnDrop(Arc<AtomicUsize>);
+
+    impl Drop for PanicOnDrop {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            panic!("secondary cleanup panic");
+        }
+    }
+
+    #[test]
+    fn apply_panic_discards_unvisited_reusable_slots() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let mut world = World::new();
+        let mut commands = CommandBuffer::new();
+        commands.push_deferred(|_| {});
+        commands.push_deferred(|_| panic!("intentional deferred command panic"));
+        commands.spawn((DropCounter(drops.clone()),));
+
+        let result = catch_unwind(AssertUnwindSafe(|| commands.apply(&mut world)));
+
+        assert!(result.is_err());
+        assert!(commands.is_empty());
+        assert_eq!(commands.active_commands, 0);
+        assert_eq!(drops.load(Ordering::Relaxed), 1);
+        assert!(world.is_poisoned());
+    }
+
+    #[test]
+    fn apply_panic_swallows_panics_from_unvisited_command_drops() {
+        let panicking_drops = Arc::new(AtomicUsize::new(0));
+        let ordinary_drops = Arc::new(AtomicUsize::new(0));
+        let mut world = World::new();
+        let mut commands = CommandBuffer::new();
+
+        commands.push_deferred(|_| panic!("primary command panic"));
+        let panic_on_drop = PanicOnDrop(panicking_drops.clone());
+        commands.push_deferred(move |_| {
+            let _ = &panic_on_drop;
+        });
+        commands.spawn((DropCounter(ordinary_drops.clone()),));
+
+        let result = catch_unwind(AssertUnwindSafe(|| commands.apply(&mut world)));
+        let payload = result.expect_err("the primary command must still unwind");
+
+        assert_eq!(
+            payload.downcast_ref::<&'static str>(),
+            Some(&"primary command panic")
+        );
+        assert_eq!(panicking_drops.load(Ordering::Relaxed), 1);
+        assert_eq!(ordinary_drops.load(Ordering::Relaxed), 1);
+        assert!(commands.is_empty());
+        assert_eq!(commands.active_commands, 0);
+        assert!(world.is_poisoned());
     }
 }

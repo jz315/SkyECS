@@ -1,3 +1,5 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 use super::{create_archetype, Archetype, Chunk, MAX_COMPONENTS};
 use crate::ecs::{component_type, ComponentType};
 use rustc_hash::FxHashMap;
@@ -100,7 +102,7 @@ fn bundle_meta<B: 'static>(
 /// Trait implemented by component tuples for spawning entities.
 ///
 /// You do not need to implement this manually — it is auto-implemented
-/// for tuples of up to 8 `'static` types.  Both `Copy` and non-`Copy`
+/// for tuples of up to 16 `'static` types. Both `Copy` and non-`Copy`
 /// types are supported.
 ///
 /// This trait is sealed so Sky ECS can keep the storage invariants behind
@@ -141,7 +143,9 @@ macro_rules! impl_bundle_tuple {
 
             unsafe fn write(self, chunk: &mut Chunk, entity_index: usize) {
                 let (_, columns) = Self::cached_meta();
-                self.write_fast(chunk, entity_index, columns);
+                // SAFETY: this method has the same slot/archetype contract as
+                // `write_fast`, and these columns are this bundle's cache.
+                unsafe { self.write_fast(chunk, entity_index, columns) };
             }
 
             unsafe fn write_fast(self, chunk: &mut Chunk, entity_index: usize, columns: &[(usize, usize)]) {
@@ -150,10 +154,15 @@ macro_rules! impl_bundle_tuple {
                 $(
                     let (component_index, comp_size) = columns[$idx];
                     let col_ptr = chunk.column_ptr(component_index);
-                    ptr::write(
-                        col_ptr.add(comp_size * entity_index) as *mut $Type,
-                        $value,
-                    );
+                    // SAFETY: the method contract guarantees that `columns`
+                    // describes this tuple and `entity_index` is a valid,
+                    // uninitialized slot in the matching chunk.
+                    unsafe {
+                        ptr::write(
+                            col_ptr.add(comp_size * entity_index) as *mut $Type,
+                            $value,
+                        );
+                    }
                 )+
             }
         }
@@ -192,3 +201,211 @@ impl_bundle_tuple!(
     (G, g, 6),
     (H, h, 7)
 );
+impl_bundle_tuple!(
+    (A, a, 0),
+    (B, b, 1),
+    (C, c, 2),
+    (D, d, 3),
+    (E, e, 4),
+    (F, f, 5),
+    (G, g, 6),
+    (H, h, 7),
+    (I, i, 8)
+);
+impl_bundle_tuple!(
+    (A, a, 0),
+    (B, b, 1),
+    (C, c, 2),
+    (D, d, 3),
+    (E, e, 4),
+    (F, f, 5),
+    (G, g, 6),
+    (H, h, 7),
+    (I, i, 8),
+    (J, j, 9)
+);
+impl_bundle_tuple!(
+    (A, a, 0),
+    (B, b, 1),
+    (C, c, 2),
+    (D, d, 3),
+    (E, e, 4),
+    (F, f, 5),
+    (G, g, 6),
+    (H, h, 7),
+    (I, i, 8),
+    (J, j, 9),
+    (K, k, 10)
+);
+impl_bundle_tuple!(
+    (A, a, 0),
+    (B, b, 1),
+    (C, c, 2),
+    (D, d, 3),
+    (E, e, 4),
+    (F, f, 5),
+    (G, g, 6),
+    (H, h, 7),
+    (I, i, 8),
+    (J, j, 9),
+    (K, k, 10),
+    (L, l, 11)
+);
+impl_bundle_tuple!(
+    (A, a, 0),
+    (B, b, 1),
+    (C, c, 2),
+    (D, d, 3),
+    (E, e, 4),
+    (F, f, 5),
+    (G, g, 6),
+    (H, h, 7),
+    (I, i, 8),
+    (J, j, 9),
+    (K, k, 10),
+    (L, l, 11),
+    (M, m, 12)
+);
+impl_bundle_tuple!(
+    (A, a, 0),
+    (B, b, 1),
+    (C, c, 2),
+    (D, d, 3),
+    (E, e, 4),
+    (F, f, 5),
+    (G, g, 6),
+    (H, h, 7),
+    (I, i, 8),
+    (J, j, 9),
+    (K, k, 10),
+    (L, l, 11),
+    (M, m, 12),
+    (N, n, 13)
+);
+impl_bundle_tuple!(
+    (A, a, 0),
+    (B, b, 1),
+    (C, c, 2),
+    (D, d, 3),
+    (E, e, 4),
+    (F, f, 5),
+    (G, g, 6),
+    (H, h, 7),
+    (I, i, 8),
+    (J, j, 9),
+    (K, k, 10),
+    (L, l, 11),
+    (M, m, 12),
+    (N, n, 13),
+    (O, o, 14)
+);
+impl_bundle_tuple!(
+    (A, a, 0),
+    (B, b, 1),
+    (C, c, 2),
+    (D, d, 3),
+    (E, e, 4),
+    (F, f, 5),
+    (G, g, 6),
+    (H, h, 7),
+    (I, i, 8),
+    (J, j, 9),
+    (K, k, 10),
+    (L, l, 11),
+    (M, m, 12),
+    (N, n, 13),
+    (O, o, 14),
+    (P, p, 15)
+);
+
+#[cfg(test)]
+mod tests {
+    use super::Bundle;
+    use crate::ecs::World;
+
+    macro_rules! components {
+        ($($name:ident = $value:expr),+ $(,)?) => {
+            $(
+                #[derive(Debug, PartialEq)]
+                struct $name(u8);
+            )+
+
+            fn spawn_sixteen(world: &mut World) -> crate::ecs::EntityId {
+                world.spawn(($($name($value),)+))
+            }
+        };
+    }
+
+    components!(
+        C01 = 1,
+        C02 = 2,
+        C03 = 3,
+        C04 = 4,
+        C05 = 5,
+        C06 = 6,
+        C07 = 7,
+        C08 = 8,
+        C09 = 9,
+        C10 = 10,
+        C11 = 11,
+        C12 = 12,
+        C13 = 13,
+        C14 = 14,
+        C15 = 15,
+        C16 = 16,
+    );
+
+    #[test]
+    fn sixteen_component_tuple_is_a_bundle() {
+        fn assert_bundle<B: Bundle>() {}
+        assert_bundle::<(
+            C01,
+            C02,
+            C03,
+            C04,
+            C05,
+            C06,
+            C07,
+            C08,
+            C09,
+            C10,
+            C11,
+            C12,
+            C13,
+            C14,
+            C15,
+            C16,
+        )>();
+    }
+
+    #[test]
+    fn sixteen_component_bundle_initializes_every_column() {
+        let mut world = World::new();
+        let entity = spawn_sixteen(&mut world);
+
+        macro_rules! assert_components {
+            ($($name:ident = $value:expr),+ $(,)?) => {
+                $(assert_eq!(world.get::<$name>(entity), Some(&$name($value)));)+
+            };
+        }
+
+        assert_components!(
+            C01 = 1,
+            C02 = 2,
+            C03 = 3,
+            C04 = 4,
+            C05 = 5,
+            C06 = 6,
+            C07 = 7,
+            C08 = 8,
+            C09 = 9,
+            C10 = 10,
+            C11 = 11,
+            C12 = 12,
+            C13 = 13,
+            C14 = 14,
+            C15 = 15,
+            C16 = 16,
+        );
+    }
+}

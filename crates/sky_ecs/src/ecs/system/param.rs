@@ -4,9 +4,11 @@ use super::stage::ScheduleError;
 use crate::ecs::query::{
     count_matches, matches_nothing, par_for_each, par_for_each_chunk,
     par_for_each_chunk_with_entities, par_for_each_with_entity, prepare_job_cache,
-    prepared_job_snapshot, run_for_each, run_for_each_chunk, run_for_each_chunk_with_entities,
-    run_for_each_with_entity, ParallelJobCache, ParallelJobSnapshot, PreparedCache,
-    QueryDescriptor,
+    prepared_job_snapshot, run_cached_for_each, run_cached_for_each_chunk,
+    run_cached_for_each_chunk_with_entities, run_cached_for_each_with_entity, run_for_each,
+    run_for_each_chunk, run_for_each_chunk_with_entities, run_for_each_with_entity,
+    ParallelJobCache, ParallelJobSnapshot, PreparedCache, QueryDescriptor, SequentialChunk,
+    SequentialChunkCache,
 };
 use crate::ecs::{Commands, EntityId, QueryFilter, QuerySpec, World};
 use std::cell::Cell;
@@ -58,6 +60,7 @@ pub(crate) unsafe trait SystemParam {
 pub(crate) struct ViewState<Q: QuerySpec, F: QueryFilter> {
     descriptor: QueryDescriptor,
     prepared: PreparedCache,
+    sequential_chunks: SequentialChunkCache,
     active_iteration: Cell<bool>,
     marker: PhantomData<fn() -> (Q, F)>,
 }
@@ -67,6 +70,7 @@ impl<Q: QuerySpec, F: QueryFilter> ViewState<Q, F> {
         Self {
             descriptor: Q::descriptor(),
             prepared: PreparedCache::default(),
+            sequential_chunks: SequentialChunkCache::default(),
             active_iteration: Cell::new(false),
             marker: PhantomData,
         }
@@ -105,6 +109,7 @@ impl<Q: QuerySpec, F: QueryFilter> ParViewState<Q, F> {
 pub struct View<'w, Q: QuerySpec, F: QueryFilter = ()> {
     world: UnsafeWorldCell<'w>,
     archetypes: &'w [crate::ecs::query::CachedArchetype],
+    sequential_chunks: &'w SequentialChunkCache,
     active_iteration: &'w Cell<bool>,
     marker: PhantomData<fn() -> (Q, F)>,
 }
@@ -118,6 +123,7 @@ pub struct ParView<'w, Q: QuerySpec, F: QueryFilter = ()> {
     world: UnsafeWorldCell<'w>,
     archetypes: &'w [crate::ecs::query::CachedArchetype],
     parallel_jobs: &'w ParallelJobCache,
+    sequential_chunks: &'w SequentialChunkCache,
     active_iteration: &'w Cell<bool>,
     marker: PhantomData<fn() -> (Q, F)>,
 }
@@ -137,6 +143,8 @@ where
 {
     #[inline(always)]
     fn world(&self) -> &World {
+        // SAFETY: Views are created only by SystemParam::get from the live
+        // scheduler World and cannot outlive that invocation.
         unsafe { self.world.world() }
     }
 
@@ -149,11 +157,20 @@ where
         ViewIterationGuard(self.active_iteration)
     }
 
+    #[inline(always)]
+    fn prepared_chunks(&self) -> Option<&[SequentialChunk]> {
+        self.sequential_chunks.current(self.world())
+    }
+
     pub fn for_each<Func>(&self, f: Func)
     where
         Func: for<'a> FnMut(Q::Item<'a>),
     {
         let _iteration = self.begin_iteration();
+        if let Some(chunks) = self.prepared_chunks() {
+            run_cached_for_each::<Q, _>(chunks, f);
+            return;
+        }
         run_for_each::<Q, _>(self.world(), self.archetypes, f);
     }
 
@@ -162,6 +179,10 @@ where
         Func: for<'a> FnMut(EntityId, Q::Item<'a>),
     {
         let _iteration = self.begin_iteration();
+        if let Some(chunks) = self.prepared_chunks() {
+            run_cached_for_each_with_entity::<Q, _>(chunks, f);
+            return;
+        }
         run_for_each_with_entity::<Q, _>(self.world(), self.archetypes, f);
     }
 
@@ -170,6 +191,10 @@ where
         Func: for<'a> FnMut(Q::Chunk<'a>),
     {
         let _iteration = self.begin_iteration();
+        if let Some(chunks) = self.prepared_chunks() {
+            run_cached_for_each_chunk::<Q, _>(chunks, f);
+            return;
+        }
         run_for_each_chunk::<Q, _>(self.world(), self.archetypes, f);
     }
 
@@ -178,6 +203,10 @@ where
         Func: for<'a> FnMut(&'a [EntityId], Q::Chunk<'a>),
     {
         let _iteration = self.begin_iteration();
+        if let Some(chunks) = self.prepared_chunks() {
+            run_cached_for_each_chunk_with_entities::<Q, _>(chunks, f);
+            return;
+        }
         run_for_each_chunk_with_entities::<Q, _>(self.world(), self.archetypes, f);
     }
 
@@ -218,6 +247,9 @@ where
 
     fn prepare(state: &mut Self::State, world: &World) -> Result<(), ParamError> {
         state.prepared.prepare::<F>(world, &state.descriptor);
+        state
+            .sequential_chunks
+            .prepare(state.prepared.archetypes.as_slice(), world);
         Ok(())
     }
 
@@ -229,6 +261,7 @@ where
         View {
             world,
             archetypes: state.prepared.archetypes.as_slice(),
+            sequential_chunks: &state.sequential_chunks,
             active_iteration: &state.active_iteration,
             marker: PhantomData,
         }
@@ -242,6 +275,8 @@ where
 {
     #[inline(always)]
     fn world(&self) -> &World {
+        // SAFETY: ParViews are created only by SystemParam::get from the live
+        // scheduler World and cannot outlive that invocation.
         unsafe { self.world.world() }
     }
 
@@ -259,6 +294,11 @@ where
         prepared_job_snapshot(self.parallel_jobs)
     }
 
+    #[inline(always)]
+    fn prepared_chunks(&self) -> Option<&[SequentialChunk]> {
+        self.sequential_chunks.current(self.world())
+    }
+
     pub fn par_for_each<Func>(&self, f: Func)
     where
         for<'a> Q::Item<'a>: Send,
@@ -267,6 +307,12 @@ where
         let _iteration = self.begin_iteration();
         let world = self.world;
         let jobs = self.parallel_snapshot();
+        if !jobs.will_run_parallel() {
+            if let Some(chunks) = self.prepared_chunks() {
+                run_cached_for_each::<Q, _>(chunks, f);
+                return;
+            }
+        }
         par_for_each::<Q, _>(self.archetypes, unsafe { world.world() }, jobs, f);
     }
 
@@ -278,6 +324,12 @@ where
         let _iteration = self.begin_iteration();
         let world = self.world;
         let jobs = self.parallel_snapshot();
+        if !jobs.will_run_parallel() {
+            if let Some(chunks) = self.prepared_chunks() {
+                run_cached_for_each_with_entity::<Q, _>(chunks, f);
+                return;
+            }
+        }
         par_for_each_with_entity::<Q, _>(self.archetypes, unsafe { world.world() }, jobs, f);
     }
 
@@ -289,6 +341,12 @@ where
         let _iteration = self.begin_iteration();
         let world = self.world;
         let jobs = self.parallel_snapshot();
+        if !jobs.will_run_parallel() {
+            if let Some(chunks) = self.prepared_chunks() {
+                run_cached_for_each_chunk::<Q, _>(chunks, f);
+                return;
+            }
+        }
         par_for_each_chunk::<Q, _>(self.archetypes, unsafe { world.world() }, jobs, f);
     }
 
@@ -300,6 +358,12 @@ where
         let _iteration = self.begin_iteration();
         let world = self.world;
         let jobs = self.parallel_snapshot();
+        if !jobs.will_run_parallel() {
+            if let Some(chunks) = self.prepared_chunks() {
+                run_cached_for_each_chunk_with_entities::<Q, _>(chunks, f);
+                return;
+            }
+        }
         par_for_each_chunk_with_entities::<Q, _>(
             self.archetypes,
             unsafe { world.world() },
@@ -348,6 +412,10 @@ where
             .view
             .prepared
             .prepare::<F>(world, &state.view.descriptor);
+        state
+            .view
+            .sequential_chunks
+            .prepare(state.view.prepared.archetypes.as_slice(), world);
         prepare_job_cache(
             &mut state.parallel_jobs,
             state.view.prepared.archetypes.as_slice(),
@@ -365,6 +433,7 @@ where
             world,
             archetypes: state.view.prepared.archetypes.as_slice(),
             parallel_jobs: &state.parallel_jobs,
+            sequential_chunks: &state.view.sequential_chunks,
             active_iteration: &state.view.active_iteration,
             marker: PhantomData,
         }
@@ -467,6 +536,8 @@ unsafe impl<'marker, T: Sync + 'static> SystemParam for Res<'marker, T> {
         state: &'w mut Self::State,
         _context: SystemParamContext<'w>,
     ) -> Self::Item<'w> {
+        // SAFETY: prepare cached a live T pointer from this same World and the
+        // scheduler registered shared access for the entire invocation.
         Res(unsafe { &*state.ptr })
     }
 }
@@ -513,6 +584,8 @@ unsafe impl<'marker, T: Send + 'static> SystemParam for ResMut<'marker, T> {
         state: &'w mut Self::State,
         _context: SystemParamContext<'w>,
     ) -> Self::Item<'w> {
+        // SAFETY: prepare cached a live T pointer from this same World and the
+        // scheduler grants this system exclusive resource access.
         ResMut(unsafe { &mut *state.ptr })
     }
 }
@@ -583,6 +656,8 @@ unsafe impl SystemParam for Commands<'_> {
         _state: &'w mut Self::State,
         context: SystemParamContext<'w>,
     ) -> Self::Item<'w> {
+        // SAFETY: SystemParamContext owns the invocation-private command
+        // buffer exclusively for `'w`.
         unsafe { Commands::from_ptr(context.commands()) }
     }
 }
@@ -642,6 +717,8 @@ macro_rules! impl_system_param_tuple {
             ) -> Self::Item<'w> {
                 let ($($state,)+) = state;
                 ($(
+                    // SAFETY: tuple registration combines and validates every
+                    // child's access; each child receives its own state.
                     unsafe { $Param::get(world, $state, context) },
                 )+)
             }

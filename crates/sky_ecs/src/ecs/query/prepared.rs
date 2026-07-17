@@ -1,6 +1,7 @@
 use super::filter::QueryFilter;
 use super::parallel;
 use super::param::QuerySpec;
+use super::sequential::{self, SequentialChunkCache};
 use super::{EntityId, PreparedCache, QueryDescriptor, QueryWorld, World};
 use core::marker::PhantomData;
 
@@ -23,6 +24,7 @@ pub struct PreparedQuery<Q, Flt = ()> {
     descriptor: QueryDescriptor,
     prepared: PreparedCache,
     parallel_jobs: parallel::ParallelJobCache,
+    sequential_chunks: SequentialChunkCache,
     marker: PhantomData<fn() -> (Q, Flt)>,
 }
 
@@ -32,6 +34,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> Default for PreparedQuery<Q, Flt> {
             descriptor: Q::descriptor(),
             prepared: PreparedCache::default(),
             parallel_jobs: parallel::ParallelJobCache::default(),
+            sequential_chunks: SequentialChunkCache::default(),
             marker: PhantomData,
         }
     }
@@ -67,6 +70,13 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     {
         let world = world.as_world();
         self.prepare(world);
+        if let Some(chunks) = self
+            .sequential_chunks
+            .get_or_prepare(&self.prepared.archetypes, world)
+        {
+            sequential::run_for_each_chunk::<Q, _>(chunks, f);
+            return;
+        }
         for cached in self.prepared.archetypes.iter() {
             let data = &world.data[cached.data_index];
 
@@ -166,6 +176,13 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     {
         let world = world.as_world();
         self.prepare(world);
+        if let Some(chunks) = self
+            .sequential_chunks
+            .get_or_prepare(&self.prepared.archetypes, world)
+        {
+            sequential::run_for_each::<Q, _>(chunks, f);
+            return;
+        }
         for cached in self.prepared.archetypes.iter() {
             let data = &world.data[cached.data_index];
 
@@ -208,6 +225,13 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     {
         let world = world.as_world();
         self.prepare(world);
+        if let Some(chunks) = self
+            .sequential_chunks
+            .get_or_prepare(&self.prepared.archetypes, world)
+        {
+            sequential::run_for_each_with_entity::<Q, _>(chunks, f);
+            return;
+        }
         for cached in self.prepared.archetypes.iter() {
             let data = &world.data[cached.data_index];
 
@@ -250,6 +274,13 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     {
         let world = world.as_world();
         self.prepare(world);
+        if let Some(chunks) = self
+            .sequential_chunks
+            .get_or_prepare(&self.prepared.archetypes, world)
+        {
+            sequential::run_for_each_chunk_with_entities::<Q, _>(chunks, f);
+            return;
+        }
         for cached in self.prepared.archetypes.iter() {
             let data = &world.data[cached.data_index];
 
@@ -321,7 +352,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::{create_archetype, World};
+    use super::super::super::World;
     use super::super::{QueryFilter, With, Without};
     use super::PreparedQuery;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -380,19 +411,10 @@ mod tests {
         }
     }
 
-    fn spawn(world: &mut World, archetype: super::super::super::Archetype, count: usize) {
-        for _ in 0..count {
-            unsafe {
-                world.add_entity(archetype);
-            }
-        }
-    }
-
     #[test]
     fn typed_single_component_query_reads_and_writes() {
-        let archetype = create_archetype().add_rust_component::<Velocity>().build();
         let mut world = World::new();
-        spawn(&mut world, archetype, 4);
+        world.spawn_batch((0..4).map(|_| (Velocity::default(),)));
 
         let mut init = PreparedQuery::<&mut Velocity>::new();
         let mut expected = 1.0;
@@ -412,12 +434,8 @@ mod tests {
 
     #[test]
     fn typed_two_component_query_updates_positions() {
-        let archetype = create_archetype()
-            .add_rust_component::<Position>()
-            .add_rust_component::<Velocity>()
-            .build();
         let mut world = World::new();
-        spawn(&mut world, archetype, 8);
+        world.spawn_batch((0..8).map(|_| (Position::default(), Velocity::default())));
 
         let mut init = PreparedQuery::<&mut Velocity>::new();
         init.for_each(&mut world, |velocity| {
@@ -442,14 +460,15 @@ mod tests {
 
     #[test]
     fn typed_four_component_query_runs_across_matching_archetypes() {
-        let archetype = create_archetype()
-            .add_rust_component::<Position>()
-            .add_rust_component::<Velocity>()
-            .add_rust_component::<Extra>()
-            .add_rust_component::<Mass>()
-            .build();
         let mut world = World::new();
-        spawn(&mut world, archetype, 6);
+        world.spawn_batch((0..6).map(|_| {
+            (
+                Position::default(),
+                Velocity::default(),
+                Extra::default(),
+                Mass::default(),
+            )
+        }));
 
         let mut init = PreparedQuery::<(&mut Velocity, &mut Extra, &mut Mass)>::new();
         init.for_each(&mut world, |(velocity, extra, mass)| {
@@ -481,16 +500,54 @@ mod tests {
     }
 
     #[test]
-    fn query_only_matches_archetypes_with_all_components() {
-        let matching = create_archetype()
-            .add_rust_component::<Position>()
-            .add_rust_component::<Velocity>()
-            .build();
-        let position_only = create_archetype().add_rust_component::<Position>().build();
-
+    fn required_posting_intersections_match_one_four_and_eight_components() {
         let mut world = World::new();
-        spawn(&mut world, matching, 2);
-        spawn(&mut world, position_only, 3);
+        world.spawn((MatchA(1),));
+        world.spawn((MatchA(1), MatchB(2), MatchC(3), MatchD(4)));
+        world.spawn((
+            MatchA(1),
+            MatchB(2),
+            MatchC(3),
+            MatchD(4),
+            MatchE(5),
+            MatchF(6),
+            MatchG(7),
+            MatchH(8),
+        ));
+        world.spawn((MatchB(20), MatchC(30), MatchD(40)));
+
+        let mut one = PreparedQuery::<&MatchA>::new();
+        assert_eq!(one.count(&world), 3);
+        assert_eq!(one.cached_archetype_count(), 3);
+
+        let mut four = PreparedQuery::<(&MatchA, &MatchB, &MatchC, &MatchD)>::new();
+        assert_eq!(four.count(&world), 2);
+        assert_eq!(four.cached_archetype_count(), 2);
+
+        let mut eight = PreparedQuery::<(
+            &MatchA,
+            &MatchB,
+            &MatchC,
+            &MatchD,
+            &MatchE,
+            &MatchF,
+            &MatchG,
+            &MatchH,
+        )>::new();
+        assert_eq!(eight.count(&world), 1);
+        eight.for_each(&world, |(a, b, c, d, e, f, g, h)| {
+            assert_eq!(
+                (a.0, b.0, c.0, d.0, e.0, f.0, g.0, h.0),
+                (1, 2, 3, 4, 5, 6, 7, 8)
+            );
+        });
+    }
+
+    #[test]
+    fn query_only_matches_archetypes_with_all_components() {
+        let mut world = World::new();
+        world.spawn_batch((0..2).map(|_| (Position::default(), Velocity::default())));
+        world.spawn_batch((0..3).map(|_| (Position::default(),)));
 
         let mut init = PreparedQuery::<&mut Velocity>::new();
         init.for_each(&mut world, |velocity| {
@@ -519,20 +576,8 @@ mod tests {
 
     #[test]
     fn prepared_query_refreshes_when_new_matching_archetype_appears() {
-        let base = create_archetype()
-            .add_rust_component::<Position>()
-            .add_rust_component::<Velocity>()
-            .build();
-        let extended = create_archetype()
-            .add_rust_component::<Position>()
-            .add_rust_component::<Velocity>()
-            .add_rust_component::<Extra>()
-            .build();
-
         let mut world = World::new();
-        unsafe {
-            world.add_entity(base);
-        }
+        world.spawn((Position::default(), Velocity::default()));
 
         let mut init = PreparedQuery::<&mut Velocity>::new();
         init.for_each(&mut world, |velocity| {
@@ -545,9 +590,7 @@ mod tests {
         });
         assert_eq!(prepared.cached_archetype_count(), 1);
 
-        unsafe {
-            world.add_entity(extended);
-        }
+        world.spawn((Position::default(), Velocity::default(), Extra::default()));
         let mut init_new = PreparedQuery::<(&mut Velocity, &mut Extra)>::new();
         init_new.for_each(&mut world, |(velocity, extra)| {
             velocity.x = 1.0;
@@ -569,40 +612,188 @@ mod tests {
     }
 
     #[test]
-    fn prepared_query_scans_only_appended_archetypes_and_resets_after_clear() {
-        let base = create_archetype().add_rust_component::<Position>().build();
-        let extended = create_archetype()
-            .add_rust_component::<Position>()
-            .add_rust_component::<Velocity>()
-            .build();
-
+    fn sequential_chunk_plan_is_built_after_layout_reuse() {
         let mut world = World::new();
-        unsafe {
-            world.add_entity(base);
+        world.spawn((Position::default(),));
+        world.spawn((Position::default(), MatchA(1)));
+        world.spawn((Position::default(), MatchB(2)));
+        world.spawn((Position::default(), MatchC(3)));
+        world.spawn((Position::default(), MatchD(4)));
+        world.spawn((Position::default(), MatchE(5)));
+        world.spawn((Position::default(), MatchF(6)));
+        world.spawn((Position::default(), MatchG(7)));
+
+        let mut query = PreparedQuery::<&mut Position>::new();
+        query.for_each(&mut world, |position| position.x += 1.0);
+        assert_eq!(query.sequential_chunks.rebuild_count(), 0);
+
+        query.for_each_chunk(&mut world, |positions| {
+            for position in positions {
+                position.x += 1.0;
+            }
+        });
+        assert_eq!(query.sequential_chunks.rebuild_count(), 1);
+
+        let mut entity_ids = std::collections::HashSet::new();
+        query.for_each_with_entity(&mut world, |entity, position| {
+            assert!(entity_ids.insert(entity));
+            position.x += 1.0;
+        });
+        assert_eq!(query.sequential_chunks.rebuild_count(), 1);
+
+        let mut chunk_entity_count = 0;
+        query.for_each_chunk_with_entities(&mut world, |entities, positions| {
+            assert_eq!(entities.len(), positions.len());
+            chunk_entity_count += entities.len();
+            for position in positions {
+                position.x += 1.0;
+            }
+        });
+
+        assert_eq!(entity_ids.len(), 8);
+        assert_eq!(chunk_entity_count, 8);
+        let mut seen = 0;
+        let mut check = PreparedQuery::<&Position>::new();
+        check.for_each(&world, |position| {
+            assert_eq!(position.x, 4.0);
+            seen += 1;
+        });
+        assert_eq!(seen, 8);
+    }
+
+    #[test]
+    fn sequential_chunk_plan_keeps_dense_layout_on_direct_path() {
+        let mut world = World::new();
+        world.spawn_batch((0..1_024).map(|_| (Position::default(), Velocity::default())));
+
+        let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
+        for _ in 0..3 {
+            query.for_each_chunk(&mut world, |(positions, velocities)| {
+                for index in 0..positions.len() {
+                    positions[index].x += velocities[index].x;
+                }
+            });
         }
+
+        assert_eq!(query.sequential_chunks.rebuild_count(), 0);
+    }
+
+    #[test]
+    fn sequential_chunk_plan_rebuilds_after_structural_change() {
+        let mut world = World::new();
+        world.spawn((Position::default(),));
+        world.spawn((Position::default(), MatchA(1)));
+        world.spawn((Position::default(), MatchB(2)));
+        world.spawn((Position::default(), MatchC(3)));
+        world.spawn((Position::default(), MatchD(4)));
+        world.spawn((Position::default(), MatchE(5)));
+        world.spawn((Position::default(), MatchF(6)));
+        world.spawn((Position::default(), MatchG(7)));
+
+        let mut query = PreparedQuery::<&Position>::new();
+        query.for_each(&world, |_| {});
+        query.for_each(&world, |_| {});
+        assert_eq!(query.sequential_chunks.rebuild_count(), 1);
+
+        world.spawn((Position::default(), MatchH(8)));
+
+        let mut seen = 0;
+        query.for_each(&world, |_| seen += 1);
+        assert_eq!(seen, 9);
+        assert_eq!(query.sequential_chunks.rebuild_count(), 1);
+
+        seen = 0;
+        query.for_each(&world, |_| seen += 1);
+        assert_eq!(seen, 9);
+        assert_eq!(query.sequential_chunks.rebuild_count(), 2);
+    }
+
+    #[test]
+    fn sequential_chunk_plan_never_reuses_pointers_across_worlds() {
+        fn fragmented_world(x: f32) -> World {
+            let mut world = World::new();
+            world.spawn((Position { x, y: 0.0 },));
+            world.spawn((Position { x, y: 0.0 }, MatchA(1)));
+            world.spawn((Position { x, y: 0.0 }, MatchB(2)));
+            world.spawn((Position { x, y: 0.0 }, MatchC(3)));
+            world.spawn((Position { x, y: 0.0 }, MatchD(4)));
+            world.spawn((Position { x, y: 0.0 }, MatchE(5)));
+            world.spawn((Position { x, y: 0.0 }, MatchF(6)));
+            world.spawn((Position { x, y: 0.0 }, MatchG(7)));
+            world
+        }
+
+        let first = fragmented_world(1.0);
+        let second = fragmented_world(2.0);
+        let mut query = PreparedQuery::<&Position>::new();
+
+        query.for_each(&first, |_| {});
+        query.for_each(&first, |_| {});
+        assert_eq!(query.sequential_chunks.rebuild_count(), 1);
+
+        for expected_sum in [16.0, 16.0] {
+            let mut sum = 0.0;
+            query.for_each(&second, |position| sum += position.x);
+            assert_eq!(sum, expected_sum);
+        }
+        assert_eq!(query.sequential_chunks.rebuild_count(), 2);
+    }
+
+    #[test]
+    fn required_posting_refresh_finds_a_component_absent_from_the_initial_world() {
+        let mut world = World::new();
+        world.spawn((Position::default(),));
+
+        let mut prepared = PreparedQuery::<(&Position, &Velocity)>::new();
+        assert_eq!(prepared.count(&world), 0);
+        assert_eq!(prepared.cached_archetype_count(), 0);
+
+        world.spawn((Position::default(), Velocity::default()));
+        assert_eq!(prepared.count(&world), 1);
+        assert_eq!(prepared.cached_archetype_count(), 1);
+    }
+
+    #[test]
+    fn prepared_query_scans_only_appended_archetypes_and_resets_after_clear() {
+        let mut world = World::new();
+        world.spawn((Position::default(),));
 
         FILTER_MATCH_CALLS.store(0, Ordering::Relaxed);
         let mut prepared = PreparedQuery::<&Position, CountingFilter>::new();
         assert_eq!(prepared.count(&world), 1);
         assert_eq!(FILTER_MATCH_CALLS.load(Ordering::Relaxed), 1);
 
-        unsafe {
-            world.add_entity(extended);
-        }
+        world.spawn((Position::default(), Velocity::default()));
         assert_eq!(prepared.count(&world), 2);
         assert_eq!(FILTER_MATCH_CALLS.load(Ordering::Relaxed), 2);
 
         world.clear();
-        unsafe {
-            world.add_entity(base);
-            world.add_entity(extended);
-        }
+        world.spawn((Position::default(),));
+        world.spawn((Position::default(), Velocity::default()));
         let calls_before_reset = FILTER_MATCH_CALLS.load(Ordering::Relaxed);
         assert_eq!(prepared.count(&world), 2);
         assert_eq!(
             FILTER_MATCH_CALLS.load(Ordering::Relaxed) - calls_before_reset,
             2
         );
+    }
+
+    #[test]
+    fn required_posting_query_rebuilds_after_world_clear() {
+        let mut world = World::new();
+        world.spawn((Position::default(),));
+        world.spawn((Position::default(), Velocity::default()));
+
+        let mut prepared = PreparedQuery::<&Position>::new();
+        assert_eq!(prepared.count(&world), 2);
+        assert_eq!(prepared.cached_archetype_count(), 2);
+
+        world.clear();
+        world.spawn((Velocity::default(),));
+        world.spawn((Position::default(), Extra::default()));
+
+        assert_eq!(prepared.count(&world), 1);
+        assert_eq!(prepared.cached_archetype_count(), 1);
     }
 
     #[test]
@@ -627,11 +818,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "duplicate component type")]
     fn typed_query_rejects_duplicate_types() {
-        let archetype = create_archetype().add_rust_component::<Position>().build();
         let mut world = World::new();
-        unsafe {
-            world.add_entity(archetype);
-        }
+        world.spawn((Position::default(),));
 
         let mut query = PreparedQuery::<(&mut Position, &mut Position)>::new();
         query.for_each(&mut world, |_| {});
@@ -717,6 +905,41 @@ mod tests {
 
         assert_eq!(with_vel, 1);
         assert_eq!(without_vel, 1);
+    }
+
+    #[test]
+    fn positive_filter_posting_drives_an_all_optional_query() {
+        let mut world = World::new();
+        world.spawn((Position { x: 1.0, y: 0.0 },));
+        world.spawn((Velocity { x: 2.0, y: 0.0 },));
+
+        let mut query =
+            PreparedQuery::<(Option<&Position>, Option<&Velocity>), With<Velocity>>::new();
+        assert_eq!(query.count(&world), 1);
+
+        world.spawn((Position { x: 3.0, y: 0.0 }, Velocity { x: 4.0, y: 0.0 }));
+
+        let mut sum = 0.0;
+        query.for_each(&world, |(position, velocity)| {
+            sum += position.map_or(0.0, |position| position.x);
+            sum += velocity
+                .expect("With<Velocity> guarantees the optional value")
+                .x;
+        });
+        assert_eq!(query.cached_archetype_count(), 2);
+        assert_eq!(sum, 9.0);
+    }
+
+    #[test]
+    fn all_optional_query_without_a_positive_term_still_scans_every_archetype() {
+        let mut world = World::new();
+        world.spawn((Position { x: 1.0, y: 0.0 },));
+        world.spawn((Velocity { x: 2.0, y: 0.0 },));
+        world.spawn((Extra { value: 3.0 },));
+
+        let mut query = PreparedQuery::<(Option<&Position>, Option<&Velocity>)>::new();
+        assert_eq!(query.count(&world), 3);
+        assert_eq!(query.cached_archetype_count(), 3);
     }
 
     #[test]

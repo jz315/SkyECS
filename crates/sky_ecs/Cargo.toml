@@ -52,3 +52,7 @@ harness = false
 [[bench]]
 name = "system_schedule"
 harness = false
+
+[[bench]]
+name = "chunk_cost"
+harness = false

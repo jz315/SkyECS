@@ -10,6 +10,7 @@ use smallvec::SmallVec;
 
 use crate::ecs::{component_type, ComponentType};
 
+/// Maximum number of component columns represented by one archetype.
 pub const MAX_COMPONENTS: usize = 32;
 const MISSING_COMPONENT_INDEX: u8 = u8::MAX;
 
@@ -21,7 +22,7 @@ thread_local! {
     static LAST_COMPONENT_LOOKUP: Cell<Option<(usize, usize, u8)>> = const { Cell::new(None) };
 }
 
-// 定义Archetype结构体，包括组件信息和整体对齐要求
+// Interned archetype metadata, including component columns and alignment.
 #[derive(Debug)]
 pub struct InternalArchetype {
     pub components: SmallVec<[ComponentType; MAX_COMPONENTS]>,
@@ -30,7 +31,7 @@ pub struct InternalArchetype {
 }
 
 impl InternalArchetype {
-    // 创建一个新的Archetype
+    // Creates empty archetype metadata before it is normalized and interned.
     fn new() -> Self {
         InternalArchetype {
             components: SmallVec::new(),
@@ -39,7 +40,7 @@ impl InternalArchetype {
         }
     }
 
-    // 添加一个Component
+    // Adds one component before the final sort and validation pass.
     fn add_component(mut self, ty: ComponentType) -> Self {
         self.alignment = self.alignment.max(ty.align);
         self.components.push(ty);
@@ -48,6 +49,10 @@ impl InternalArchetype {
     }
 
     fn build(mut self) -> Self {
+        assert!(
+            self.components.len() <= MAX_COMPONENTS,
+            "archetypes support at most {MAX_COMPONENTS} component types"
+        );
         self.components.sort_by_key(|a| a.id());
         for window in self.components.windows(2) {
             if window[0].id() == window[1].id() {
@@ -69,7 +74,7 @@ impl InternalArchetype {
 }
 
 impl InternalArchetype {
-    // 查询Archetype是否包含指定类型的Component
+    // Returns whether this archetype contains the requested component type.
     #[inline(always)]
     pub fn has_component(&self, ty: &ComponentType) -> bool {
         self.query_component_index(ty).is_some()
@@ -131,6 +136,12 @@ impl Hash for Archetype {
     }
 }
 #[derive(Debug, Clone, Copy)]
+/// A process-interned component signature.
+///
+/// Archetype metadata intentionally lives for the process lifetime so this
+/// handle can remain `Copy` and pointer comparisons stay constant-time. Tools
+/// that generate schemas dynamically should reuse component combinations
+/// instead of creating an unbounded stream of unique signatures.
 pub struct Archetype {
     archetype: &'static InternalArchetype,
 }
@@ -154,7 +165,7 @@ impl Deref for Archetype {
     }
 }
 
-// 定义ArchetypeBuilder结构体
+// Incremental builder used by typed, dynamic, and expert construction paths.
 pub struct ArchetypeBuilder {
     internal_archetype: InternalArchetype,
 }
@@ -181,21 +192,25 @@ impl ArchetypeBuilder {
             .components
             .iter()
             .map(|component| component.id())
-            .collect::<Vec<_>>();
+            .collect::<SmallVec<[usize; 16]>>();
 
-        if let Some(archetype) = ARCHETYPE_CACHE.read().unwrap().get(&key).copied() {
+        if let Some(archetype) = ARCHETYPE_CACHE.read().unwrap().get(key.as_slice()).copied() {
             return archetype;
         }
 
         let mut cache = ARCHETYPE_CACHE.write().unwrap();
-        if let Some(archetype) = cache.get(&key).copied() {
+        if let Some(archetype) = cache.get(key.as_slice()).copied() {
             return archetype;
         }
 
         let archetype = Archetype::new(Box::leak(Box::new(built)));
-        cache.insert(key, archetype);
+        cache.insert(key.into_vec(), archetype);
         archetype
     }
+}
+
+pub(crate) fn interned_archetype_count() -> usize {
+    ARCHETYPE_CACHE.read().unwrap().len()
 }
 
 pub fn create_archetype() -> ArchetypeBuilder {
@@ -204,7 +219,7 @@ pub fn create_archetype() -> ArchetypeBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::create_archetype;
+    use super::{component_type, create_archetype, InternalArchetype, MAX_COMPONENTS};
     use std::sync::{Arc, Barrier};
     use std::thread;
 
@@ -223,6 +238,16 @@ mod tests {
             .add_rust_component::<Position>()
             .add_rust_component::<Position>()
             .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "archetypes support at most 32 component types")]
+    fn archetype_rejects_more_columns_than_storage_can_represent() {
+        let mut archetype = InternalArchetype::new();
+        for _ in 0..=MAX_COMPONENTS {
+            archetype.components.push(component_type::<Position>());
+        }
+        let _ = archetype.build();
     }
 
     #[test]

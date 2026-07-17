@@ -5,6 +5,8 @@
 //! callbacks without knowing about components, inspectors, math types, or
 //! engine modules.
 
+#![deny(unsafe_op_in_unsafe_fn)]
+
 use rustc_hash::FxHashMap;
 use std::alloc::Layout;
 use std::any::{type_name, TypeId};
@@ -19,7 +21,8 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 /// function was created for. After the call the pointee is logically dropped
 /// and must not be read again.
 pub unsafe fn drop_in_place_erased<T>(ptr: *mut u8) {
-    std::ptr::drop_in_place(ptr as *mut T);
+    // SAFETY: upheld by this function's caller contract.
+    unsafe { std::ptr::drop_in_place(ptr.cast::<T>()) };
 }
 
 /// Foundational runtime type handle.

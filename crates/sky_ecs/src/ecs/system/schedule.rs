@@ -204,7 +204,9 @@ impl SystemStage {
             for &index in segment_systems.iter() {
                 let count = commands[index].len();
                 command_diagnostics[index].record_enqueued(count);
-                commands[index].apply(world);
+                if count != 0 {
+                    commands[index].apply(world);
+                }
                 command_diagnostics[index].record_applied(count);
             }
 
@@ -263,18 +265,22 @@ unsafe impl Sync for WorldBase {}
 
 impl SystemBase {
     unsafe fn get(&self, index: usize) -> *mut Box<dyn ErasedSystem> {
+        // SAFETY: run_wave receives indices into the unchanged systems slice.
         unsafe { self.0.add(index) }
     }
 }
 
 impl CommandBase {
     unsafe fn get(&self, index: usize) -> *mut CommandBuffer {
+        // SAFETY: run_wave receives indices into the parallel commands slice.
         unsafe { self.0.add(index) }
     }
 }
 
 impl WorldBase {
     unsafe fn cell(&self) -> UnsafeWorldCell<'_> {
+        // SAFETY: WorldBase is built from run_wave's live exclusive World;
+        // the compiled wave enforces disjoint access before sharing the cell.
         unsafe { UnsafeWorldCell::new(self.0) }
     }
 }
@@ -294,6 +300,8 @@ fn run_wave(
         wave.len() >= parallel_wave_min_systems && rayon::current_num_threads() > 1;
     if !should_parallel {
         for &index in wave {
+            // SAFETY: wave indices are valid and unique; the scheduler has
+            // prepared each system and its matching private command buffer.
             unsafe {
                 let system = &mut **systems.get(index);
                 debug_assert!(!system.name().is_empty());
@@ -307,13 +315,17 @@ fn run_wave(
         return false;
     }
 
-    wave.par_iter().for_each(|&index| unsafe {
-        let system = &mut **systems.get(index);
-        debug_assert!(!system.name().is_empty());
-        let commands = commands.get(index);
-        #[cfg(feature = "profile")]
-        let _scope = sky_profile::profile_scope!("ecs", format!("system:{}", system.name()));
-        system.run(world.cell(), commands);
+    wave.par_iter().for_each(|&index| {
+        // SAFETY: compiled waves contain unique system indices and pairwise
+        // disjoint World access; vectors remain fixed until all jobs join.
+        unsafe {
+            let system = &mut **systems.get(index);
+            debug_assert!(!system.name().is_empty());
+            let commands = commands.get(index);
+            #[cfg(feature = "profile")]
+            let _scope = sky_profile::profile_scope!("ecs", format!("system:{}", system.name()));
+            system.run(world.cell(), commands);
+        }
     });
     true
 }

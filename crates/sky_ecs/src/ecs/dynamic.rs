@@ -4,7 +4,7 @@
 //! APIs validate component identity and access mode at runtime, while expert
 //! APIs hand storage invariants to the caller.
 
-use super::commands::InsertValue;
+use super::erased_value::InsertValue;
 use super::query::{resolve_column_ptr, PreparedCache, QueryComponent, QueryDescriptor};
 use super::{component_type, ComponentType, EntityId, World};
 use core::fmt;

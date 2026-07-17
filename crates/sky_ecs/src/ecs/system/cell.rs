@@ -15,6 +15,10 @@ unsafe impl Send for UnsafeWorldCell<'_> {}
 unsafe impl Sync for UnsafeWorldCell<'_> {}
 
 impl<'w> UnsafeWorldCell<'w> {
+    /// # Safety
+    ///
+    /// `world` must point to a live World for `'w`. The scheduler must enforce
+    /// the declared access sets for every capability derived from this cell.
     pub(crate) unsafe fn new(world: *mut World) -> Self {
         Self {
             ptr: NonNull::new(world).expect("scheduler world pointer must not be null"),
@@ -23,6 +27,8 @@ impl<'w> UnsafeWorldCell<'w> {
     }
 
     pub(crate) unsafe fn world(self) -> &'w World {
+        // SAFETY: `new` requires a live World for `'w`; copying the capability
+        // does not extend that lifetime or grant structural mutation.
         unsafe { self.ptr.as_ref() }
     }
 }
@@ -34,6 +40,10 @@ pub(crate) struct SystemParamContext<'w> {
 }
 
 impl<'w> SystemParamContext<'w> {
+    /// # Safety
+    ///
+    /// `commands` must point to the live, invocation-private command buffer
+    /// that is exclusively available for `'w`.
     pub(crate) unsafe fn new(commands: *mut CommandBuffer) -> Self {
         Self {
             commands: NonNull::new(commands).expect("system command buffer must not be null"),
