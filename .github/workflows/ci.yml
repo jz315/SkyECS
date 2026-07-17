@@ -36,7 +36,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang lld
+          sudo apt-get install --yes clang lld llvm
 
       - name: Format
         run: cargo fmt --all --check
@@ -98,7 +98,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: |
           sudo apt-get update
-          sudo apt-get install --yes clang lld
+          sudo apt-get install --yes clang lld llvm
       - run: cargo bench -p sky_ecs --no-run
       - run: cargo bench -p sky_ecs_comparison --bench comparison --no-run
       - run: cargo package -p sky_type --allow-dirty
