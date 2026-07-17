@@ -8,7 +8,7 @@
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.2"
+sky_ecs = "0.1.3"
 ```
 
 创建 `src/main.rs` 并导入 `World`：

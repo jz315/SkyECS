@@ -9,7 +9,7 @@ scheduled ECS application.
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.2"
+sky_ecs = "0.1.3"
 ```
 
 Create `src/main.rs` and import `World`:

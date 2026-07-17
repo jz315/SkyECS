@@ -2,32 +2,87 @@
 
 [中文](API_zh.md) · [Tutorial](TUTORIAL.md) · [Rustdoc](https://docs.rs/sky_ecs)
 
-This guide maps common ECS tasks to the public API. Core ECS types are available
-directly from `sky_ecs` and through `sky_ecs::ecs`; plugin types are exported
-from `sky_ecs` and `sky_ecs::plugin`.
+This guide explains the API in the order it normally appears in code. Every
+section defines the types and `World` it needs; no block assumes that variables
+were defined in an earlier example.
 
-## API map
+Common types are exported directly from `sky_ecs`; plugin, runtime-typed, and
+low-level APIs are also grouped under `sky_ecs::plugin`, `sky_ecs::dynamic`, and
+`sky_ecs::expert`.
 
-| Task | API |
-|---|---|
-| Own ECS state | `World` |
-| Create entities | `World::spawn`, `World::spawn_batch` |
-| Read or update one entity | `get`, `get_mut`, `has`, `insert`, `remove` |
-| Iterate components | `query`, `query_mut` |
-| Filter archetypes | `With`, `Without`, `Any` |
-| Reuse an explicit query plan | `PreparedQuery` |
-| Defer structural changes | `Commands`, `CommandBuffer` |
-| Store singleton state | World resources, `Res`, `ResMut` |
-| Run systems | `View`, `ParView`, stages, `tick` |
-| Install modules | `Plugin`, `World::install` |
-| Runtime-known component types | `sky_ecs::dynamic` |
-| Low-level storage integration | `sky_ecs::expert` |
+## 1. Run a complete program first
 
-## World, entities, and components
+`Cargo.toml`:
 
-Any `'static` Rust type can be a component. A tuple of components is a bundle.
-`EntityId` is generational: after despawn, an old ID never names a newly reused
-entity slot.
+```toml
+[dependencies]
+sky_ecs = "0.1.3"
+```
+
+`src/main.rs`:
+
+```rust
+use sky_ecs::World;
+
+#[derive(Debug)]
+struct Position { x: f32, y: f32 }
+
+#[derive(Debug)]
+struct Velocity { x: f32, y: f32 }
+
+fn main() {
+    let mut world = World::new();
+
+    world.spawn((
+        Position { x: 0.0, y: 0.0 },
+        Velocity { x: 1.0, y: 2.0 },
+    ));
+
+    world
+        .query_mut::<(&mut Position, &Velocity)>()
+        .for_each(|(position, velocity)| {
+            position.x += velocity.x;
+            position.y += velocity.y;
+        });
+
+    world.query::<&Position>().for_each(|position| {
+        println!("{position:?}");
+    });
+}
+```
+
+This program already contains the three core ECS steps:
+
+1. `World::new` creates the container.
+2. `spawn` creates an entity from a component tuple.
+3. `query_mut` modifies components, while `query` iterates them read-only.
+
+## 2. World, components, Bundle, and EntityId
+
+`World` owns entities, components, resources, and the scheduler. Any `'static`
+Rust type can be a component. The component tuple passed to `spawn` is a Bundle.
+
+```rust
+use sky_ecs::{EntityId, World};
+
+struct Position(f32, f32);
+struct Health(u32);
+struct Player; // Zero-sized marker component
+
+let mut world = World::new();
+let player: EntityId = world.spawn((Position(0.0, 0.0), Health(100), Player));
+
+assert!(world.contains(player));
+assert_eq!(world.entity_count(), 1);
+```
+
+`EntityId` contains an index and a generation. After an entity is despawned,
+its old ID becomes invalid. Reusing the underlying slot never makes an old ID
+refer to a new entity.
+
+### Batch creation
+
+Use `spawn_batch` when many entities have the same Bundle shape:
 
 ```rust
 use sky_ecs::World;
@@ -36,101 +91,155 @@ struct Position(f32, f32);
 struct Velocity(f32, f32);
 
 let mut world = World::new();
-let entity = world.spawn((Position(0.0, 0.0), Velocity(1.0, 2.0)));
+world.spawn_batch((0..10_000).map(|i| (
+    Position(i as f32, 0.0),
+    Velocity(1.0, 0.0),
+)));
 
-assert!(world.contains(entity));
-assert!(world.has::<Position>(entity));
-world.get_mut::<Position>(entity).unwrap().0 += 1.0;
-world.insert(entity, String::from("player"));
-world.remove::<Velocity>(entity);
+assert_eq!(world.entity_count(), 10_000);
+```
+
+`spawn_batch` is intended for bulk imports that do not need to retain every
+`EntityId` immediately.
+
+Component tuples used by `spawn`, `spawn_batch`, typed queries, and filters
+support up to 16 items. One Archetype can contain at most 32 distinct component
+types. This is a per-Archetype storage limit, not a limit on how many component
+types a `World` may register. The wider low-level limit mainly serves dynamic
+and expert construction paths.
+
+## 3. Read and write one entity
+
+When you know the `EntityId`, use these methods:
+
+| Operation | Method | On failure |
+|---|---|---|
+| Check an entity | `contains(entity)` | `false` |
+| Check a component | `has::<T>(entity)` | `false` |
+| Read a component | `get::<T>(entity)` | `None` |
+| Modify a component | `get_mut::<T>(entity)` | `None` |
+| Add or replace | `insert(entity, value)` | `false` |
+| Remove a component | `remove::<T>(entity)` | `false` |
+| Despawn an entity | `despawn(entity)` | `false` |
+
+```rust
+use sky_ecs::World;
+
+#[derive(Debug, PartialEq)]
+struct Health(u32);
+struct Poison;
+
+let mut world = World::new();
+let entity = world.spawn((Health(100),));
+
+assert_eq!(world.get::<Health>(entity), Some(&Health(100)));
+world.get_mut::<Health>(entity).unwrap().0 -= 10;
+assert!(world.insert(entity, Poison));
+assert!(world.has::<Poison>(entity));
+assert!(world.remove::<Poison>(entity));
 assert!(world.despawn(entity));
-assert!(!world.contains(entity));
+assert!(world.get::<Health>(entity).is_none());
 ```
 
-Use `spawn_batch` when entities share one bundle shape:
+`insert`, `remove`, and `despawn` change storage structure, so they require
+`&mut World`.
+
+## 4. Move from single-entity access to queries
+
+Use `get` when an ID is known and accessed only once or twice. Use a query when
+you need to process every entity that contains a component combination.
 
 ```rust
-world.spawn_batch((0..10_000).map(|i| (Position(i as f32, 0.0), Velocity(1.0, 0.0))));
-```
+use sky_ecs::World;
 
-`clear` removes all entities but keeps resources. `entity_count` reports live
-entities.
+struct Position { x: f32, y: f32 }
+struct Velocity { x: f32, y: f32 }
 
-## Typed queries
+let mut world = World::new();
+world.spawn((Position { x: 0.0, y: 0.0 }, Velocity { x: 1.0, y: 0.0 }));
+world.spawn((Position { x: 5.0, y: 0.0 },)); // No Velocity
 
-Use `query` for read-only data and `query_mut` when any item is mutable.
-
-```rust
-world.query::<&Position>().for_each(|position| {
-    std::hint::black_box(position);
-});
-
+// Only entities with both Position and Velocity match.
 world
     .query_mut::<(&mut Position, &Velocity)>()
     .for_each(|(position, velocity)| {
-        position.0 += velocity.0;
-        position.1 += velocity.1;
+        position.x += velocity.x;
+        position.y += velocity.y;
     });
-```
 
-Query items can be references, tuples, and optional references:
-
-```rust
-world
-    .query::<(&Position, Option<&Velocity>)>()
-    .for_each(|(position, velocity)| {
-        let _ = (position, velocity);
-    });
-```
-
-Useful traversal methods include `for_each`, `for_each_with_entity`,
-`for_each_chunk`, `for_each_chunk_with_entities`, `count`, and `is_empty`.
-Chunk methods expose aligned component slices for batch processing.
-
-For wide named queries, derive `QueryData`:
-
-```rust
-use sky_ecs::QueryData;
-
-#[derive(QueryData)]
-struct Movement<'w> {
-    position: &'w mut Position,
-    velocity: &'w Velocity,
-}
-
-world.query_mut::<Movement>().for_each(|item| {
-    item.position.0 += item.velocity.0;
+// Use a with_entity variant when the query item also needs EntityId.
+world.query::<&Position>().for_each_with_entity(|entity, position| {
+    println!("{entity:?}: ({}, {})", position.x, position.y);
 });
 ```
 
-## Filters
+Use `query` for read-only queries. Use `query_mut` whenever the query item
+contains `&mut T`.
 
-Filters select archetypes at compile time and do not add values to the query
-item.
+## 5. Optional components and filters
+
+`Option<&T>` means “match the entity even when T is absent.” `With<T>` and
+`Without<T>` mean “select Archetypes that contain or do not contain T.”
 
 ```rust
-use sky_ecs::{Any, With, Without};
+use sky_ecs::{With, Without, World};
 
-struct Player;
+struct Position(f32, f32);
+struct Velocity(f32, f32);
+struct Enemy;
 struct Disabled;
-struct Selected;
 
+let mut world = World::new();
+world.spawn((Position(0.0, 0.0), Velocity(1.0, 0.0), Enemy));
+world.spawn((Position(5.0, 0.0), Enemy));
+world.spawn((Position(9.0, 0.0), Enemy, Disabled));
+
+// All three entities match; velocity may be None.
 world
-    .query::<&Position>()
-    .filter::<(With<Player>, Without<Disabled>)>()
-    .for_each(|position| { let _ = position; });
+    .query::<(&Position, Option<&Velocity>)>()
+    .filter::<With<Enemy>>()
+    .for_each(|(position, velocity)| {
+        let _ = (position, velocity);
+    });
 
-let visible = world
+// Only enemies that are not disabled match.
+let active_enemies = world
     .query::<&Position>()
-    .filter::<Any<(With<Player>, With<Selected>)>>();
+    .filter::<(With<Enemy>, Without<Disabled>)>();
+assert_eq!(active_enemies.count(), 2);
 ```
 
-## Parallel iteration
+Use `Any<(With<A>, With<B>)>` for OR filters. Wide query tuples can be replaced
+with named fields by using `#[derive(QueryData)]`.
 
-Bound queries provide `par_for_each` and `par_for_each_chunk`. Small workloads
-automatically stay sequential.
+## 6. Entity, chunk, and parallel iteration
+
+| Goal | Method |
+|---|---|
+| Process each entity | `for_each` |
+| Also receive the ID | `for_each_with_entity` |
+| Receive aligned component slices | `for_each_chunk` |
+| Receive chunk slices and an ID slice | `for_each_chunk_with_entities` |
+| Process entities in parallel | `par_for_each` |
+| Process chunks in parallel | `par_for_each_chunk` |
 
 ```rust
+use sky_ecs::World;
+
+struct Position(f32);
+struct Velocity(f32);
+
+let mut world = World::new();
+world.spawn_batch((0..10_000).map(|_| (Position(0.0), Velocity(1.0))));
+
+world
+    .query_mut::<(&mut Position, &Velocity)>()
+    .for_each_chunk(|(positions, velocities)| {
+        for i in 0..positions.len() {
+            positions[i].0 += velocities[i].0;
+        }
+    });
+
 world
     .query_mut::<(&mut Position, &Velocity)>()
     .par_for_each(|(position, velocity)| {
@@ -138,59 +247,72 @@ world
     });
 ```
 
-In systems, use `ParView<Q>` when parallel methods are required; use `View<Q>`
-for sequential work.
+Start ordinary logic with `for_each`. Use chunk iteration when an inner
+algorithm needs slices or is easier to vectorize. Parallel iteration has
+scheduling overhead, and small workloads automatically fall back to the
+sequential path.
 
-## Reusable plans and random access
+## 7. Resources: World-wide singletons
 
-`World::query` caches matching plans in the world and is the normal API.
-`PreparedQuery<Q, F>` is useful when a system or extractor must explicitly own a
-reusable plan or reuse it across worlds.
-
-For a loop that repeatedly looks up components by `EntityId`, `accessor` and
-`accessor_mut` bind component columns once. Use ordinary `get` and `get_mut` for
-occasional access. Accessors borrow the world, so structural changes cannot
-occur while they are alive.
-
-## Resources
-
-Resources are typed singleton values:
+A Resource does not belong to an entity. Resources are suitable for global
+configuration, time, scores, and shared state.
 
 ```rust
+use sky_ecs::World;
+
 #[derive(Default)]
 struct Score(u32);
 
-world.insert_resource(Score::default());
+let mut world = World::new();
+assert!(world.insert_resource(Score::default()).is_none());
 world.get_resource_mut::<Score>().unwrap().0 += 10;
+assert_eq!(world.get_resource::<Score>().unwrap().0, 10);
 assert!(world.contains_resource::<Score>());
 let score = world.remove_resource::<Score>().unwrap();
+assert_eq!(score.0, 10);
 ```
 
-Systems request resources with `Res<T>` and `ResMut<T>`.
+When `insert_resource` replaces an existing value, it returns `Some(old_value)`.
 
-## Structural changes and commands
+## 8. Commands: deferred structural changes
 
-Direct `spawn`, `despawn`, `insert`, and `remove` require mutable world access.
-Use `Commands` inside systems or an owned `CommandBuffer` outside the scheduler
-to defer structural work.
+A live query borrows the World, so it cannot call `spawn`, `despawn`, `insert`,
+or `remove` at the same time. Outside the scheduler, use `CommandBuffer` to
+record changes and apply them together later:
 
 ```rust
-use sky_ecs::CommandBuffer;
+use sky_ecs::{CommandBuffer, World};
 
+struct Position(f32, f32);
+struct Poison;
+
+let mut world = World::new();
 let entity = world.spawn((Position(0.0, 0.0),));
+
 let mut commands = CommandBuffer::new();
-commands.insert(entity, Velocity(1.0, 0.0));
+commands.insert(entity, Poison);
 commands.spawn((Position(5.0, 0.0),));
 commands.apply(&mut world);
+
+assert!(world.has::<Poison>(entity));
+assert_eq!(world.entity_count(), 2);
 ```
 
-## Systems and stages
+Inside a system, use the borrowed `Commands<'_>` parameter. The scheduler
+flushes it at safe boundaries.
 
-System parameters declare access. Compatible systems may run together;
-conflicting systems retain a stable order.
+## 9. Systems, resources, and stages
+
+This is a complete runnable scheduling example:
 
 ```rust
-use sky_ecs::{Res, Time, Update, View};
+use sky_ecs::{Res, ResMut, Time, Update, View, World};
+
+struct Position(f32);
+struct Velocity(f32);
+
+#[derive(Default)]
+struct FrameCount(u32);
 
 fn movement(bodies: View<(&mut Position, &Velocity)>, time: Res<Time>) {
     bodies.for_each(|(position, velocity)| {
@@ -198,26 +320,57 @@ fn movement(bodies: View<(&mut Position, &Velocity)>, time: Res<Time>) {
     });
 }
 
-world.stage(Update).add(movement);
-world.tick_with_delta(1.0 / 60.0).unwrap();
-world.shutdown();
+fn count_frame(mut frames: ResMut<FrameCount>) {
+    frames.0 += 1;
+}
+
+fn main() {
+    let mut world = World::new();
+    world.insert_resource(FrameCount::default());
+    world.spawn((Position(0.0), Velocity(2.0)));
+
+    world.stage(Update).add(movement).add(count_frame);
+
+    for _ in 0..60 {
+        world.tick_with_delta(1.0 / 60.0).unwrap();
+    }
+
+    world.shutdown();
+    assert_eq!(world.get_resource::<FrameCount>().unwrap().0, 60);
+}
 ```
 
-Built-in order: `First`, `FixedUpdate`, `PreUpdate`, `Update`, `PostUpdate`,
-`Last`. Configure fixed steps with `FixedStep`.
+System parameters are access declarations:
 
-## Plugins and advanced APIs
+- `View<Q>`: sequential component query.
+- `ParView<Q>`: parallel query that can use `par_*` methods.
+- `Res<T>` / `ResMut<T>`: read-only / mutable resource.
+- `Local<T>`: system-private state retained across frames.
+- `Commands`: deferred structural changes.
+- `Res<Time>`: time for the current frame.
 
-Implement `Plugin` for a module that installs resources and systems, then call
-`world.install(plugin)`. Duplicate plugin types are rejected.
+Built-in stages run in this order:
+`First -> FixedUpdate -> PreUpdate -> Update -> PostUpdate -> Last`.
+Put fixed-rate logic in `FixedUpdate` and configure it with
+`FixedStep::hz(...)`.
 
-Use `sky_ecs::dynamic` for tools, scripting, and reflection-driven code whose
-component types are known only at runtime. Use `sky_ecs::expert` only for
-explicit low-level archetype or uninitialized-spawn integration. Normal game
-code should prefer typed bundles and queries.
+## 10. Normal and advanced API boundaries
 
-## Further reading
+| Situation | Choose |
+|---|---|
+| Normal iteration | `World::query` / `query_mut` |
+| Occasional access by ID | `get` / `get_mut` |
+| Repeated access to one component by many IDs | `accessor` / `accessor_mut` |
+| Explicitly retain or reuse a query plan across Worlds | `PreparedQuery` |
+| Install a reusable module | `Plugin` / `World::install` |
+| Component types are known only at runtime | `sky_ecs::dynamic` |
+| Explicit low-level Archetype / uninitialized construction | `sky_ecs::expert` |
 
-- [Tutorial](TUTORIAL.md)
-- [Progressive examples](../crates/sky_ecs/examples/README.md)
-- [Generated Rust API documentation](https://docs.rs/sky_ecs)
+When in doubt, prefer bundles, `World::query`, and `Commands`. These are the
+normal application paths.
+
+## 11. Further reading
+
+- [Tutorial from first principles](TUTORIAL.md)
+- [Progressive runnable examples](../crates/sky_ecs/examples/README.md)
+- [Item-by-item Rustdoc API](https://docs.rs/sky_ecs)

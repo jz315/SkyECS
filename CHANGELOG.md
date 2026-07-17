@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-18
+
+- Hardened component ownership, destruction, command application, and
+  structural transitions, with focused Miri coverage for unsafe storage paths.
+- Added adaptive tiered chunk layouts and pooling, including exact one-row
+  storage for component sets larger than the standard chunk size.
+- Added component-posting query plans and a stable-layout chunk cache to reduce
+  repeated archetype and chunk traversal overhead.
+- Replaced the original examples with a nine-step progressive learning path and
+  expanded the bilingual API and benchmark documentation.
+- Reworked Compare-ECS around validated workloads and a statically linked Flecs
+  C adapter with explicit compiler and timing boundaries.
+
 ## [0.1.2] - 2026-07-14
 
 - Added bound read-only and mutable component accessors for repeated random
@@ -21,6 +34,7 @@ All notable changes to this project are documented here.
   documentation.
 - Kept the public ECS API compatible with 0.1.0.
 
-[Unreleased]: https://github.com/jz315/SkyECS/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/jz315/SkyECS/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/jz315/SkyECS/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/jz315/SkyECS/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/jz315/SkyECS/releases/tag/v0.1.1

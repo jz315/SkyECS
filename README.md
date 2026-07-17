@@ -11,7 +11,7 @@
 
 **A high-performance, typed, chunk-based Entity Component System for Rust.**
 
-**The current benchmark has issues and the results are being reviewed.**
+**Benchmark results below use the current comparison protocol.**
 
 Sky ECS is a very fast Entity Component System (ECS) library for Rust, with
 leading results across multiple performance benchmarks.
@@ -19,9 +19,8 @@ leading results across multiple performance benchmarks.
 > Sky ECS is also the built-in ECS component of the
 > [SkyEngine](https://github.com/jz315/SkyEngine) game engine.
 
-In cross-implementation comparisons against `hecs`, `bevy_ecs`, `Flecs`,
-`freecs`, and `shipyard`, Sky ECS records the lowest times for **bulk insertion,
-entity creation/destruction, and mixed-frame** workloads.
+Compare-ECS covers `hecs`, `bevy_ecs`, Flecs, `freecs`, and `shipyard` through
+shared workloads and public APIs.
 
 ## Features
 
@@ -38,7 +37,7 @@ entity creation/destruction, and mixed-frame** workloads.
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.2"
+sky_ecs = "0.1.3"
 ```
 
 ```rust
@@ -70,6 +69,10 @@ fn main() {
 For larger workloads, replace serial iteration with `par_for_each` or
 `par_for_each_chunk` to take advantage of multiple CPU cores.
 
+Typed bundle, query, and filter tuples support up to 16 entries. A single
+archetype can contain up to 32 distinct component types; this is a per-archetype
+storage limit, not a limit on the component types available to a `World`.
+
 ## Documentation
 
 - [Tutorial](docs/TUTORIAL.md)
@@ -79,25 +82,25 @@ For larger workloads, replace serial iteration with `par_for_each` or
 
 ## Benchmarks
 
-The benchmark uses shared workloads and public APIs to compare seven ECS
-implementations in the same environment.
+The table records current-protocol local measurements from 2026-07-17. The
+Flecs column was remeasured with Clang/LLVM 22.1.2 after the native compiler
+audit. Spawn/random despawn was remeasured for all adapters after adopting a
+deterministic shuffled deletion order.
 
-On the recorded machine, Sky records the lowest median for bulk and
-single insertion, 10k and 100k prepared iteration, spawn/despawn, and the
-mixed-frame scenario.
+| Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
+|---|---:|---:|---:|---:|---:|---:|
+| Bulk insert 10k | **121.72 µs** | 205.14 µs | 307.23 µs | 237.70 µs | 263.85 µs | 282.87 µs |
+| Prepared iteration 10k | 5.31 µs | 5.35 µs | 7.93 µs | **5.14 µs** | 6.88 µs | 11.48 µs |
+| Prepared iteration 100k | 57.94 µs | 58.48 µs | 89.97 µs | **53.72 µs** | 70.77 µs | 119.94 µs |
+| Spawn/random despawn 1k | 24.76 µs | **22.93 µs** | 79.59 µs | 39.37 µs | 108.85 µs | 64.29 µs |
+| Mixed frame | 220.18 µs | **218.61 µs** | 254.18 µs | 290.92 µs | 312.64 µs | 287.53 µs |
 
-Key results:
+Prepared random access measures only the prepared lookup hot path; preparation
+cost and cache memory are excluded. Mixed frame is a scenario and heavy compute
+is a diagnostic, so neither is used for an overall speed claim.
 
-| Workload | Sky | hecs | Bevy | Flecs | Flecs C++ | FreeCS | Shipyard |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Bulk insert 10k | **145.19 µs** | 202.71 µs | 292.65 µs | 236.92 µs | 208.84 µs | 265.58 µs | 203.98 µs |
-| Prepared iteration 10k | **5.21 µs** | 5.37 µs | 8.08 µs | 5.46 µs | 6.33 µs | 6.88 µs | 11.33 µs |
-| Prepared iteration 100k | **55.76 µs** | 56.82 µs | 85.05 µs | 57.75 µs | 68.06 µs | 70.41 µs | 116.54 µs |
-| Spawn/despawn 1k | **16.84 µs** | 20.56 µs | 61.77 µs | 38.42 µs | 23.38 µs | 93.52 µs | 62.40 µs |
-| Mixed frame | **183.61 µs** | 260.78 µs | 273.46 µs | 207.86 µs | 219.23 µs | 274.59 µs | 207.08 µs |
-
-See the [benchmark documentation](benches/BENCHMARKS.md) for the complete workload list,
-Flecs audit provenance, test environment, dependency versions, and measurement notes.
+See the [benchmark documentation](benches/BENCHMARKS.md) for the complete workload
+list, all recorded rows, environment, compiler configuration, and methodology.
 
 
 ## Workspace

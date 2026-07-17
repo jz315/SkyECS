@@ -28,7 +28,7 @@ used independently.
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.2"
+sky_ecs = "0.1.3"
 ```
 
 ```rust
@@ -162,19 +162,16 @@ the scheduler, use an owned `CommandBuffer`.
 
 ## Benchmarks
 
-The repository includes a Criterion comparison of seven ECS implementations.
-Compare-ECS v2 limits conclusions to its
-single-threaded public-API workloads, uses each implementation's fastest suitable
-reusable query or view state, and validates all adapters before measurement.
-
-In the six-rotation snapshot recorded on 2026-07-14, Sky has the lowest
-cross-run median for single insertion, steady 10k iteration, spawn/despawn, and
-the mixed-frame scenario. A later targeted correction measured Flecs' safe bulk
-path at `273.84 µs`, compared with Sky's recorded `146.70 µs`; that targeted
-value is not part of the six-rotation medians. Shipyard leads prepared random
-access and add/remove transitions; Flecs and Sky are effectively tied for steady
-iteration at 100k entities. See the benchmark guide for the full table and
-measurement boundaries.
+The repository includes a Criterion comparison of six ECS implementations.
+Compare-ECS limits conclusions to its single-threaded public-API workloads,
+uses each implementation's fastest suitable reusable query, view, or accessor
+state, and validates every adapter before measurement. Results are
+machine-specific. The benchmark guide records current-protocol local
+measurements from 2026-07-17, including a Clang/LLVM 22.1.2 remeasurement of
+the Flecs column; see it for workload classifications, compiler configuration,
+and measurement boundaries. Prepared random access excludes
+preparation cost and cache memory, while scenarios and diagnostics are reported
+separately from comparable workloads.
 
 ```bash
 cargo compare-ecs
@@ -199,6 +196,10 @@ Internal Sky ECS benchmarks are kept separate and run with `cargo bench`.
 | Deferred structural changes | `Commands`, `CommandBuffer` |
 | Runtime-known component types | `sky_ecs::dynamic` |
 | Low-level storage access | `sky_ecs::expert` |
+
+Typed component tuples for bundles, queries, and filters support up to 16
+entries. A single internal archetype can store up to 32 distinct component
+types; that limit applies per archetype, not per `World`.
 
 Sky ECS requires Rust 1.85 or newer. The crate is currently versioned as `0.x`.
 

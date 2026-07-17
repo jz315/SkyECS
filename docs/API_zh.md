@@ -5,13 +5,16 @@
 这份指南按代码实际使用顺序讲解 API。每一节都会先给出所需类型和 `World`，
 不假设你已经在其他代码块中定义了变量。
 
+常用类型直接从 `sky_ecs` 导出；插件、运行时类型和底层 API 也分别归类在
+`sky_ecs::plugin`、`sky_ecs::dynamic` 与 `sky_ecs::expert` 下。
+
 ## 1. 先跑起一个完整程序
 
 `Cargo.toml`：
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.2"
+sky_ecs = "0.1.3"
 ```
 
 `src/main.rs`：
@@ -94,6 +97,11 @@ assert_eq!(world.entity_count(), 10_000);
 ```
 
 `spawn_batch` 适合不需要立即保存每个 `EntityId` 的批量导入。
+
+`spawn`、`spawn_batch`、类型查询和过滤器使用的组件元组最多支持
+16 项。底层的单个 Archetype 最多可包含 32 种不同组件；这是每个
+Archetype 的存储上限，不是一个 `World` 可注册组件类型的总数上限。
+较宽的底层上限主要供 dynamic 和 expert 构建路径使用。
 
 ## 3. 读写单个实体
 
@@ -339,6 +347,7 @@ fn main() {
 | 偶发的按 ID 访问 | `get` / `get_mut` |
 | 大量重复按 ID 访问同一组件 | `accessor` / `accessor_mut` |
 | 必须显式持有或跨 World 复用查询计划 | `PreparedQuery` |
+| 安装可复用模块 | `Plugin` / `World::install` |
 | 运行时才知道组件类型 | `sky_ecs::dynamic` |
 | 显式的低层 Archetype / 未初始化构建 | `sky_ecs::expert` |
 

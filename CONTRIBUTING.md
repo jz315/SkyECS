@@ -10,7 +10,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo bench -p sky_ecs --no-run
-cargo bench -p sky_ecs_comparison --bench fair --no-run
+cargo bench -p sky_ecs_comparison --bench comparison --no-run
 ```
 
 Typed query, archetype, chunk, and structural transition paths are

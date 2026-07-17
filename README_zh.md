@@ -11,12 +11,14 @@
 
 [English](README.md)
 
+**下方 Benchmark 结果采用当前对比协议。**
+
 Sky ECS 是一款非常快的 Rust 实体组件系统（ECS）库，在多项性能测试中表现领先。
 
 > Sky ECS 同时也是 [SkyEngine](https://github.com/jz315/SkyEngine) 游戏引擎的内置 ECS 组件。
 
-在主流 ECS 实现横向对比测试中，Sky ECS 对标 `hecs`、`bevy_ecs`、
-Flecs、`freecs` 和 `shipyard`，在**批量插入、创建/销毁、混合帧**三项场景中耗时最低。
+Compare-ECS 通过共有 workload 与公共 API，对比 `hecs`、`bevy_ecs`、
+Flecs、`freecs` 和 `shipyard`。
 
 ## 特性
 
@@ -29,7 +31,7 @@ Flecs、`freecs` 和 `shipyard`，在**批量插入、创建/销毁、混合帧*
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.2"
+sky_ecs = "0.1.3"
 ```
 
 ```rust
@@ -60,6 +62,10 @@ fn main() {
 
 当数据规模较大时，可将串行遍历替换为 `par_for_each` 或 `par_for_each_chunk`，充分利用多核性能。
 
+用于 Bundle、类型查询和过滤器的元组最多支持 16 项。单个 Archetype
+最多可包含 32 种不同组件；这是每个 Archetype 的存储上限，不是
+`World` 可使用组件类型的总数上限。
+
 ## 文档
 
 - [入门教程](docs/TUTORIAL_zh.md)
@@ -69,21 +75,23 @@ fn main() {
 
 ## 性能测试
 
-Benchmark 使用共有 workload 与公共 API，在相同环境中对比七个 ECS 实现。
+表格记录 2026-07-17 的当前协议本地测量；原生编译器审计后，Flecs 一列已
+使用 Clang/LLVM 22.1.2 重新测量。Spawn/随机 despawn 改为固定乱序删除后，
+已对全部 adapter 重新测量。
 
-在记录机器上，Sky 在批量与单个插入、1 万与 10 万实体 prepared 遍历、spawn/despawn 和混合帧场景中取得最低中位数。
+| Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
+|---|---:|---:|---:|---:|---:|---:|
+| 批量插入 1 万 | **121.72 µs** | 205.14 µs | 307.23 µs | 237.70 µs | 263.85 µs | 282.87 µs |
+| Prepared 遍历 1 万 | 5.31 µs | 5.35 µs | 7.93 µs | **5.14 µs** | 6.88 µs | 11.48 µs |
+| Prepared 遍历 10 万 | 57.94 µs | 58.48 µs | 89.97 µs | **53.72 µs** | 70.77 µs | 119.94 µs |
+| Spawn/随机 despawn 1 千 | 24.76 µs | **22.93 µs** | 79.59 µs | 39.37 µs | 108.85 µs | 64.29 µs |
+| 混合帧 | 220.18 µs | **218.61 µs** | 254.18 µs | 290.92 µs | 312.64 µs | 287.53 µs |
 
-主要结果：
+Prepared 随机访问只测 prepared lookup 热路径，不包含 prepared 状态的构造
+成本和缓存内存。混合帧属于 scenario，heavy compute 属于 diagnostic，二者
+均不用于推导整体速度结论。
 
-| 场景 | Sky | hecs | Bevy | Flecs | Flecs C++ | FreeCS | Shipyard |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 批量插入 1 万 | **145.19 µs** | 202.71 µs | 292.65 µs | 236.92 µs | 208.84 µs | 265.58 µs | 203.98 µs |
-| Prepared 遍历 1 万 | **5.21 µs** | 5.37 µs | 8.08 µs | 5.46 µs | 6.33 µs | 6.88 µs | 11.33 µs |
-| Prepared 遍历 10 万 | **55.76 µs** | 56.82 µs | 85.05 µs | 57.75 µs | 68.06 µs | 70.41 µs | 116.54 µs |
-| Spawn/despawn 1 千 | **16.84 µs** | 20.56 µs | 61.77 µs | 38.42 µs | 23.38 µs | 93.52 µs | 62.40 µs |
-| 混合帧 | **183.61 µs** | 260.78 µs | 273.46 µs | 207.86 µs | 219.23 µs | 274.59 µs | 207.08 µs |
-
-完整的 workload 列表、Flecs 审计记录、测试结果、环境、版本和测量说明见
+完整的 workload、所有已记录项目、环境、编译器配置和测试方法见
 [性能测试文档](benches/BENCHMARKS_CN.md)。
 
 
