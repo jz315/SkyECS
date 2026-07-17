@@ -1,0 +1,105 @@
+name: Compare-ECS benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Independent rotations (1 for a quick run, 6 for the full Latin-square run)"
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "6"
+      filter:
+        description: "Optional Criterion filter; leave empty to run every workload"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compare-ecs-benchmarks
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  compare:
+    name: Compare-ECS (${{ inputs.runs }} run(s))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: compare-ecs-benchmarks
+
+      - name: Install native build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang lld llvm
+
+      - name: Record benchmark limitations
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Result limitations
+
+          > **These are provisional shared-runner results, not publication data.** GitHub-hosted runners do not guarantee a fixed CPU model, exclusive CPU time, stable turbo frequency, or isolation from neighboring workloads. Use this run to inspect regressions and collect data without occupying a local machine; reproduce important numbers on a controlled dedicated machine before putting them in documentation or making performance claims.
+          EOF
+
+      - name: Run Compare-ECS
+        shell: bash
+        env:
+          BENCH_RUNS: ${{ inputs.runs }}
+          BENCH_FILTER: ${{ inputs.filter }}
+        run: |
+          args=(--runs "$BENCH_RUNS")
+          if [[ -n "$BENCH_FILTER" ]]; then
+            args+=(--filter "$BENCH_FILTER")
+          fi
+          cargo compare-ecs-publish -- "${args[@]}"
+
+      - name: Add report to the job summary
+        if: success()
+        id: report
+        shell: bash
+        run: |
+          report_dir="$(find target/comparison-reports -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          if [[ -z "$report_dir" ]]; then
+            echo "Compare-ECS completed without producing a report directory." >&2
+            exit 1
+          fi
+
+          {
+            echo
+            echo "## Compare-ECS report"
+            cat "$report_dir/summary.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "github_repository=$GITHUB_REPOSITORY"
+            echo "github_sha=$GITHUB_SHA"
+            echo "github_run_id=$GITHUB_RUN_ID"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo
+            lscpu
+          } > "$report_dir/github-runner.txt"
+
+      - name: Upload raw results and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compare-ecs-${{ github.sha }}-${{ github.run_id }}
+          path: target/comparison-reports/
+          if-no-files-found: warn
+          retention-days: 30
