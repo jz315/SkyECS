@@ -25,6 +25,19 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
 
+      - name: Configure LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "SKY_LLVM_ROOT=C:\Program Files\LLVM" >> $env:GITHUB_ENV
+          "C:\Program Files\LLVM\bin" >> $env:GITHUB_PATH
+
+      - name: Configure LLVM (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang lld
+
       - name: Format
         run: cargo fmt --all --check
 
@@ -35,7 +48,34 @@ jobs:
         run: cargo test --workspace --all-features
 
       - name: Documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps
+
+  miri:
+    name: Miri (focused ECS safety paths)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang lld
+      - run: cargo miri setup
+      - name: Check focused storage and ownership paths
+        shell: bash
+        run: |
+          cargo miri test -p sky_ecs --lib ecs::bundle::tests::sixteen_component_bundle_initializes_every_column -- --exact
+          cargo miri test -p sky_ecs --lib ecs::accessor::tests::reads_non_copy_components_without_affecting_drop_semantics -- --exact
+          cargo miri test -p sky_ecs --lib ecs::chunk::tests::panicking_component_drop_releases_storage_before_resuming -- --exact
+          cargo miri test -p sky_ecs --lib ecs::chunk::tests::thread_exit_storage_drop_survives_pool_tls_destruction -- --exact
+          MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test -p sky_ecs --lib ecs::world::tests::direct_
+          cargo miri test -p sky_ecs --lib ecs::commands::tests::apply_panic_discards_unvisited_reusable_slots -- --exact
+          cargo miri test -p sky_ecs --lib ecs::commands::tests::apply_panic_swallows_panics_from_unvisited_command_drops -- --exact
 
   msrv:
     name: MSRV
@@ -44,6 +84,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang lld
       - run: cargo check -p sky_ecs -p sky_ecs_derive -p sky_type
 
   targets:
@@ -53,8 +96,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang lld
       - run: cargo bench -p sky_ecs --no-run
-      - run: cargo bench -p sky_ecs_comparison --bench fair --no-run
+      - run: cargo bench -p sky_ecs_comparison --bench comparison --no-run
       - run: cargo package -p sky_type --allow-dirty
       - run: cargo package -p sky_ecs_derive --allow-dirty
       - run: cargo package -p sky_ecs --allow-dirty
