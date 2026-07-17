@@ -11,7 +11,7 @@
 
 [English](README.md)
 
-**下方 Benchmark 结果采用当前对比协议。**
+**当前 Benchmark 存在问题，结果正在重新审查，暂不应视为可信结论。**
 
 Sky ECS 是一款非常快的 Rust 实体组件系统（ECS）库，在多项性能测试中表现领先。
 
