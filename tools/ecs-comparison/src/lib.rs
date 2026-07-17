@@ -1,12 +1,8 @@
-#![allow(clippy::too_many_arguments)]
-
 pub mod bevy;
 pub mod common;
-pub mod flecs;
-pub mod flecs_cpp;
+pub mod flecs_c;
 pub mod freecs;
 pub mod hecs;
-pub mod shared;
 pub mod shipyard;
 pub mod sky;
 
@@ -17,19 +13,17 @@ pub enum Engine {
     Sky,
     Hecs,
     Bevy,
-    Flecs,
-    FlecsCpp,
+    FlecsC,
     Freecs,
     Shipyard,
 }
 
 impl Engine {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 6] = [
         Self::Sky,
         Self::Hecs,
         Self::Bevy,
-        Self::Flecs,
-        Self::FlecsCpp,
+        Self::FlecsC,
         Self::Freecs,
         Self::Shipyard,
     ];
@@ -39,8 +33,7 @@ impl Engine {
             Self::Sky => "sky",
             Self::Hecs => "hecs",
             Self::Bevy => "bevy",
-            Self::Flecs => "flecs",
-            Self::FlecsCpp => "flecs_cpp",
+            Self::FlecsC => "flecs_c",
             Self::Freecs => "freecs",
             Self::Shipyard => "shipyard",
         }
@@ -64,7 +57,7 @@ pub fn engine_order() -> Vec<Engine> {
     assert_eq!(
         engines.len(),
         Engine::ALL.len(),
-        "SKY_ECS_ORDER must list all seven engines"
+        "SKY_ECS_ORDER must list all six engines"
     );
     for engine in Engine::ALL {
         assert_eq!(

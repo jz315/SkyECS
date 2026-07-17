@@ -1,0 +1,20 @@
+use criterion::{criterion_group, criterion_main};
+
+#[path = "comparison/suite.rs"]
+mod suite;
+
+criterion_group!(
+    comparison_benches,
+    suite::bench_insert,
+    suite::bench_iteration,
+    suite::bench_iteration_large,
+    suite::bench_iteration_1m,
+    suite::bench_fragmented_iteration,
+    suite::bench_random_fragmented_iteration,
+    suite::bench_heavy_compute,
+    suite::bench_random_access,
+    suite::bench_entity_ops,
+    suite::bench_mixed_frame,
+    suite::bench_mixed_frame_phases,
+);
+criterion_main!(comparison_benches);

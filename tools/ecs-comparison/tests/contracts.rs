@@ -1,4 +1,4 @@
-use sky_ecs_comparison::{bevy, flecs, flecs_cpp, freecs, hecs, shipyard, sky};
+use sky_ecs_comparison::{bevy, flecs_c, freecs, hecs, shipyard, sky};
 
 #[test]
 fn sky_adapter_satisfies_contract() {
@@ -16,13 +16,8 @@ fn bevy_adapter_satisfies_contract() {
 }
 
 #[test]
-fn flecs_adapter_satisfies_contract() {
-    flecs::validate_contract();
-}
-
-#[test]
-fn flecs_cpp_adapter_satisfies_contract() {
-    flecs_cpp::validate_contract();
+fn flecs_c_adapter_satisfies_contract() {
+    flecs_c::validate_contract();
 }
 
 #[test]
