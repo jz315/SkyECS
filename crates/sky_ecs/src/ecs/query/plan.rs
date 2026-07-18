@@ -368,6 +368,11 @@ struct PostingSeed {
     query_slot: Option<u8>,
 }
 
+const BITMAP_WORD_BITS: usize = u64::BITS as usize;
+// This conservative margin absorbs bitmap setup and column-map reconstruction;
+// dense random-fragmentation workloads measure close to a 32x work advantage.
+const BITMAP_MIN_WORK_ADVANTAGE: usize = 8;
+
 impl PostingCursor<'_> {
     #[inline(always)]
     fn current(&self) -> Option<super::super::component_posting::ComponentPostingEntry> {
@@ -389,6 +394,138 @@ fn filter_matches<Flt: QueryFilter>(
         || Flt::matches_archetype(archetype),
         |plan| plan.matches::<Flt>(archetype),
     )
+}
+
+#[inline]
+fn append_candidate<Flt: QueryFilter>(
+    world: &World,
+    descriptor: &QueryDescriptor,
+    filter_plan: Option<&FilterPlan>,
+    candidate_data_index: usize,
+    mut component_indices: ComponentIndexMap,
+    matches: &mut Vec<CachedArchetype>,
+) {
+    let archetype = world.data[candidate_data_index].archetype;
+    if !filter_matches::<Flt>(filter_plan, &archetype) {
+        return;
+    }
+
+    for (query_slot, component) in descriptor.components.iter().enumerate() {
+        if component_indices.indices[query_slot] != OPTIONAL_SENTINEL {
+            continue;
+        }
+        if let Some(index) = archetype.query_component_index(&component.ty) {
+            debug_assert!(index < OPTIONAL_SENTINEL as usize);
+            component_indices.indices[query_slot] = index as u8;
+        } else if !component.optional {
+            return;
+        }
+    }
+
+    matches.push(CachedArchetype {
+        data_index: candidate_data_index,
+        component_indices,
+    });
+}
+
+#[inline]
+fn append_bitmap_candidate<Flt: QueryFilter>(
+    world: &World,
+    descriptor: &QueryDescriptor,
+    filter_plan: Option<&FilterPlan>,
+    candidate_data_index: usize,
+    matches: &mut Vec<CachedArchetype>,
+) {
+    let archetype = world.data[candidate_data_index].archetype;
+    if !filter_matches::<Flt>(filter_plan, &archetype) {
+        return;
+    }
+    let Some(component_indices) = descriptor.component_indices(&archetype) else {
+        return;
+    };
+    matches.push(CachedArchetype {
+        data_index: candidate_data_index,
+        component_indices,
+    });
+}
+
+/// Uses dense component bitmaps only when their estimated input work is at
+/// least eight times smaller than walking the remaining posting entries.
+/// Returns `true` when the bitmap path handled the suffix, including when the
+/// intersection is known to be empty.
+fn try_append_bitmap_matches<Flt: QueryFilter>(
+    world: &World,
+    descriptor: &QueryDescriptor,
+    filter_plan: Option<&FilterPlan>,
+    scan_start: usize,
+    cursors: &[PostingCursor<'_>],
+    matches: &mut Vec<CachedArchetype>,
+) -> bool {
+    if cursors.len() < 2 {
+        return false;
+    }
+
+    let mut bitmaps = SmallVec::<[&[u64]; MAX_QUERY_COMPONENTS]>::new();
+    for cursor in cursors {
+        let Some(bitmap) = cursor.list.archetype_bitmap() else {
+            return false;
+        };
+        bitmaps.push(bitmap);
+    }
+
+    let word_start = scan_start / BITMAP_WORD_BITS;
+    let word_end = bitmaps
+        .iter()
+        .map(|bitmap| bitmap.len())
+        .min()
+        .expect("multiple posting cursors must produce multiple bitmaps");
+    if word_start >= word_end {
+        return true;
+    }
+
+    let posting_work = cursors.iter().fold(0_usize, |work, cursor| {
+        work.saturating_add(cursor.remaining())
+    });
+    let bitmap_work = (word_end - word_start).saturating_mul(bitmaps.len());
+    if posting_work < bitmap_work.saturating_mul(BITMAP_MIN_WORK_ADVANTAGE) {
+        return false;
+    }
+
+    let mut intersection = bitmaps[0][word_start..word_end].to_vec();
+    let first_word_offset = scan_start % BITMAP_WORD_BITS;
+    if first_word_offset != 0 {
+        intersection[0] &= u64::MAX << first_word_offset;
+    }
+    for bitmap in &bitmaps[1..] {
+        for (candidates, &component_word) in
+            intersection.iter_mut().zip(&bitmap[word_start..word_end])
+        {
+            *candidates &= component_word;
+        }
+    }
+
+    matches.reserve(
+        intersection
+            .iter()
+            .map(|word| word.count_ones() as usize)
+            .sum(),
+    );
+
+    for (relative_word, mut candidates) in intersection.into_iter().enumerate() {
+        while candidates != 0 {
+            let bit = candidates.trailing_zeros() as usize;
+            let candidate_data_index = (word_start + relative_word) * BITMAP_WORD_BITS + bit;
+            append_bitmap_candidate::<Flt>(
+                world,
+                descriptor,
+                filter_plan,
+                candidate_data_index,
+                matches,
+            );
+            candidates &= candidates - 1;
+        }
+    }
+    true
 }
 
 /// Appends candidates from an intersection of required query components and
@@ -452,6 +589,17 @@ fn append_posting_matches<Flt: QueryFilter>(
     // to selective candidates sooner without changing declaration-order maps.
     cursors.sort_unstable_by_key(PostingCursor::remaining);
 
+    if try_append_bitmap_matches::<Flt>(
+        world,
+        descriptor,
+        filter_plan,
+        scan_start,
+        &cursors,
+        matches,
+    ) {
+        return true;
+    }
+
     'intersection: loop {
         let mut candidate_data_index = 0usize;
         for cursor in &cursors {
@@ -496,28 +644,14 @@ fn append_posting_matches<Flt: QueryFilter>(
             cursor.next += 1;
         }
 
-        let archetype = world.data[candidate_data_index].archetype;
-        if filter_matches::<Flt>(filter_plan, &archetype) {
-            let mut query_matches = true;
-            for (query_slot, component) in descriptor.components.iter().enumerate() {
-                if component_indices.indices[query_slot] != OPTIONAL_SENTINEL {
-                    continue;
-                }
-                if let Some(index) = archetype.query_component_index(&component.ty) {
-                    debug_assert!(index < OPTIONAL_SENTINEL as usize);
-                    component_indices.indices[query_slot] = index as u8;
-                } else if !component.optional {
-                    query_matches = false;
-                    break;
-                }
-            }
-            if query_matches {
-                matches.push(CachedArchetype {
-                    data_index: candidate_data_index,
-                    component_indices,
-                });
-            }
-        }
+        append_candidate::<Flt>(
+            world,
+            descriptor,
+            filter_plan,
+            candidate_data_index,
+            component_indices,
+            matches,
+        );
     }
 
     true

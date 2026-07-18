@@ -352,7 +352,8 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::World;
+    use super::super::super::dynamic::{DynamicBundle, WorldDynamicExt};
+    use super::super::super::{component_type, World};
     use super::super::{QueryFilter, With, Without};
     use super::PreparedQuery;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -541,6 +542,65 @@ mod tests {
                 (1, 2, 3, 4, 5, 6, 7, 8)
             );
         });
+    }
+
+    #[test]
+    fn dense_bitmap_query_matches_every_archetype_and_refreshes_incrementally() {
+        let mut world = World::new();
+        for mask in 0_u16..256 {
+            let mut bundle = DynamicBundle::new()
+                .with(Position {
+                    x: f32::from(mask),
+                    y: 0.0,
+                })
+                .with(Velocity { x: 1.0, y: 0.0 });
+            macro_rules! add_match_component {
+                ($bit:expr, $value:expr) => {
+                    if mask & (1 << $bit) != 0 {
+                        bundle = bundle.with($value);
+                    }
+                };
+            }
+            add_match_component!(0, MatchA(1));
+            add_match_component!(1, MatchB(2));
+            add_match_component!(2, MatchC(3));
+            add_match_component!(3, MatchD(4));
+            add_match_component!(4, MatchE(5));
+            add_match_component!(5, MatchF(6));
+            add_match_component!(6, MatchG(7));
+            add_match_component!(7, MatchH(8));
+            world.spawn_dynamic(bundle).unwrap();
+        }
+
+        for component in [component_type::<Position>(), component_type::<Velocity>()] {
+            assert!(world
+                .component_posting(&component)
+                .unwrap()
+                .archetype_bitmap()
+                .is_some());
+        }
+
+        let mut query = PreparedQuery::<(&Position, &Velocity)>::new();
+        assert_eq!(query.count(&world), 256);
+        assert_eq!(query.cached_archetype_count(), 256);
+        let mut sum = 0.0;
+        query.for_each(&world, |(position, velocity)| {
+            sum += position.x + velocity.x;
+        });
+        assert_eq!(sum, 32_896.0);
+
+        let mut with_a = PreparedQuery::<(&Position, &Velocity), With<MatchA>>::new();
+        assert_eq!(with_a.count(&world), 128);
+        let mut without_a = PreparedQuery::<(&Position, &Velocity), Without<MatchA>>::new();
+        assert_eq!(without_a.count(&world), 128);
+
+        world.spawn((
+            Position { x: 256.0, y: 0.0 },
+            Velocity { x: 1.0, y: 0.0 },
+            MatchMissing,
+        ));
+        assert_eq!(query.count(&world), 257);
+        assert_eq!(query.cached_archetype_count(), 257);
     }
 
     #[test]

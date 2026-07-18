@@ -46,6 +46,10 @@ name = "archetype_match"
 harness = false
 
 [[bench]]
+name = "query_prepare_fragmented"
+harness = false
+
+[[bench]]
 name = "parallel_job_cache"
 harness = false
 
