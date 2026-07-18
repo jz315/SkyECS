@@ -74,6 +74,13 @@ impl EntityRecord {
     }
 
     #[inline(always)]
+    pub(crate) fn occupied(generation: u32, location: EntityLocation) -> Self {
+        let mut record = Self::vacant(generation);
+        record.set_location(location);
+        record
+    }
+
+    #[inline(always)]
     pub(crate) fn location(self) -> Option<EntityLocation> {
         if self.data_index == Self::VACANT_DATA_INDEX {
             return None;

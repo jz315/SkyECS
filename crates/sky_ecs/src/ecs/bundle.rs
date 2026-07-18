@@ -26,7 +26,18 @@ pub(crate) struct BundleMeta {
 }
 
 mod sealed {
-    pub trait BundleSealed {}
+    pub trait BundleSealed {
+        /// Writes one bundle through pointers that already identify its next
+        /// row, then advances every pointer to the following row.
+        ///
+        /// # Safety
+        ///
+        /// `cursors` and `columns` must be in bundle tuple order. Every cursor
+        /// must identify a valid, properly aligned, uninitialized component
+        /// slot, and the corresponding size in `columns` must match that
+        /// component type.
+        unsafe fn write_fast_cursor(self, cursors: &mut [*mut u8], columns: &[(usize, usize)]);
+    }
 }
 
 fn assert_unique_types(types: &[ComponentType]) {
@@ -129,7 +140,29 @@ pub trait Bundle: sealed::BundleSealed + 'static {
 
 macro_rules! impl_bundle_tuple {
     ($(($Type:ident, $value:ident, $idx:tt)),+ $(,)?) => {
-        impl<$($Type: 'static),+> sealed::BundleSealed for ($($Type,)+) {}
+        impl<$($Type: 'static),+> sealed::BundleSealed for ($($Type,)+) {
+            #[inline(always)]
+            unsafe fn write_fast_cursor(
+                self,
+                cursors: &mut [*mut u8],
+                columns: &[(usize, usize)],
+            ) {
+                let ($($value,)+) = self;
+
+                $(
+                    let (_, comp_size) = columns[$idx];
+                    let destination = cursors[$idx];
+                    // SAFETY: the method contract guarantees that every
+                    // cursor identifies the next uninitialized slot for its
+                    // tuple component. Advancing by the cached component size
+                    // preserves that invariant for the following row.
+                    unsafe {
+                        ptr::write(destination as *mut $Type, $value);
+                        cursors[$idx] = destination.add(comp_size);
+                    }
+                )+
+            }
+        }
 
         impl<$($Type: 'static),+> Bundle for ($($Type,)+) {
             fn cached_meta() -> (Archetype, &'static [(usize, usize)]) {

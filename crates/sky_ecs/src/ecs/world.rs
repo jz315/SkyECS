@@ -158,6 +158,28 @@ impl World {
         }
     }
 
+    #[inline(always)]
+    fn allocate_entity_at_location(
+        entities: &mut Vec<EntityRecord>,
+        free_entities: &mut Vec<u32>,
+        location: EntityLocation,
+    ) -> EntityId {
+        if let Some(index) = free_entities.pop() {
+            let record = &mut entities[index as usize];
+            let entity = EntityId::new(index, record.generation);
+            record.set_location(location);
+            entity
+        } else {
+            assert!(
+                entities.len() < u32::MAX as usize,
+                "entity slot limit exhausted"
+            );
+            let index = entities.len() as u32;
+            entities.push(EntityRecord::occupied(0, location));
+            EntityId::new(index, 0)
+        }
+    }
+
     /// Invalidates cached views whose raw ranges depend on chunk layout.
     ///
     /// Bump this before any operation that can change chunk addresses, entity

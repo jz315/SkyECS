@@ -1,5 +1,23 @@
 use super::*;
 
+struct BatchCommitGuard<'a> {
+    live_entity_count: &'a mut usize,
+    inserted: usize,
+}
+
+impl BatchCommitGuard<'_> {
+    #[inline(always)]
+    fn record_insert(&mut self) {
+        self.inserted += 1;
+    }
+}
+
+impl Drop for BatchCommitGuard<'_> {
+    fn drop(&mut self) {
+        *self.live_entity_count += self.inserted;
+    }
+}
+
 impl World {
     /// Adds an entity in `archetype` without initializing component columns.
     ///
@@ -87,23 +105,64 @@ impl World {
 
         self.data[data_index].prepare_batch_capacity(batch_size);
 
-        for bundle in std::iter::once(first).chain(iter) {
-            let entity = self.allocate_entity();
-            let location = unsafe { self.data[data_index].add_entity(entity) };
-            self.set_entity_location(
-                entity,
-                EntityLocation {
-                    data_index,
-                    chunk_index: location.chunk_index,
-                    entity_index: location.entity_index,
-                },
-            );
+        let mut iter = std::iter::once(first).chain(iter).peekable();
+        let entities = &mut self.entities;
+        let free_entities = &mut self.free_entities;
+        let storage = &mut self.data[data_index];
+        let mut live_count = BatchCommitGuard {
+            live_entity_count: &mut self.live_entity_count,
+            inserted: 0,
+        };
 
-            let chunk = &mut self.data[data_index].chunks[location.chunk_index];
-            unsafe {
-                bundle.write_fast(chunk, location.entity_index, columns);
+        // Work one chunk at a time. This resolves column starts and checks
+        // chunk capacity once per contiguous row span instead of once per
+        // entity. A short or panicking iterator is still safe: the sealed
+        // Bundle writer initializes every component without invoking user
+        // code, and `BatchCommitGuard` records completed rows on unwind.
+        while iter.peek().is_some() {
+            let guaranteed_remaining = iter.size_hint().0.max(1);
+            let chunk_index = storage.ensure_batch_tail(guaranteed_remaining);
+            let chunk = &mut storage.chunks[chunk_index];
+            let first_entity_index = chunk.entity_count;
+            let available = chunk.max_entity_count - first_entity_index;
+
+            let mut cursors = [std::ptr::null_mut(); MAX_COMPONENTS];
+            for (cursor, &(component_index, component_size)) in cursors.iter_mut().zip(columns) {
+                // SAFETY: `first_entity_index` starts inside the available
+                // capacity of this chunk, and the cached component size and
+                // column index describe the matching bundle archetype.
+                *cursor = unsafe {
+                    chunk
+                        .column_ptr(component_index)
+                        .add(component_size * first_entity_index)
+                };
             }
-            self.live_entity_count += 1;
+
+            for row_offset in 0..available {
+                let Some(bundle) = iter.next() else {
+                    break;
+                };
+
+                let location = EntityLocation {
+                    data_index,
+                    chunk_index,
+                    entity_index: first_entity_index + row_offset,
+                };
+                let entity = Self::allocate_entity_at_location(entities, free_entities, location);
+                // SAFETY: this loop is bounded by the tail's available row
+                // count, and the sealed Bundle writer below initializes every
+                // component before the row can be observed.
+                let entity_index = unsafe { chunk.add_entity_unchecked(entity) };
+                debug_assert_eq!(entity_index, location.entity_index);
+
+                // SAFETY: the cursors were initialized from this chunk's
+                // cached bundle columns at `first_entity_index` and advance by
+                // exactly one component slot after every completed row.
+                unsafe {
+                    bundle.write_fast_cursor(&mut cursors, columns);
+                }
+                live_count.record_insert();
+            }
         }
     }
 

@@ -1417,12 +1417,88 @@ fn chunk_growth_preserves_non_copy_components_and_drop_ownership() {
 }
 
 #[test]
+fn spawn_batch_preserves_non_copy_components_across_chunks() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let mut world = World::new();
+    world.spawn_batch((0..300).map(|value| {
+        (GrowthDroppable {
+            counter: counter.clone(),
+            value,
+            _padding: [value as u8; 1000],
+        },)
+    }));
+
+    assert!(world.data[0].chunks.len() > 1);
+    let mut count = 0;
+    let mut sum = 0;
+    world.query::<&GrowthDroppable>().for_each(|component| {
+        count += 1;
+        sum += component.value;
+        assert_eq!(component._padding[0], component.value as u8);
+    });
+    assert_eq!(count, 300);
+    assert_eq!(sum, (0..300).sum());
+    assert_eq!(counter.load(Ordering::Relaxed), 0);
+
+    drop(world);
+    assert_eq!(counter.load(Ordering::Relaxed), 300);
+}
+
+#[test]
+fn spawn_batch_commits_completed_rows_when_the_iterator_panics() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let mut world = World::new();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let components = (0..32)
+            .map(|value| {
+                (GrowthDroppable {
+                    counter: counter.clone(),
+                    value,
+                    _padding: [value as u8; 1000],
+                },)
+            })
+            .chain(std::iter::once_with(|| -> (GrowthDroppable,) {
+                panic!("batch iterator panic")
+            }));
+        world.spawn_batch(components);
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(world.entity_count(), 32);
+    assert_eq!(world.query::<&GrowthDroppable>().count(), 32);
+    assert_eq!(counter.load(Ordering::Relaxed), 0);
+
+    world.spawn((GrowthDroppable {
+        counter: counter.clone(),
+        value: 32,
+        _padding: [32; 1000],
+    },));
+    assert_eq!(world.entity_count(), 33);
+
+    drop(world);
+    assert_eq!(counter.load(Ordering::Relaxed), 33);
+}
+
+#[test]
 fn chunk_growth_preserves_droppable_zero_sized_components() {
     GROWTH_ZST_DROPS.store(0, Ordering::Relaxed);
     let mut world = World::new();
     for _ in 0..5_000 {
         world.spawn((GrowthDroppableZst,));
     }
+
+    assert_eq!(world.query::<&GrowthDroppableZst>().count(), 5_000);
+    assert_eq!(GROWTH_ZST_DROPS.load(Ordering::Relaxed), 0);
+
+    drop(world);
+    assert_eq!(GROWTH_ZST_DROPS.load(Ordering::Relaxed), 5_000);
+}
+
+#[test]
+fn spawn_batch_preserves_droppable_zero_sized_components() {
+    GROWTH_ZST_DROPS.store(0, Ordering::Relaxed);
+    let mut world = World::new();
+    world.spawn_batch((0..5_000).map(|_| (GrowthDroppableZst,)));
 
     assert_eq!(world.query::<&GrowthDroppableZst>().count(), 5_000);
     assert_eq!(GROWTH_ZST_DROPS.load(Ordering::Relaxed), 0);

@@ -253,6 +253,19 @@ impl ArchetypeStorage {
         }
     }
 
+    /// Returns a tail chunk with at least one available row, growing the
+    /// storage once when the current tail is full.
+    #[inline]
+    pub(crate) fn ensure_batch_tail(&mut self, guaranteed_remaining: usize) -> usize {
+        if self.chunks.last().is_none_or(Chunk::is_full) {
+            self.grow_tail(guaranteed_remaining.max(1));
+        }
+
+        let chunk_index = self.chunks.len() - 1;
+        debug_assert!(!self.chunks[chunk_index].is_full());
+        chunk_index
+    }
+
     /// Uses a guaranteed batch size to choose the first block before the hot
     /// insertion loop starts. Existing chunks are never relocated; a partial
     /// tail is filled before normal incremental growth appends another block.

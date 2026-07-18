@@ -178,10 +178,25 @@ impl Chunk {
             return None;
         }
 
+        Some(unsafe { self.add_entity_unchecked(entity) })
+    }
+
+    /// Adds an entity when the caller has already reserved a row in this
+    /// chunk's current capacity span.
+    ///
+    /// # Safety
+    ///
+    /// `self.entity_count` must be strictly less than
+    /// `self.max_entity_count`, and the caller must initialize every component
+    /// in the returned row before the chunk can be observed or dropped.
+    #[inline(always)]
+    pub(crate) unsafe fn add_entity_unchecked(&mut self, entity: EntityId) -> usize {
+        debug_assert!(self.entity_count < self.max_entity_count);
+
         let entity_index = self.entity_count;
         self.entity_count += 1;
         self.entities.push(entity);
-        Some(entity_index)
+        entity_index
     }
 
     #[inline(always)]
