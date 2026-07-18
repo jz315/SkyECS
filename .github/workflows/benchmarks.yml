@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       runs:
-        description: "Independent rotations (1 for a quick run, 6 for the full Latin-square run)"
+        description: "Independent rotations (1 for a quick run, 4 for a repeated GitHub snapshot)"
         required: true
-        default: "1"
+        default: "4"
         type: choice
         options:
           - "1"
-          - "6"
+          - "4"
       filter:
         description: "Optional Criterion filter; leave empty to run every workload"
         required: false
@@ -54,6 +54,8 @@ jobs:
           ## Result limitations
 
           > **These are provisional shared-runner results, not publication data.** GitHub-hosted runners do not guarantee a fixed CPU model, exclusive CPU time, stable turbo frequency, or isolation from neighboring workloads. Use this run to inspect regressions and collect data without occupying a local machine; reproduce important numbers on a controlled dedicated machine before putting them in documentation or making performance claims.
+
+          A four-run job uses the first four engine-order rotations. It reports a cross-run median, but it does not cover all six Latin-square positions and therefore cannot complete the order-bias check used by the full publication protocol.
           EOF
 
       - name: Run Compare-ECS

@@ -52,7 +52,7 @@ fn write_markdown(
     writeln!(output, "# Compare-ECS publication report\n")?;
     writeln!(
         output,
-        "{run_count} Latin-square run(s); values are medians of the per-run Criterion median estimates.\n"
+        "{run_count} engine-order rotation(s); values are medians of the per-run Criterion median estimates.\n"
     )?;
     writeln!(
         output,
