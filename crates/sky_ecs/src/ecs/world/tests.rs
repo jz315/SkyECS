@@ -1437,7 +1437,7 @@ fn spawn_batch_preserves_non_copy_components_across_chunks() {
         assert_eq!(component._padding[0], component.value as u8);
     });
     assert_eq!(count, 300);
-    assert_eq!(sum, (0..300).sum());
+    assert_eq!(sum, (0..300).sum::<usize>());
     assert_eq!(counter.load(Ordering::Relaxed), 0);
 
     drop(world);
