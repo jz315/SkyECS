@@ -102,11 +102,41 @@ assert_eq!(world.entity_count(), 10_000);
 `spawn_batch` is intended for bulk imports that do not need to retain every
 `EntityId` immediately.
 
-Component tuples used by `spawn`, `spawn_batch`, typed queries, and filters
-support up to 16 items. One Archetype can contain at most 32 distinct component
-types. This is a per-Archetype storage limit, not a limit on how many component
-types a `World` may register. The wider low-level limit mainly serves dynamic
-and expert construction paths.
+If the producer already stores one `Vec` per component, use `spawn_columns`
+to import that structure-of-arrays data directly:
+
+```rust
+use sky_ecs::World;
+
+struct Position(f32, f32);
+struct Velocity(f32, f32);
+
+let mut columns = (
+    vec![Position(0.0, 0.0), Position(1.0, 0.0)],
+    vec![Velocity(1.0, 0.0), Velocity(2.0, 0.0)],
+);
+let position_capacity = columns.0.capacity();
+
+let mut world = World::new();
+world.spawn_columns(&mut columns).unwrap();
+
+assert_eq!(world.entity_count(), 2);
+assert!(columns.0.is_empty());
+assert_eq!(columns.0.capacity(), position_capacity);
+```
+
+All columns must have the same length. On success their values move into the
+World, while the now-empty source `Vec`s retain their allocations for reuse.
+A length mismatch returns `ColumnLengthMismatch` before changing either the
+World or the source columns. Use `spawn_batch` when data is naturally produced
+as entity Bundles; use `spawn_columns` for loaders, deserializers, and other
+code that naturally produces separate component arrays.
+
+Component tuples used by `spawn`, `spawn_batch`, `spawn_columns`, typed
+queries, and filters support up to 16 items. One Archetype can contain at most
+32 distinct component types. This is a per-Archetype storage limit, not a limit
+on how many component types a `World` may register. The wider low-level limit
+mainly serves dynamic and expert construction paths.
 
 ## 3. Read and write one entity
 
@@ -347,7 +377,51 @@ System parameters are access declarations:
 - `Res<T>` / `ResMut<T>`: read-only / mutable resource.
 - `Local<T>`: system-private state retained across frames.
 - `Commands`: deferred structural changes.
-- `Res<Time>`: time for the current frame.
+- `Res<Time>`: the World's permanent built-in read-only time resource.
+
+### `Time`: the built-in time resource
+
+Every `World` contains `Time` from construction; there is no need to call
+`insert_resource`. It cannot be replaced or removed, and
+`contains_resource::<Time>()` always returns `true`. Ordinary systems read it
+through `Res<Time>` and cannot request `ResMut<Time>`, because the scheduler
+owns the frame-time updates.
+
+```rust
+fn movement(bodies: View<(&mut Position, &Velocity)>, time: Res<Time>) {
+    bodies.for_each(|(position, velocity)| {
+        position.0 += velocity.0 * time.delta;
+    });
+}
+```
+
+The time values have distinct meanings:
+
+| Field | Meaning |
+|---|---|
+| `delta` | Step for the current stage invocation. It equals `frame_delta` in every-frame stages and temporarily becomes the fixed step in `FixedUpdate`. |
+| `frame_delta` | Current application-frame step after clamping and `time_scale`. Rendering and UI normally use this value. |
+| `raw_delta` | Real frame interval before clamping and time scaling. |
+| `elapsed` | Accumulated time affected by `time_scale`. |
+| `raw_elapsed` | Real accumulated time unaffected by `time_scale`. |
+| `fixed_alpha` | Remaining fraction of the built-in fixed-step accumulator, useful for render interpolation. |
+
+`tick()` updates `Time` from the wall clock. `tick_with_delta(delta)` treats
+its argument as both raw and frame time, which is useful for tests and
+deterministic simulations. An application runner that clamps large frame
+intervals can call `tick_with_frame_delta(frame_delta, raw_delta)` to preserve
+the real `raw_delta`.
+
+Configure time scaling outside schedule execution:
+
+```rust
+let mut world = World::new();
+world.get_resource_mut::<Time>().unwrap().time_scale = 0.5;
+world.tick_with_delta(1.0 / 60.0).unwrap();
+```
+
+This mutates the same built-in `Time` owned by the World. It cannot be replaced
+with `insert_resource(Time)` or deleted with `remove_resource::<Time>()`.
 
 Built-in stages run in this order:
 `First -> FixedUpdate -> PreUpdate -> Update -> PostUpdate -> Last`.

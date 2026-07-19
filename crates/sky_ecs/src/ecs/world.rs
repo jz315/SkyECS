@@ -14,6 +14,7 @@ use smallvec::SmallVec;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
+mod columns;
 mod entities;
 mod queries;
 mod resources;

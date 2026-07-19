@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 
 namespace sky_ecs_bench::flecs_c::iteration {
@@ -34,6 +35,11 @@ struct Velocity {
     float y;
     float z;
 };
+
+static_assert(sizeof(Transform) == 64 && alignof(Transform) == 4);
+static_assert(sizeof(Position) == 12 && alignof(Position) == 4);
+static_assert(sizeof(Rotation) == 12 && alignof(Rotation) == 4);
+static_assert(sizeof(Velocity) == 12 && alignof(Velocity) == 4);
 
 template<typename Component>
 ecs_entity_t define_component(ecs_world_t* world, const char* name) {
@@ -75,10 +81,10 @@ void spawn_entity(
     ecs_world_t* world,
     ecs_table_t* table,
     const ComponentIds& ids,
-    const Mat4& transform) {
+    const Mat4& transform,
+    Position position_value) {
     const ecs_entity_t entity = ecs_new_w_table(world, table);
     const Transform transform_value{transform};
-    const Position position_value{1.0f, 0.0f, 0.0f};
     const Rotation rotation_value{1.0f, 0.0f, 0.0f};
     const Velocity velocity_value{1.0f, 0.0f, 0.0f};
     ecs_set_id(world, entity, ids.transform, sizeof(Transform), &transform_value);
@@ -150,7 +156,8 @@ SimpleContext* create_simple_context(std::size_t entity_count) {
             context->world,
             table,
             context->components,
-            Mat4::identity());
+            Mat4::identity(),
+            {1.0f, 0.0f, 0.0f});
     }
     context->query = prepare_move_query(context->world, context->components);
     if (!context->query) {
@@ -196,9 +203,14 @@ HeavyContext* create_heavy_context() {
         delete context;
         return nullptr;
     }
-    const Mat4 transform = Mat4::rotation_x(1.2f);
+    const Mat4 transform = Mat4::benchmark_rotation_x();
     for (std::size_t index = 0; index < HEAVY_ENTITY_COUNT; ++index) {
-        spawn_entity(context->world, table, context->components, transform);
+        spawn_entity(
+            context->world,
+            table,
+            context->components,
+            transform,
+            {1.0f, 2.0f, 3.0f});
     }
     context->query = prepare_heavy_query(context->world, context->components);
     if (!context->query) {
@@ -209,10 +221,13 @@ HeavyContext* create_heavy_context() {
 }
 
 std::uint64_t heavy_compute(HeavyContext& context) {
+    std::uint64_t checksum = 0;
     ecs_iter_t iterator = ecs_query_iter(context.world, context.query);
     while (ecs_query_next(&iterator)) {
-        Position* positions = ecs_field(&iterator, Position, 0);
-        const Transform* transforms = ecs_field(&iterator, Transform, 1);
+        // Flecs stores different component fields in disjoint table columns.
+        Position* __restrict positions = ecs_field(&iterator, Position, 0);
+        const Transform* __restrict transforms =
+            ecs_field(&iterator, Transform, 1);
         for (std::int32_t row = 0; row < iterator.count; ++row) {
             Mat4 matrix = transforms[row].matrix;
             for (std::size_t index = 0; index < HEAVY_INVERT_COUNT; ++index) {
@@ -224,9 +239,10 @@ std::uint64_t heavy_compute(HeavyContext& context) {
                 positions[row].z,
             });
             positions[row] = {output.x, output.y, output.z};
+            checksum = add_vector_checksum(checksum, output);
         }
     }
-    return 1;
+    return checksum;
 }
 
 bool validate_simple() {
@@ -250,17 +266,21 @@ bool validate_simple() {
 }
 
 bool validate_heavy() {
-    const Mat4 inverse = Mat4::rotation_x(1.2f).inverse();
+    const Mat4 inverse = Mat4::benchmark_rotation_x().inverse();
     const Vec3 output = inverse.transform_vector({1.0f, 2.0f, 3.0f});
-    const float cosine = std::cos(1.2f);
-    const float sine = std::sin(1.2f);
+    float cosine = 0.0f;
+    float sine = 0.0f;
+    const std::uint32_t cosine_bits = Mat4::BENCHMARK_COSINE_BITS;
+    const std::uint32_t sine_bits = Mat4::BENCHMARK_SINE_BITS;
+    std::memcpy(&cosine, &cosine_bits, sizeof(cosine));
+    std::memcpy(&sine, &sine_bits, sizeof(sine));
     if (std::fabs(output.x - 1.0f) > 1.0e-5f ||
         std::fabs(output.y - (2.0f * cosine + 3.0f * sine)) > 1.0e-5f ||
         std::fabs(output.z - (-2.0f * sine + 3.0f * cosine)) > 1.0e-5f) {
         return false;
     }
     HeavyContext* context = create_heavy_context();
-    const bool valid = context && heavy_compute(*context) == 1 &&
+    const bool valid = context && heavy_compute(*context) != 0 &&
         ecs_query_count(context->query).entities ==
             static_cast<std::int32_t>(HEAVY_ENTITY_COUNT);
     delete context;

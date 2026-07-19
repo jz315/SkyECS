@@ -81,16 +81,17 @@ pub(super) fn mixed_health_step(world: &mut World) {
     });
 }
 
-pub(super) fn mixed_heavy_step(world: &mut World) {
+pub(super) fn mixed_heavy_step(world: &mut World) -> u64 {
+    let mut checksum = 0_u64;
     world.for_each_mut(HEAVY_MASK, 0, |_entity, table, index| {
         let mut matrix = table.transform[index].0;
         for _ in 0..MIXED_FRAME_INVERT_COUNT {
-            matrix = matrix
-                .invert()
-                .expect("mixed-frame matrix should remain invertible");
+            matrix = matrix.inverse();
         }
         table.position[index].0 = matrix.transform_vector(table.position[index].0);
+        checksum = add_full_position_checksum(checksum, &table.position[index]);
     });
+    checksum
 }
 
 pub(super) fn mixed_random_step(world: &World, random_entities: &[Entity]) -> u64 {
@@ -133,8 +134,8 @@ pub(super) fn run_mixed_frame(
 ) -> u64 {
     mixed_move_step(world);
     mixed_health_step(world);
-    mixed_heavy_step(world);
-    let checksum = mixed_random_step(world, random_entities);
+    let heavy_checksum = mixed_heavy_step(world);
+    let checksum = heavy_checksum.wrapping_add(mixed_random_step(world, random_entities));
     mixed_churn_step(world, churn_entities);
     mixed_spawn_step(world, spawned_entities);
     checksum
@@ -183,7 +184,8 @@ pub fn bench_mixed_frame_phases(group: &mut BenchmarkGroup<'_, WallTime>) {
         let (mut world, _, _) = mixed_world();
         warm_query(&mut world, HEAVY_MASK);
         b.iter(|| {
-            mixed_heavy_step(&mut world);
+            let checksum = mixed_heavy_step(&mut world);
+            black_box(checksum);
             black_box(&world);
         });
     });

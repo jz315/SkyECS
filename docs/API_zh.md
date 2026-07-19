@@ -98,10 +98,39 @@ assert_eq!(world.entity_count(), 10_000);
 
 `spawn_batch` 适合不需要立即保存每个 `EntityId` 的批量导入。
 
-`spawn`、`spawn_batch`、类型查询和过滤器使用的组件元组最多支持
-16 项。底层的单个 Archetype 最多可包含 32 种不同组件；这是每个
-Archetype 的存储上限，不是一个 `World` 可注册组件类型的总数上限。
-较宽的底层上限主要供 dynamic 和 expert 构建路径使用。
+如果数据生产方已经为每种组件分别维护一个 `Vec`，可以用
+`spawn_columns` 直接导入这种 SoA 数据：
+
+```rust
+use sky_ecs::World;
+
+struct Position(f32, f32);
+struct Velocity(f32, f32);
+
+let mut columns = (
+    vec![Position(0.0, 0.0), Position(1.0, 0.0)],
+    vec![Velocity(1.0, 0.0), Velocity(2.0, 0.0)],
+);
+let position_capacity = columns.0.capacity();
+
+let mut world = World::new();
+world.spawn_columns(&mut columns).unwrap();
+
+assert_eq!(world.entity_count(), 2);
+assert!(columns.0.is_empty());
+assert_eq!(columns.0.capacity(), position_capacity);
+```
+
+所有列的长度必须相同。调用成功后，组件值会转移到 World；源 `Vec`
+会变为空，但保留原有容量以便复用。长度不一致时返回
+`ColumnLengthMismatch`，World 和源数据都不会改变。数据天然按实体
+Bundle 逐个产生时使用 `spawn_batch`；加载器、反序列化器以及其他
+天然生成独立组件数组的代码更适合使用 `spawn_columns`。
+
+`spawn`、`spawn_batch`、`spawn_columns`、类型查询和过滤器使用的组件
+元组最多支持 16 项。底层的单个 Archetype 最多可包含 32 种不同组件；
+这是每个 Archetype 的存储上限，不是一个 `World` 可注册组件类型的
+总数上限。较宽的底层上限主要供 dynamic 和 expert 构建路径使用。
 
 ## 3. 读写单个实体
 
@@ -334,7 +363,48 @@ fn main() {
 - `Res<T>` / `ResMut<T>`：只读 / 可变资源。
 - `Local<T>`：系统私有、跨帧保留的状态。
 - `Commands`：延迟结构变更。
-- `Res<Time>`：当前帧时间。
+- `Res<Time>`：World 永久内置的只读时间资源。
+
+### `Time`：内置时间资源
+
+每个 `World` 创建时就包含 `Time`，无需调用 `insert_resource`。它不能被
+替换或移除，`contains_resource::<Time>()` 始终返回 `true`。普通系统通过
+`Res<Time>` 读取它，不能请求 `ResMut<Time>`，因为帧时间由调度器维护。
+
+```rust
+fn movement(bodies: View<(&mut Position, &Velocity)>, time: Res<Time>) {
+    bodies.for_each(|(position, velocity)| {
+        position.0 += velocity.0 * time.delta;
+    });
+}
+```
+
+几个时间值的区别：
+
+| 字段 | 含义 |
+|---|---|
+| `delta` | 当前这次阶段执行应使用的步长。普通阶段中等于 `frame_delta`；`FixedUpdate` 中临时变为固定步长。 |
+| `frame_delta` | 当前应用帧经过限制并乘以 `time_scale` 后的步长。渲染和 UI 通常使用它。 |
+| `raw_delta` | 限制和时间缩放前的真实帧间隔。 |
+| `elapsed` | 受 `time_scale` 影响的累计时间。 |
+| `raw_elapsed` | 不受 `time_scale` 影响的真实累计时间。 |
+| `fixed_alpha` | 内置固定步累加器的剩余比例，可用于渲染插值。 |
+
+`tick()` 根据墙钟时间更新 `Time`；`tick_with_delta(delta)` 把传入值同时
+作为原始时间和帧时间，适合测试和确定性模拟。应用运行器如果对超大帧
+间隔做了限制，可以调用 `tick_with_frame_delta(frame_delta, raw_delta)`，
+同时保留真实的 `raw_delta`。
+
+如果需要配置时间缩放，应在调度执行之外修改：
+
+```rust
+let mut world = World::new();
+world.get_resource_mut::<Time>().unwrap().time_scale = 0.5;
+world.tick_with_delta(1.0 / 60.0).unwrap();
+```
+
+这里修改的是 World 内置的同一个 `Time`。不能用 `insert_resource(Time)`
+替换它，也不能用 `remove_resource::<Time>()` 删除它。
 
 内置阶段顺序是 `First -> FixedUpdate -> PreUpdate -> Update -> PostUpdate -> Last`。
 固定频率逻辑放在 `FixedUpdate`，并用 `FixedStep::hz(...)` 配置。

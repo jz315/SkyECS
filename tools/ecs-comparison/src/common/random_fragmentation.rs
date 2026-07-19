@@ -64,6 +64,14 @@ pub fn add_position_checksum(checksum: u64, position: &PositionComponent) -> u64
     checksum.wrapping_add(position.0.x.to_bits() as u64)
 }
 
+#[inline(always)]
+pub fn add_full_position_checksum(checksum: u64, position: &PositionComponent) -> u64 {
+    checksum
+        .wrapping_add(position.0.x.to_bits() as u64)
+        .wrapping_add(position.0.y.to_bits() as u64)
+        .wrapping_add(position.0.z.to_bits() as u64)
+}
+
 pub fn position_checksum_value(position_x: f32, count: usize) -> u64 {
     (position_x.to_bits() as u64).wrapping_mul(count as u64)
 }

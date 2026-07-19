@@ -114,10 +114,11 @@ fn build_flecs_c_library(include: &Path, out_dir: &Path, optimized: bool) {
         .extra_warnings(true);
     configure_flecs_c(&mut adapter);
     configure_optimization(&mut adapter, optimized);
+    configure_float_semantics(&mut adapter, msvc_target);
     let adapter_compiler = adapter.get_compiler();
     ensure_llvm_compiler(&adapter_compiler, "Flecs C adapter");
     ensure_matching_compilers(&core_compiler, &adapter_compiler);
-    let optimization = "-O3 -flto -DNDEBUG; LLVM linker LTO";
+    let optimization = "-O3 -flto -DNDEBUG; fp-contract=off; LLVM linker LTO";
     println!("cargo:rustc-env=SKY_FLECS_C_OPTIMIZATION={optimization}");
     println!(
         "cargo:rustc-env=SKY_FLECS_C_LLVM_VERSION={}",
@@ -294,6 +295,14 @@ fn run_command(mut command: Command, description: &str) {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+}
+
+fn configure_float_semantics(build: &mut cc::Build, msvc_target: bool) {
+    if msvc_target {
+        build.flag("/clang:-ffp-contract=off");
+    } else {
+        build.flag("-ffp-contract=off");
     }
 }
 

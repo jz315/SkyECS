@@ -8,6 +8,7 @@
 //! - [`CommandBuffer`] — an owned deferred buffer for manual structural changes.
 //! - [`Commands`] — a borrowed deferred writer available as a system parameter.
 //! - [`Bundle`] — trait implemented for component tuples used in [`World::spawn`].
+//! - [`ColumnBundle`] — tuples of component columns used in [`World::spawn_columns`].
 //! - [`Query`] / [`QueryMut`] — world-bound typed query facades.
 //! - [`PreparedQuery`] — an explicit reusable query plan for advanced hot paths.
 //! - [`With`] / [`Without`] — archetype-level query filters.
@@ -19,6 +20,7 @@ mod accessor;
 mod archetype;
 mod bundle;
 mod chunk;
+mod column_bundle;
 mod commands;
 mod component_posting;
 pub mod dynamic;
@@ -33,6 +35,7 @@ mod world;
 
 pub use accessor::{ComponentAccessor, ComponentAccessorMut};
 pub use bundle::Bundle;
+pub use column_bundle::{ColumnBundle, ColumnLengthMismatch};
 pub use commands::{CommandBuffer, Commands};
 pub use entity::EntityId;
 pub use query::{Any, PreparedQuery, Query, QueryFilter, QueryMut, With, Without};

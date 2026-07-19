@@ -52,21 +52,22 @@ pub(super) fn mixed_health_step(world: &World) {
     }
 }
 
-pub(super) fn mixed_heavy_step(world: &World) {
+pub(super) fn mixed_heavy_step(world: &World) -> u64 {
     let (mut positions, transforms) = world
         .borrow::<(ViewMut<PositionComponent>, View<TransformComponent>)>()
         .unwrap();
+    let mut checksum = 0_u64;
     (&mut positions, &transforms)
         .iter()
         .for_each(|(position, transform)| {
             let mut matrix = transform.0;
             for _ in 0..MIXED_FRAME_INVERT_COUNT {
-                matrix = matrix
-                    .invert()
-                    .expect("mixed-frame matrix should remain invertible");
+                matrix = matrix.inverse();
             }
             position.0 = matrix.transform_vector(position.0);
+            checksum = add_full_position_checksum(checksum, position);
         });
+    checksum
 }
 
 pub(super) fn mixed_random_step(world: &World, entities: &[EntityId]) -> u64 {
@@ -107,8 +108,8 @@ pub fn bench_mixed_frame(group: &mut BenchmarkGroup<'_, WallTime>) {
         b.iter(|| {
             mixed_move_step(&world);
             mixed_health_step(&world);
-            mixed_heavy_step(&world);
-            let checksum = mixed_random_step(&world, &random_entities);
+            let heavy_checksum = mixed_heavy_step(&world);
+            let checksum = heavy_checksum.wrapping_add(mixed_random_step(&world, &random_entities));
             mixed_churn_step(&mut world, &churn_entities);
             mixed_spawn_step(&mut world, &mut spawned_entities);
             black_box(checksum);
@@ -155,17 +156,18 @@ pub fn bench_mixed_frame_phases(group: &mut BenchmarkGroup<'_, WallTime>) {
             .borrow::<(ViewMut<PositionComponent>, View<TransformComponent>)>()
             .unwrap();
         b.iter(|| {
+            let mut checksum = 0_u64;
             (&mut positions, &transforms)
                 .iter()
                 .for_each(|(position, transform)| {
                     let mut matrix = transform.0;
                     for _ in 0..MIXED_FRAME_INVERT_COUNT {
-                        matrix = matrix
-                            .invert()
-                            .expect("mixed-frame matrix should remain invertible");
+                        matrix = matrix.inverse();
                     }
                     position.0 = matrix.transform_vector(position.0);
+                    checksum = add_full_position_checksum(checksum, position);
                 });
+            black_box(checksum);
             black_box(&world);
         });
     });

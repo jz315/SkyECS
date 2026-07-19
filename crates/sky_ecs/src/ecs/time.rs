@@ -1,7 +1,13 @@
-/// Timing information updated automatically by [`World`](crate::ecs::World).
+/// The permanent built-in time resource of a [`World`](crate::ecs::World).
 ///
-/// `Time` is built into `World` because it is core frame state rather than a
-/// user-owned resource.  Systems usually read [`delta`](Self::delta).  Render
+/// Every World contains `Time` from construction, so applications do not need
+/// to insert it and cannot replace or remove it. Ordinary systems access it as
+/// `Res<Time>`; `ResMut<Time>` is intentionally unavailable because the
+/// scheduler updates the frame values. Exclusive code between ticks may use
+/// `World::get_resource_mut::<Time>()`, for example to configure
+/// [`time_scale`](Self::time_scale).
+///
+/// Systems usually integrate simulation with [`delta`](Self::delta). Render
 /// and UI-facing code should prefer [`frame_delta`](Self::frame_delta), because
 /// fixed stages temporarily set `delta` to their fixed step while they run.
 #[derive(Debug, Clone)]

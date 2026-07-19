@@ -22,6 +22,13 @@ pub struct ChunkEntityLocation {
     pub entity_index: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ChunkRowSpan {
+    pub chunk_index: usize,
+    pub first_entity_index: usize,
+    pub entity_count: usize,
+}
+
 impl ArchetypeStorage {
     pub fn new(archetype: Archetype) -> Self {
         let component_bytes = archetype
@@ -291,6 +298,60 @@ impl ArchetypeStorage {
             debug_assert_eq!(layout.chunk_size(), SMALL_CHUNK_SIZE);
             self.chunks.last_mut().unwrap().promote_tiny(&layout);
         }
+    }
+
+    /// Allocates every chunk needed by an exact batch without making any row
+    /// live. The returned spans can therefore be initialized column by column
+    /// before entity metadata is committed.
+    pub(crate) fn reserve_exact_batch_spans(
+        &mut self,
+        entity_count: usize,
+    ) -> SmallVec<[ChunkRowSpan; 4]> {
+        debug_assert!(entity_count > 0);
+        self.prepare_batch_capacity(entity_count);
+
+        let mut spans: SmallVec<[ChunkRowSpan; 4]> = SmallVec::new();
+        let mut remaining = entity_count;
+        let mut chunk_index = self.ensure_batch_tail(remaining);
+        let mut planned_in_chunk = 0usize;
+
+        while remaining > 0 {
+            let chunk = &self.chunks[chunk_index];
+            let first_entity_index = chunk.entity_count + planned_in_chunk;
+            let available = chunk.max_entity_count - first_entity_index;
+
+            if available == 0 {
+                let previous_chunk_count = self.chunks.len();
+                self.grow_tail(remaining);
+                if self.chunks.len() != previous_chunk_count {
+                    chunk_index = self.chunks.len() - 1;
+                    planned_in_chunk = 0;
+                }
+                continue;
+            }
+
+            let span_entity_count = available.min(remaining);
+            spans.push(ChunkRowSpan {
+                chunk_index,
+                first_entity_index,
+                entity_count: span_entity_count,
+            });
+            planned_in_chunk += span_entity_count;
+            remaining -= span_entity_count;
+        }
+
+        let mut span_index = 0;
+        while span_index < spans.len() {
+            let chunk_index = spans[span_index].chunk_index;
+            let mut reserved_rows = 0;
+            while span_index < spans.len() && spans[span_index].chunk_index == chunk_index {
+                reserved_rows += spans[span_index].entity_count;
+                span_index += 1;
+            }
+            self.chunks[chunk_index].reserve_entity_slots(reserved_rows);
+        }
+
+        spans
     }
 
     #[inline(always)]

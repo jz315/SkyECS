@@ -1,5 +1,4 @@
 use crate::common::*;
-use cgmath::{SquareMatrix, Transform as _};
 use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
 use sky_ecs::dynamic::{DynamicBundle, WorldDynamicExt};
 use sky_ecs::{Bundle, EntityId, PreparedQuery, World};

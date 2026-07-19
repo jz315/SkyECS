@@ -1,8 +1,8 @@
 use super::{
-    AuxA, AuxB, Damage, Health, IsAlly, IsEnemy, Position2D, PositionComponent, Regen,
-    RotationComponent, TransformComponent, Velocity2D, VelocityComponent,
+    AuxA, AuxB, BenchmarkMatrix, Damage, Health, IsAlly, IsEnemy, Position2D, PositionComponent,
+    Regen, RotationComponent, TransformComponent, Velocity2D, VelocityComponent,
 };
-use cgmath::{Matrix4, Rad, Vector3};
+use cgmath::Vector3;
 
 pub const SIMPLE_ENTITY_COUNT: usize = 10_000;
 pub const WARM_RANDOM_ENTITY_COUNT: usize = 100_000;
@@ -52,7 +52,7 @@ pub type SuiteBundle = (
 );
 
 pub fn suite_transform() -> TransformComponent {
-    TransformComponent(Matrix4::from_scale(1.0))
+    TransformComponent(BenchmarkMatrix::identity())
 }
 
 pub fn suite_position() -> PositionComponent {
@@ -67,8 +67,8 @@ pub fn suite_velocity() -> VelocityComponent {
     VelocityComponent(Vector3::unit_x())
 }
 
-pub fn heavy_matrix() -> Matrix4<f32> {
-    Matrix4::<f32>::from_angle_x(Rad(1.2))
+pub fn heavy_matrix() -> BenchmarkMatrix {
+    BenchmarkMatrix::benchmark_rotation_x()
 }
 
 pub fn suite_bundle() -> SuiteBundle {
@@ -94,7 +94,7 @@ pub fn distinct_suite_bundles(count: usize) -> Vec<SuiteBundle> {
         .map(|index| {
             let value = index as f32 + 1.0;
             (
-                TransformComponent(Matrix4::from_scale(value)),
+                TransformComponent(BenchmarkMatrix::from_scale(value)),
                 PositionComponent(Vector3::new(value + 10.0, value + 11.0, value + 12.0)),
                 RotationComponent(Vector3::new(value + 20.0, value + 21.0, value + 22.0)),
                 VelocityComponent(Vector3::new(value + 30.0, value + 31.0, value + 32.0)),
@@ -127,7 +127,7 @@ pub fn light_bundle() -> (PositionComponent, VelocityComponent) {
 pub fn heavy_bundle() -> SuiteBundle {
     (
         TransformComponent(heavy_matrix()),
-        suite_position(),
+        PositionComponent(Vector3::new(1.0, 2.0, 3.0)),
         suite_rotation(),
         suite_velocity(),
     )
@@ -178,7 +178,7 @@ pub fn mixed_ally_bundle() -> (PositionComponent, VelocityComponent, Health, Reg
 pub fn mixed_heavy_bundle() -> (TransformComponent, PositionComponent, VelocityComponent) {
     (
         TransformComponent(heavy_matrix()),
-        PositionComponent(Vector3::new(1.0, 0.0, 0.0)),
+        PositionComponent(Vector3::new(1.0, 2.0, 3.0)),
         VelocityComponent(Vector3::new(0.5, 0.0, 0.5)),
     )
 }

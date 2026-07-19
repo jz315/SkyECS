@@ -74,6 +74,37 @@ impl EntityRecord {
     }
 
     #[inline(always)]
+    pub(crate) fn occupied_indices(
+        generation: u32,
+        data_index: u32,
+        chunk_index: u32,
+        entity_index: u32,
+    ) -> Self {
+        debug_assert_ne!(data_index, Self::VACANT_DATA_INDEX);
+        Self {
+            generation,
+            data_index,
+            chunk_index,
+            entity_index,
+        }
+    }
+
+    /// Appends a record after its vector capacity has already been reserved.
+    ///
+    /// # Safety
+    ///
+    /// `records` must have capacity for at least one additional element.
+    #[inline(always)]
+    pub(crate) unsafe fn append_reserved(records: &mut Vec<Self>, record: Self) {
+        debug_assert!(records.len() < records.capacity());
+        let len = records.len();
+        unsafe {
+            records.as_mut_ptr().add(len).write(record);
+            records.set_len(len + 1);
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn occupied(generation: u32, location: EntityLocation) -> Self {
         let mut record = Self::vacant(generation);
         record.set_location(location);
@@ -103,6 +134,19 @@ impl EntityRecord {
             u32::try_from(location.chunk_index).expect("chunk index limit exhausted");
         self.entity_index =
             u32::try_from(location.entity_index).expect("chunk entity index limit exhausted");
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_location_indices(
+        &mut self,
+        data_index: u32,
+        chunk_index: u32,
+        entity_index: u32,
+    ) {
+        debug_assert_ne!(data_index, Self::VACANT_DATA_INDEX);
+        self.data_index = data_index;
+        self.chunk_index = chunk_index;
+        self.entity_index = entity_index;
     }
 
     #[inline(always)]

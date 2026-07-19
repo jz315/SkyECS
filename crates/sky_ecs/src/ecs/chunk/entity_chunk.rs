@@ -199,6 +199,33 @@ impl Chunk {
         entity_index
     }
 
+    #[inline]
+    pub(crate) fn reserve_entity_slots(&mut self, additional: usize) {
+        self.entities.reserve(additional);
+    }
+
+    /// Adds an entity after the caller has reserved the EntityId vector.
+    ///
+    /// # Safety
+    ///
+    /// The chunk must have a free logical row and `self.entities` must have
+    /// spare capacity for one more `EntityId`. The caller must initialize all
+    /// component columns for the returned row before the chunk is observed.
+    #[inline(always)]
+    pub(crate) unsafe fn add_entity_reserved_unchecked(&mut self, entity: EntityId) -> usize {
+        debug_assert!(self.entity_count < self.max_entity_count);
+        debug_assert!(self.entities.len() < self.entities.capacity());
+
+        let entity_index = self.entity_count;
+        let entity_len = self.entities.len();
+        unsafe {
+            self.entities.as_mut_ptr().add(entity_len).write(entity);
+            self.entities.set_len(entity_len + 1);
+        }
+        self.entity_count += 1;
+        entity_index
+    }
+
     #[inline(always)]
     pub fn column_ptr(&self, component_index: usize) -> *mut u8 {
         unsafe {

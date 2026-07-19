@@ -1,6 +1,5 @@
 use crate::common::*;
 use ::freecs::Entity;
-use cgmath::{SquareMatrix, Transform as _};
 use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
 use std::hint::black_box;
 

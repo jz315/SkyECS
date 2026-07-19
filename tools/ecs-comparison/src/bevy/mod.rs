@@ -1,7 +1,6 @@
 use crate::common::*;
 use bevy_ecs::entity::Entity as BevyEntity;
 use bevy_ecs::world::World;
-use cgmath::{SquareMatrix, Transform as _};
 use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
 use std::hint::black_box;
 

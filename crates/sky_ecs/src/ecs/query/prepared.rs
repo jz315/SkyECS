@@ -1,6 +1,6 @@
 use super::filter::QueryFilter;
 use super::parallel;
-use super::param::QuerySpec;
+use super::param::{QueryParam, QuerySpec};
 use super::sequential::{self, SequentialChunkCache};
 use super::{EntityId, PreparedCache, QueryDescriptor, QueryWorld, World};
 use core::marker::PhantomData;
@@ -349,6 +349,108 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
         })
     }
 }
+
+// Generate the function entry points for one tuple arity. Rust has no variadic
+// generics, so every supported query width needs a concrete inherent impl.
+macro_rules! impl_chunk_fn {
+    ($(($Param:ident, $column:ident)),+ $(,)?) => {
+        impl<$($Param: QueryParam,)+ Flt: QueryFilter> PreparedQuery<($($Param,)+), Flt> {
+            /// Visits each matching chunk through a plain function whose
+            /// component columns are separate parameters.
+            ///
+            /// This is an opt-in code-generation path for compute-heavy loops.
+            /// Unlike a tuple-valued closure, the function boundary lets Rust
+            /// preserve the `noalias` contract of mutable slice parameters.
+            ///
+            /// The query still owns matching, cache refresh and slice creation;
+            /// only the component work moves behind the function boundary. The
+            /// function is called once per matching chunk, so ordinary
+            /// [`for_each_chunk`](Self::for_each_chunk) remains preferable for
+            /// short loops where a function call can cost more than improved
+            /// alias analysis saves.
+            ///
+            /// `function` is deliberately a plain function pointer rather than an
+            /// `FnMut`. A closure would package its arguments with a capture
+            /// environment and can lose the direct-parameter alias information
+            /// this API exists to preserve. A non-capturing closure can still
+            /// coerce to the required function pointer.
+            #[inline(always)]
+            pub fn for_each_chunk_fn<W>(
+                &mut self,
+                world: W,
+                function: for<'w> fn($($Param::Slice<'w>),+),
+            )
+            where
+                W: QueryWorld<($($Param,)+)>,
+            {
+                // The public chunk iterator continues to enforce the normal
+                // QuerySpec access contract. This adapter only unpacks the
+                // tuple before crossing the plain-function boundary.
+                self.for_each_chunk(world, |($($column,)+)| {
+                    function($($column),+);
+                });
+            }
+
+            /// Stateful counterpart to [`for_each_chunk_fn`](Self::for_each_chunk_fn).
+            ///
+            /// Values that a closure would normally capture are passed through
+            /// `state` explicitly. Component columns remain separate direct
+            /// function parameters, while one mutable state value is shared by
+            /// the sequential chunk visits.
+            #[inline(always)]
+            pub fn for_each_chunk_fn_with<W, State>(
+                &mut self,
+                world: W,
+                state: &mut State,
+                function: for<'w> fn(&mut State, $($Param::Slice<'w>),+),
+            )
+            where
+                W: QueryWorld<($($Param,)+)>,
+            {
+                self.for_each_chunk(world, |($($column,)+)| {
+                    function(state, $($column),+);
+                });
+            }
+        }
+    };
+}
+
+// Starting with two columns, recursively append one parameter and emit every
+// prefix. One column has no cross-column aliasing question and already uses a
+// direct slice value, so the specialized path begins at arity two.
+macro_rules! impl_chunk_fns {
+    // All declared columns have been emitted.
+    (@grow [$($all:tt),+] []) => {};
+    // Emit the next wider tuple and retain it as the prefix for recursion.
+    (@grow [$($all:tt),+] [$next:tt $(, $rest:tt)*]) => {
+        impl_chunk_fn!($($all),+, $next);
+        impl_chunk_fns!(@grow [$($all),+, $next] [$($rest),*]);
+    };
+    // Seed the recursion with the first useful width: two component columns.
+    ($first:tt, $second:tt $(, $rest:tt)*) => {
+        impl_chunk_fn!($first, $second);
+        impl_chunk_fns!(@grow [$first, $second] [$($rest),*]);
+    };
+}
+
+impl_chunk_fns!(
+    (A, a),
+    (B, b),
+    (C, c),
+    (D, d),
+    (E, e),
+    (F, f),
+    (G, g),
+    (H, h),
+    (I, i),
+    (J, j),
+    (K, k),
+    (L, l),
+    (M, m),
+    (N, n),
+    (O, o),
+    (P, p)
+);
 
 #[cfg(test)]
 mod tests {
@@ -1022,6 +1124,51 @@ mod tests {
 
         assert_eq!(chunks_with_vel, 1);
         assert_eq!(chunks_without_vel, 1);
+    }
+
+    #[test]
+    fn chunk_fn_with_receives_disjoint_columns_and_explicit_state() {
+        fn move_chunk(moved: &mut usize, positions: &mut [Position], velocities: &[Velocity]) {
+            for (position, velocity) in positions.iter_mut().zip(velocities) {
+                position.x += velocity.x;
+                position.y += velocity.y;
+                *moved += 1;
+            }
+        }
+
+        let mut world = World::new();
+        world.spawn_batch((0..128).map(|_| (Position::default(), Velocity { x: 2.0, y: 3.0 })));
+
+        let mut moved = 0;
+        let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
+        query.for_each_chunk_fn_with(&mut world, &mut moved, move_chunk);
+
+        assert_eq!(moved, 128);
+        let mut check = PreparedQuery::<&Position>::new();
+        check.for_each(&world, |position| {
+            assert_eq!((position.x, position.y), (2.0, 3.0));
+        });
+    }
+
+    #[test]
+    fn chunk_fn_accepts_a_non_capturing_function() {
+        fn move_chunk(positions: &mut [Position], velocities: &[Velocity]) {
+            for (position, velocity) in positions.iter_mut().zip(velocities) {
+                position.x += velocity.x;
+                position.y += velocity.y;
+            }
+        }
+
+        let mut world = World::new();
+        world.spawn_batch((0..64).map(|_| (Position::default(), Velocity { x: 4.0, y: 5.0 })));
+
+        let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
+        query.for_each_chunk_fn(&mut world, move_chunk);
+
+        let mut check = PreparedQuery::<&Position>::new();
+        check.for_each(&world, |position| {
+            assert_eq!((position.x, position.y), (4.0, 5.0));
+        });
     }
 
     #[test]

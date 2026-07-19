@@ -109,6 +109,10 @@ impl World {
         let entities = &mut self.entities;
         let free_entities = &mut self.free_entities;
         let storage = &mut self.data[data_index];
+        let record_data_index = u32::try_from(data_index)
+            .ok()
+            .filter(|&index| index != u32::MAX)
+            .expect("World storage index limit exhausted");
         let mut live_count = BatchCommitGuard {
             live_entity_count: &mut self.live_entity_count,
             inserted: 0,
@@ -138,7 +142,59 @@ impl World {
                 };
             }
 
-            for row_offset in 0..available {
+            // Exact and lower-bounded iterators let the common fresh-ID path
+            // reserve a whole contiguous row span. Iterator values are still
+            // requested one by one, so a short or panicking iterator cannot
+            // expose an uninitialized row.
+            let fast_rows = if free_entities.is_empty() {
+                available.min(iter.size_hint().0)
+            } else {
+                0
+            };
+            if fast_rows > 0 {
+                assert!(
+                    fast_rows <= (u32::MAX as usize).saturating_sub(entities.len()),
+                    "entity slot limit exhausted"
+                );
+                entities.reserve(fast_rows);
+                chunk.reserve_entity_slots(fast_rows);
+            }
+
+            let record_chunk_index =
+                u32::try_from(chunk_index).expect("chunk index limit exhausted");
+            let first_record_entity_index =
+                u32::try_from(first_entity_index).expect("chunk entity index limit exhausted");
+
+            let mut inserted_in_chunk = 0usize;
+            for (record_entity_index, row_offset) in (first_record_entity_index..).zip(0..fast_rows)
+            {
+                let Some(bundle) = iter.next() else {
+                    break;
+                };
+
+                let index = entities.len() as u32;
+                let entity = EntityId::new(index, 0);
+                // SAFETY: both vectors reserved `fast_rows` slots before this
+                // loop. Each completed iteration consumes exactly one slot.
+                unsafe {
+                    EntityRecord::append_reserved(
+                        entities,
+                        EntityRecord::occupied_indices(
+                            0,
+                            record_data_index,
+                            record_chunk_index,
+                            record_entity_index,
+                        ),
+                    );
+                    let entity_index = chunk.add_entity_reserved_unchecked(entity);
+                    debug_assert_eq!(entity_index, first_entity_index + row_offset);
+                    bundle.write_fast_cursor(&mut cursors, columns);
+                }
+                live_count.record_insert();
+                inserted_in_chunk += 1;
+            }
+
+            for row_offset in inserted_in_chunk..available {
                 let Some(bundle) = iter.next() else {
                     break;
                 };

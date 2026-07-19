@@ -1532,6 +1532,38 @@ fn exact_spawn_batch_starts_from_a_batch_appropriate_size_class() {
 }
 
 #[test]
+fn spawn_batch_remains_safe_when_an_iterator_overstates_its_lower_bound() {
+    struct OverstatedHint {
+        next: u64,
+    }
+
+    impl Iterator for OverstatedHint {
+        type Item = (Tick,);
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let value = self.next;
+            if value == 3 {
+                return None;
+            }
+            self.next += 1;
+            Some((Tick(value),))
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            (1_000, Some(1_000))
+        }
+    }
+
+    let mut world = World::new();
+    world.spawn_batch(OverstatedHint { next: 0 });
+
+    assert_eq!(world.entity_count(), 3);
+    let mut sum = 0;
+    world.query::<&Tick>().for_each(|tick| sum += tick.0);
+    assert_eq!(sum, 3);
+}
+
+#[test]
 fn unknown_batch_size_falls_back_to_incremental_growth() {
     let mut world = World::new();
     let bundles = (0..5_000)

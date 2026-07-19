@@ -1,5 +1,4 @@
 use crate::common::*;
-use cgmath::{SquareMatrix, Transform as _};
 use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
 use hecs::{Entity as HecsEntity, PreparedQuery, Query as HecsQuery, World};
 use std::hint::black_box;

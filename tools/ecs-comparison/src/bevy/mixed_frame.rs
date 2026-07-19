@@ -1,13 +1,12 @@
 use crate::common::{
-    add_position_checksum, light_bundle, mixed_ally_bundle, mixed_enemy_bundle, mixed_heavy_bundle,
-    mixed_mover_bundle, sample_entities, Damage, Health, PositionComponent, Regen,
-    TransformComponent, VelocityComponent, MIXED_FRAME_ALLIES, MIXED_FRAME_CHURN_COUNT,
-    MIXED_FRAME_ENEMIES, MIXED_FRAME_HEAVY, MIXED_FRAME_INVERT_COUNT, MIXED_FRAME_MOVERS,
-    MIXED_FRAME_RANDOM_COUNT, MIXED_FRAME_SPAWN_COUNT, MIXED_PHASE_HEALTH_REPEAT,
-    MIXED_PHASE_SPAWN_REPEAT,
+    add_full_position_checksum, add_position_checksum, light_bundle, mixed_ally_bundle,
+    mixed_enemy_bundle, mixed_heavy_bundle, mixed_mover_bundle, sample_entities, Damage, Health,
+    PositionComponent, Regen, TransformComponent, VelocityComponent, MIXED_FRAME_ALLIES,
+    MIXED_FRAME_CHURN_COUNT, MIXED_FRAME_ENEMIES, MIXED_FRAME_HEAVY, MIXED_FRAME_INVERT_COUNT,
+    MIXED_FRAME_MOVERS, MIXED_FRAME_RANDOM_COUNT, MIXED_FRAME_SPAWN_COUNT,
+    MIXED_PHASE_HEALTH_REPEAT, MIXED_PHASE_SPAWN_REPEAT,
 };
 use bevy_ecs::{entity::Entity as BevyEntity, query::QueryState, world::World};
-use cgmath::{SquareMatrix, Transform as _};
 use criterion::{measurement::WallTime, BenchmarkGroup};
 use std::hint::black_box;
 
@@ -68,16 +67,17 @@ fn mixed_health_step(
 fn mixed_heavy_step(
     world: &mut World,
     heavy_query: &mut QueryState<(&mut PositionComponent, &TransformComponent)>,
-) {
+) -> u64 {
+    let mut checksum = 0_u64;
     for (mut position, transform) in heavy_query.iter_mut(world) {
         let mut matrix = transform.0;
         for _ in 0..MIXED_FRAME_INVERT_COUNT {
-            matrix = matrix
-                .invert()
-                .expect("mixed-frame matrix should remain invertible");
+            matrix = matrix.inverse();
         }
         position.0 = matrix.transform_vector(position.0);
+        checksum = add_full_position_checksum(checksum, &position);
     }
+    checksum
 }
 
 fn mixed_random_step(
@@ -129,8 +129,9 @@ pub(super) fn run_mixed_frame(
 ) -> u64 {
     mixed_move_step(world, move_query);
     mixed_health_step(world, enemy_query, ally_query);
-    mixed_heavy_step(world, heavy_query);
-    let checksum = mixed_random_step(world, random_query, random_entities);
+    let heavy_checksum = mixed_heavy_step(world, heavy_query);
+    let checksum =
+        heavy_checksum.wrapping_add(mixed_random_step(world, random_query, random_entities));
     mixed_churn_step(world, churn_entities);
     mixed_spawn_step(world, spawned_entities);
     checksum
@@ -188,7 +189,8 @@ pub fn bench_mixed_frame_phases(group: &mut BenchmarkGroup<'_, WallTime>) {
         let (mut world, _, _) = mixed_world();
         let mut query = world.query::<(&mut PositionComponent, &TransformComponent)>();
         b.iter(|| {
-            mixed_heavy_step(&mut world, &mut query);
+            let checksum = mixed_heavy_step(&mut world, &mut query);
+            black_box(checksum);
             black_box(&world);
         });
     });

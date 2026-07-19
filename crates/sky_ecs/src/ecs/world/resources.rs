@@ -2,6 +2,13 @@ use super::*;
 
 impl World {
     /// Inserts a singleton resource, returning the previous value if one existed.
+    ///
+    /// [`Time`] is a permanent built-in resource and cannot be inserted or
+    /// replaced.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `R` is [`Time`].
     pub fn insert_resource<R: 'static>(&mut self, resource: R) -> Option<R> {
         assert_ne!(
             std::any::TypeId::of::<R>(),
@@ -13,6 +20,8 @@ impl World {
     }
 
     /// Returns an immutable reference to resource `R`, or `None`.
+    ///
+    /// [`Time`] is built in and is therefore always present.
     pub fn get_resource<R: 'static>(&self) -> Option<&R> {
         if std::any::TypeId::of::<R>() == std::any::TypeId::of::<Time>() {
             // Safety: equal TypeIds prove that `R` is exactly `Time`.
@@ -22,6 +31,9 @@ impl World {
     }
 
     /// Returns a mutable reference to resource `R`, or `None`.
+    ///
+    /// Exclusive code may use this to configure built-in [`Time`] between
+    /// ticks. Ordinary systems must use `Res<Time>` instead of `ResMut<Time>`.
     pub fn get_resource_mut<R: 'static>(&mut self) -> Option<&mut R> {
         if std::any::TypeId::of::<R>() == std::any::TypeId::of::<Time>() {
             // Safety: equal TypeIds prove that `R` is exactly `Time`.
@@ -31,6 +43,8 @@ impl World {
     }
 
     /// Returns `true` if the world contains resource `R`.
+    ///
+    /// This always returns `true` for the permanent built-in [`Time`].
     pub fn contains_resource<R: 'static>(&self) -> bool {
         if std::any::TypeId::of::<R>() == std::any::TypeId::of::<Time>() {
             return true;
@@ -43,6 +57,12 @@ impl World {
     }
 
     /// Removes and returns resource `R`, or `None` if not present.
+    ///
+    /// [`Time`] is a permanent built-in resource and cannot be removed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `R` is [`Time`].
     pub fn remove_resource<R: 'static>(&mut self) -> Option<R> {
         assert_ne!(
             std::any::TypeId::of::<R>(),

@@ -7,7 +7,7 @@ mod entity_chunk;
 mod layout;
 mod pool;
 
-pub(crate) use archetype_storage::{ArchetypeStorage, ChunkEntityLocation};
+pub(crate) use archetype_storage::{ArchetypeStorage, ChunkEntityLocation, ChunkRowSpan};
 pub use entity_chunk::Chunk;
 pub(crate) use layout::ChunkLayout;
 

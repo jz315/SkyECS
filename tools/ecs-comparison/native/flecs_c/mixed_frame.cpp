@@ -51,6 +51,10 @@ struct Regen {
     float value;
 };
 
+static_assert(sizeof(Transform) == 64 && alignof(Transform) == 4);
+static_assert(sizeof(Position) == 12 && alignof(Position) == 4);
+static_assert(sizeof(Velocity) == 12 && alignof(Velocity) == 4);
+
 template<typename Component>
 ecs_entity_t define_component(ecs_world_t* world, const char* name) {
     ecs_entity_desc_t entity{};
@@ -277,8 +281,8 @@ void spawn_heavy_entities(
             context.components.position,
             context.components.velocity,
         });
-    const Transform transform{Mat4::rotation_x(1.2f)};
-    const Position position{1.0f, 0.0f, 0.0f};
+    const Transform transform{Mat4::benchmark_rotation_x()};
+    const Position position{1.0f, 2.0f, 3.0f};
     const Velocity velocity{0.5f, 0.0f, 0.5f};
 
     for (std::size_t index = 0; index < HEAVY_COUNT; ++index) {
@@ -441,10 +445,13 @@ std::uint64_t health_repeated(Context& context, std::size_t repetitions) {
 }
 
 std::uint64_t heavy(Context& context) {
+    std::uint64_t checksum = 0;
     ecs_iter_t iterator = ecs_query_iter(context.world, context.heavy_query);
     while (ecs_query_next(&iterator)) {
-        Position* positions = ecs_field(&iterator, Position, 0);
-        const Transform* transforms = ecs_field(&iterator, Transform, 1);
+        // Flecs stores different component fields in disjoint table columns.
+        Position* __restrict positions = ecs_field(&iterator, Position, 0);
+        const Transform* __restrict transforms =
+            ecs_field(&iterator, Transform, 1);
         for (std::int32_t row = 0; row < iterator.count; ++row) {
             Mat4 matrix = transforms[row].matrix;
             for (std::size_t index = 0; index < INVERT_COUNT; ++index) {
@@ -460,9 +467,10 @@ std::uint64_t heavy(Context& context) {
                 transformed.y,
                 transformed.z,
             };
+            checksum = add_vector_checksum(checksum, transformed);
         }
     }
-    return 1;
+    return checksum;
 }
 
 std::uint64_t random_access(Context& context) {
@@ -533,8 +541,8 @@ std::uint64_t spawn_repeated(Context& context, std::size_t repetitions) {
 std::uint64_t frame(Context& context) {
     movement(context);
     health_repeated(context, 1);
-    heavy(context);
-    const std::uint64_t checksum = random_access(context);
+    const std::uint64_t heavy_checksum = heavy(context);
+    const std::uint64_t checksum = heavy_checksum + random_access(context);
     churn(context);
     spawn_repeated(context, 1);
     return checksum;

@@ -1,25 +1,24 @@
-use cgmath::{Matrix4, Vector3};
+use super::BenchmarkMatrix;
+use cgmath::Vector3;
+
+#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, shipyard::Component)]
+#[repr(transparent)]
+pub struct TransformComponent(pub BenchmarkMatrix);
 
 #[derive(Clone, Copy, bevy_ecs::prelude::Component, shipyard::Component)]
-pub struct TransformComponent(pub Matrix4<f32>);
-
-#[derive(Clone, Copy, bevy_ecs::prelude::Component, shipyard::Component)]
+#[repr(transparent)]
 pub struct PositionComponent(pub Vector3<f32>);
 
 #[derive(Clone, Copy, bevy_ecs::prelude::Component, shipyard::Component)]
+#[repr(transparent)]
 pub struct RotationComponent(pub Vector3<f32>);
 
 #[derive(Clone, Copy, bevy_ecs::prelude::Component, shipyard::Component)]
+#[repr(transparent)]
 pub struct VelocityComponent(pub Vector3<f32>);
 
 #[derive(Clone, Copy, bevy_ecs::prelude::Component, shipyard::Component)]
 pub struct DataComponent(pub f32);
-
-impl Default for TransformComponent {
-    fn default() -> Self {
-        Self(Matrix4::from_scale(1.0))
-    }
-}
 
 impl Default for PositionComponent {
     fn default() -> Self {
@@ -121,3 +120,31 @@ macro_rules! define_random_fragment_tags {
 define_random_fragment_tags!(
     TagA, TagB, TagC, TagD, TagE, TagF, TagG, TagH, TagI, TagJ, TagK, TagL, TagM, TagN, TagO, TagP,
 );
+
+#[cfg(test)]
+mod tests {
+    use super::{PositionComponent, RotationComponent, TransformComponent, VelocityComponent};
+
+    #[test]
+    fn heavy_component_layout_matches_native_adapter() {
+        assert_eq!(std::mem::size_of::<TransformComponent>(), 64);
+        assert_eq!(std::mem::align_of::<TransformComponent>(), 4);
+        for (size, alignment) in [
+            (
+                std::mem::size_of::<PositionComponent>(),
+                std::mem::align_of::<PositionComponent>(),
+            ),
+            (
+                std::mem::size_of::<RotationComponent>(),
+                std::mem::align_of::<RotationComponent>(),
+            ),
+            (
+                std::mem::size_of::<VelocityComponent>(),
+                std::mem::align_of::<VelocityComponent>(),
+            ),
+        ] {
+            assert_eq!(size, 12);
+            assert_eq!(alignment, 4);
+        }
+    }
+}
