@@ -11,8 +11,6 @@
 
 **A high-performance, typed, chunk-based Entity Component System for Rust.**
 
-**The current benchmark has issues and the results are being reviewed.**
-
 Sky ECS is a very fast Entity Component System (ECS) library for Rust, with
 leading results across multiple performance benchmarks.
 
@@ -82,22 +80,14 @@ storage limit, not a limit on the component types available to a `World`.
 
 ## Benchmarks
 
-The table records current-protocol local measurements from 2026-07-17. The
-Flecs column was remeasured with Clang/LLVM 22.1.2 after the native compiler
-audit. Spawn/random despawn was remeasured for all adapters after adopting a
-deterministic shuffled deletion order.
 
 | Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| Bulk insert 10k | **121.72 µs** | 205.14 µs | 307.23 µs | 237.70 µs | 263.85 µs | 282.87 µs |
-| Prepared iteration 10k | 5.31 µs | 5.35 µs | 7.93 µs | **5.14 µs** | 6.88 µs | 11.48 µs |
-| Prepared iteration 100k | 57.94 µs | 58.48 µs | 89.97 µs | **53.72 µs** | 70.77 µs | 119.94 µs |
-| Spawn/random despawn 1k | 24.76 µs | **22.93 µs** | 79.59 µs | 39.37 µs | 108.85 µs | 64.29 µs |
-| Mixed frame | 220.18 µs | **218.61 µs** | 254.18 µs | 290.92 µs | 312.64 µs | 287.53 µs |
-
-Prepared random access measures only the prepared lookup hot path; preparation
-cost and cache memory are excluded. Mixed frame is a scenario and heavy compute
-is a diagnostic, so neither is used for an overall speed claim.
+| Bulk insert 10k | 120.93 µs | 352.11 µs | 440.19 µs | **110.41 µs** | 278.08 µs | 166.75 µs |
+| Prepared iteration 10k | 8.12 µs | 7.83 µs | 9.35 µs | **7.69 µs** | 11.96 µs | 17.29 µs |
+| Prepared iteration 100k | 81.21 µs | 78.88 µs | 93.65 µs | **77.62 µs** | 120.08 µs | 174.30 µs |
+| Spawn/random despawn 1k | **45.37 µs** | 46.34 µs | 103.05 µs | 67.47 µs | 112.41 µs | 107.42 µs |
+| Mixed frame | 349.54 µs | 352.55 µs | 377.57 µs | **331.78 µs** | 409.09 µs | 380.53 µs |
 
 See the [benchmark documentation](benches/BENCHMARKS.md) for the complete workload
 list, all recorded rows, environment, compiler configuration, and methodology.
