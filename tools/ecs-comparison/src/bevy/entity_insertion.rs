@@ -7,14 +7,33 @@ pub(super) fn prepared_insert_world() -> World {
     let _ = world.register_bundle::<SuiteBundle>();
     world
 }
+
+pub(super) struct NativeBulkContext {
+    pub world: World,
+    pub bundles: Option<Vec<SuiteBundle>>,
+}
+
+pub(super) fn native_bulk_context(columns: SuiteColumns) -> NativeBulkContext {
+    NativeBulkContext {
+        world: prepared_insert_world(),
+        bundles: Some(suite_columns_into_bundles(columns)),
+    }
+}
+
+pub(super) fn insert_native_bulk(context: &mut NativeBulkContext) {
+    let bundles = context
+        .bundles
+        .take()
+        .expect("native bundle batch is consumed once");
+    drop(context.world.spawn_batch(bundles));
+}
 pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("bulk_insert_10k/bevy", |b| {
-        let bundles = suite_bundles(SIMPLE_ENTITY_COUNT);
+    group.bench_function("native_bulk_insert_10k/bevy", |b| {
         b.iter_batched_ref(
-            prepared_insert_world,
-            |world| {
-                world.spawn_batch(bundles.iter().copied());
-                black_box(&world);
+            || native_bulk_context(suite_columns(SIMPLE_ENTITY_COUNT)),
+            |context| {
+                insert_native_bulk(context);
+                black_box(&context.world);
             },
             BatchSize::SmallInput,
         );

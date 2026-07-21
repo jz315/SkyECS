@@ -20,6 +20,7 @@ mod accessor;
 mod archetype;
 mod bundle;
 mod chunk;
+mod chunk_route;
 mod column_bundle;
 mod commands;
 mod component_posting;
@@ -75,4 +76,5 @@ pub mod __private {
 
 pub(crate) use archetype::*;
 pub(crate) use chunk::*;
+pub(crate) use chunk_route::*;
 pub(crate) use query::*;

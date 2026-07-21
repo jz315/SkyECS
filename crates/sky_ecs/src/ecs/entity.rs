@@ -43,6 +43,8 @@ impl EntityId {
     }
 }
 
+use super::ChunkId;
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EntityLocation {
     pub data_index: usize,
@@ -51,40 +53,36 @@ pub(crate) struct EntityLocation {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub(crate) struct EntityRoute {
+    pub chunk_id: ChunkId,
+    pub entity_index: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct EntityRecord {
-    // Keep the random-access indirection table at four records per 64-byte
-    // cache line. `u32::MAX` in data_index represents a vacant entity slot.
+    // Three u32 values keep the random-access working set at 12 bytes per
+    // entity. An unassigned chunk route represents a vacant entity slot.
     pub generation: u32,
-    data_index: u32,
-    chunk_index: u32,
+    chunk_id: ChunkId,
     entity_index: u32,
 }
 
 impl EntityRecord {
-    const VACANT_DATA_INDEX: u32 = u32::MAX;
-
     #[inline(always)]
     pub(crate) fn vacant(generation: u32) -> Self {
         Self {
             generation,
-            data_index: Self::VACANT_DATA_INDEX,
-            chunk_index: 0,
+            chunk_id: ChunkId::UNASSIGNED,
             entity_index: 0,
         }
     }
 
     #[inline(always)]
-    pub(crate) fn occupied_indices(
-        generation: u32,
-        data_index: u32,
-        chunk_index: u32,
-        entity_index: u32,
-    ) -> Self {
-        debug_assert_ne!(data_index, Self::VACANT_DATA_INDEX);
+    pub(crate) fn occupied_indices(generation: u32, chunk_id: ChunkId, entity_index: u32) -> Self {
+        debug_assert!(chunk_id.is_assigned());
         Self {
             generation,
-            data_index,
-            chunk_index,
+            chunk_id,
             entity_index,
         }
     }
@@ -105,87 +103,74 @@ impl EntityRecord {
     }
 
     #[inline(always)]
-    pub(crate) fn occupied(generation: u32, location: EntityLocation) -> Self {
+    pub(crate) fn occupied(generation: u32, route: EntityRoute) -> Self {
         let mut record = Self::vacant(generation);
-        record.set_location(location);
+        record.set_route(route);
         record
     }
 
     #[inline(always)]
-    pub(crate) fn location(self) -> Option<EntityLocation> {
-        if self.data_index == Self::VACANT_DATA_INDEX {
+    pub(crate) fn route(self) -> Option<EntityRoute> {
+        if !self.chunk_id.is_assigned() {
             return None;
         }
 
-        Some(EntityLocation {
-            data_index: self.data_index as usize,
-            chunk_index: self.chunk_index as usize,
+        Some(EntityRoute {
+            chunk_id: self.chunk_id,
             entity_index: self.entity_index as usize,
         })
     }
 
     #[inline(always)]
-    pub(crate) fn set_location(&mut self, location: EntityLocation) {
-        self.data_index = u32::try_from(location.data_index)
-            .ok()
-            .filter(|&index| index != Self::VACANT_DATA_INDEX)
-            .expect("World storage index limit exhausted");
-        self.chunk_index =
-            u32::try_from(location.chunk_index).expect("chunk index limit exhausted");
+    pub(crate) fn set_route(&mut self, route: EntityRoute) {
+        debug_assert!(route.chunk_id.is_assigned());
+        self.chunk_id = route.chunk_id;
         self.entity_index =
-            u32::try_from(location.entity_index).expect("chunk entity index limit exhausted");
+            u32::try_from(route.entity_index).expect("chunk entity index limit exhausted");
     }
 
     #[inline(always)]
-    pub(crate) fn set_location_indices(
-        &mut self,
-        data_index: u32,
-        chunk_index: u32,
-        entity_index: u32,
-    ) {
-        debug_assert_ne!(data_index, Self::VACANT_DATA_INDEX);
-        self.data_index = data_index;
-        self.chunk_index = chunk_index;
+    pub(crate) fn set_route_indices(&mut self, chunk_id: ChunkId, entity_index: u32) {
+        debug_assert!(chunk_id.is_assigned());
+        self.chunk_id = chunk_id;
         self.entity_index = entity_index;
     }
 
     #[inline(always)]
-    pub(crate) fn clear_location(&mut self) {
-        self.data_index = Self::VACANT_DATA_INDEX;
+    pub(crate) fn clear_route(&mut self) {
+        self.chunk_id = ChunkId::UNASSIGNED;
     }
 
     #[inline(always)]
     pub(crate) fn is_alive(self) -> bool {
-        self.data_index != Self::VACANT_DATA_INDEX
+        self.chunk_id.is_assigned()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{EntityLocation, EntityRecord};
+    use super::{ChunkId, EntityRecord, EntityRoute};
 
     #[test]
     fn entity_record_stays_cache_dense() {
-        assert_eq!(std::mem::size_of::<EntityRecord>(), 16);
+        assert_eq!(std::mem::size_of::<EntityRecord>(), 12);
 
         let mut record = EntityRecord::vacant(7);
         assert!(!record.is_alive());
-        assert!(record.location().is_none());
+        assert!(record.route().is_none());
 
-        let location = EntityLocation {
-            data_index: 3,
-            chunk_index: 5,
+        let route = EntityRoute {
+            chunk_id: ChunkId(5),
             entity_index: 8,
         };
-        record.set_location(location);
+        record.set_route(route);
         assert!(record.is_alive());
-        let actual = record.location().unwrap();
-        assert_eq!(actual.data_index, location.data_index);
-        assert_eq!(actual.chunk_index, location.chunk_index);
-        assert_eq!(actual.entity_index, location.entity_index);
+        let actual = record.route().unwrap();
+        assert_eq!(actual.chunk_id, route.chunk_id);
+        assert_eq!(actual.entity_index, route.entity_index);
 
-        record.clear_location();
+        record.clear_route();
         assert!(!record.is_alive());
-        assert!(record.location().is_none());
+        assert!(record.route().is_none());
     }
 }

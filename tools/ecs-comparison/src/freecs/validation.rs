@@ -1,9 +1,9 @@
 use super::dense_iteration::world_with_entities;
 use super::entity_insertion::{
-    prepared_insert_world, spawn_suite_bundle, spawn_suite_bundles, World, A_MASK, B_MASK, C_MASK,
-    DATA_MASK, D_MASK, E_MASK, F_MASK, G_MASK, HEALTH_MASK, H_MASK, MOVE_MASK, POSITION_MASK,
-    SUITE_MASK, TAG_A_MASK, TAG_B_MASK, TAG_C_MASK, TAG_D_MASK, TAG_E_MASK, TAG_F_MASK, TAG_G_MASK,
-    TAG_H_MASK,
+    insert_native_bulk, native_bulk_context, prepared_insert_world, spawn_suite_bundle, World,
+    A_MASK, B_MASK, C_MASK, DATA_MASK, D_MASK, E_MASK, F_MASK, G_MASK, HEALTH_MASK, H_MASK,
+    MOVE_MASK, POSITION_MASK, SUITE_MASK, TAG_A_MASK, TAG_B_MASK, TAG_C_MASK, TAG_D_MASK,
+    TAG_E_MASK, TAG_F_MASK, TAG_G_MASK, TAG_H_MASK,
 };
 use super::fragmented_iteration::fragmented_world;
 use super::mixed_frame::{mixed_world, run_mixed_frame};
@@ -37,37 +37,49 @@ pub fn validate_contract() {
 }
 
 fn validate_construction() {
-    let mut construction_world = prepared_insert_world();
-    assert_eq!(construction_world.entity_count(), 0);
     let construction_bundles = distinct_suite_bundles(8);
-    let mut construction_entities =
-        spawn_suite_bundles(&mut construction_world, &construction_bundles);
-    let single_inputs = distinct_suite_bundles(3);
-    construction_entities.extend(
-        single_inputs
-            .iter()
-            .copied()
-            .map(|bundle| spawn_suite_bundle(&mut construction_world, bundle)),
-    );
-    assert_eq!(
-        construction_world.entity_count(),
-        construction_bundles.len() + single_inputs.len()
-    );
-    let mut construction_count = 0;
-    let mut actual = Vec::new();
-    construction_world.for_each(SUITE_MASK, 0, |_entity, table, index| {
-        construction_count += 1;
-        actual.push((
-            table.transform[index],
-            table.position[index],
-            table.rotation[index],
-            table.velocity[index],
+    {
+        let mut context = native_bulk_context(crate::common::suite_columns_from_bundles(
+            &construction_bundles,
         ));
-    });
-    assert_eq!(construction_count, construction_entities.len());
-    let mut expected = construction_bundles;
-    expected.extend(single_inputs);
-    assert_suite_bundles_match(&mut actual, &expected);
+        assert_eq!(context.world.entity_count(), 0);
+        insert_native_bulk(&mut context);
+        assert_eq!(context.entities.len(), construction_bundles.len());
+        assert!(context.columns.0.is_empty());
+        assert!(context.columns.1.is_empty());
+        assert!(context.columns.2.is_empty());
+        assert!(context.columns.3.is_empty());
+        let mut actual = Vec::new();
+        context
+            .world
+            .for_each(SUITE_MASK, 0, |_entity, table, index| {
+                actual.push((
+                    table.transform[index],
+                    table.position[index],
+                    table.rotation[index],
+                    table.velocity[index],
+                ));
+            });
+        assert_suite_bundles_match(&mut actual, &construction_bundles);
+    }
+    {
+        let mut construction_world = prepared_insert_world();
+        let single_inputs = distinct_suite_bundles(3);
+        for &bundle in &single_inputs {
+            spawn_suite_bundle(&mut construction_world, bundle);
+        }
+        assert_eq!(construction_world.entity_count(), single_inputs.len());
+        let mut actual = Vec::new();
+        construction_world.for_each(SUITE_MASK, 0, |_entity, table, index| {
+            actual.push((
+                table.transform[index],
+                table.position[index],
+                table.rotation[index],
+                table.velocity[index],
+            ));
+        });
+        assert_suite_bundles_match(&mut actual, &single_inputs);
+    }
 }
 
 fn validate_dense_iteration() {

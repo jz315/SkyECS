@@ -1,5 +1,5 @@
 use super::dense_iteration::world_with_entities;
-use super::entity_insertion::prepared_insert_world;
+use super::entity_insertion::{insert_native_bulk, native_bulk_context, prepared_insert_world};
 use super::fragmented_iteration::fragmented_world;
 use super::mixed_frame::{
     mixed_churn_step, mixed_health_step, mixed_heavy_step, mixed_move_step, mixed_random_step,
@@ -37,27 +37,45 @@ pub fn validate_contract() {
 
 fn validate_construction() {
     let construction_inputs = distinct_suite_bundles(8);
-    for bulk in [true, false] {
-        let mut construction_world = prepared_insert_world();
+    {
+        let mut context = native_bulk_context(crate::common::suite_columns_from_bundles(
+            &construction_inputs,
+        ));
         assert_eq!(
-            construction_world
+            context
+                .world
                 .borrow::<shipyard::EntitiesView>()
                 .unwrap()
                 .iter()
                 .count(),
             0
         );
-        let construction_entities = if bulk {
-            construction_world
-                .bulk_add_entity(construction_inputs.iter().copied())
-                .collect::<Vec<_>>()
-        } else {
-            construction_inputs
-                .iter()
-                .copied()
-                .map(|bundle| construction_world.add_entity(bundle))
-                .collect()
-        };
+        insert_native_bulk(&mut context);
+        assert!(context.bundles.is_none());
+        let (transforms, positions, rotations, velocities) = context
+            .world
+            .borrow::<(
+                View<TransformComponent>,
+                View<PositionComponent>,
+                View<RotationComponent>,
+                View<VelocityComponent>,
+            )>()
+            .unwrap();
+        let mut actual = (&transforms, &positions, &rotations, &velocities)
+            .iter()
+            .map(|(transform, position, rotation, velocity)| {
+                (*transform, *position, *rotation, *velocity)
+            })
+            .collect::<Vec<_>>();
+        assert_suite_bundles_match(&mut actual, &construction_inputs);
+    }
+    {
+        let mut construction_world = prepared_insert_world();
+        let construction_entities = construction_inputs
+            .iter()
+            .copied()
+            .map(|bundle| construction_world.add_entity(bundle))
+            .collect::<Vec<_>>();
         assert_eq!(construction_entities.len(), construction_inputs.len());
         let (transforms, positions, rotations, velocities) = construction_world
             .borrow::<(

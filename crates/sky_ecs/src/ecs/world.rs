@@ -4,7 +4,7 @@ use super::commands::{PendingComponentCommand, PendingComponentEntry};
 use super::component_posting::{ComponentPostingIndex, ComponentPostingList};
 use super::resource::Resources;
 use super::*;
-use crate::ecs::entity::{EntityLocation, EntityRecord};
+use crate::ecs::entity::{EntityLocation, EntityRecord, EntityRoute};
 use crate::ecs::system::{Schedule, StageBuilder};
 use crate::ecs::time::Time;
 use crate::ecs::{component_type, ComponentType};
@@ -93,6 +93,7 @@ pub struct World {
     last_transition: Option<(TransitionKey, NonNull<TransitionPlan>)>,
     component_command_transitions:
         FxHashMap<ComponentCommandTransitionKey, Box<ComponentCommandTransitionPlan>>,
+    chunk_directory: ChunkDirectory,
     entities: Vec<EntityRecord>,
     free_entities: Vec<u32>,
     live_entity_count: usize,
@@ -125,6 +126,7 @@ impl World {
             transitions: FxHashMap::default(),
             last_transition: None,
             component_command_transitions: FxHashMap::default(),
+            chunk_directory: ChunkDirectory::default(),
             entities: Vec::new(),
             free_entities: Vec::new(),
             live_entity_count: 0,
@@ -163,12 +165,12 @@ impl World {
     fn allocate_entity_at_location(
         entities: &mut Vec<EntityRecord>,
         free_entities: &mut Vec<u32>,
-        location: EntityLocation,
+        route: EntityRoute,
     ) -> EntityId {
         if let Some(index) = free_entities.pop() {
             let record = &mut entities[index as usize];
             let entity = EntityId::new(index, record.generation);
-            record.set_location(location);
+            record.set_route(route);
             entity
         } else {
             assert!(
@@ -176,8 +178,50 @@ impl World {
                 "entity slot limit exhausted"
             );
             let index = entities.len() as u32;
-            entities.push(EntityRecord::occupied(0, location));
+            entities.push(EntityRecord::occupied(0, route));
             EntityId::new(index, 0)
+        }
+    }
+
+    #[inline(always)]
+    fn ensure_chunk_route(&mut self, data_index: usize, chunk_index: usize) -> ChunkId {
+        let directory = &mut self.chunk_directory;
+        let storage = &mut self.data[data_index];
+        directory.ensure(&mut storage.chunk_ids[chunk_index], data_index, chunk_index)
+    }
+
+    /// Allocates one uninitialized storage row and registers its physical
+    /// chunk before an entity record can make that row observable.
+    ///
+    /// # Safety
+    ///
+    /// The caller must initialize every component in the returned row before
+    /// exposing the entity or allowing that row to be dropped.
+    #[inline(always)]
+    unsafe fn allocate_storage_row(
+        &mut self,
+        data_index: usize,
+        entity: EntityId,
+    ) -> ChunkEntityLocation {
+        let location = unsafe { self.data[data_index].add_entity(entity) };
+        self.ensure_chunk_route(data_index, location.chunk_index);
+        location
+    }
+
+    #[inline(always)]
+    fn finish_chunk_removal(&mut self, data_index: usize, removal: ChunkRemoval) {
+        if let Some((moved_entity, moved_location)) = removal.moved {
+            self.set_entity_location(
+                moved_entity,
+                EntityLocation {
+                    data_index,
+                    chunk_index: moved_location.chunk_index,
+                    entity_index: moved_location.entity_index,
+                },
+            );
+        }
+        if let Some(retired_chunk) = removal.retired_chunk {
+            self.chunk_directory.release(retired_chunk);
         }
     }
 
@@ -251,19 +295,46 @@ impl World {
 
     #[inline(always)]
     pub(crate) fn entity_location(&self, entity: EntityId) -> Option<EntityLocation> {
+        let route = self.entity_route(entity)?;
+        let address = self
+            .chunk_directory
+            .resolve(route.chunk_id)
+            .expect("live entity must reference a registered chunk");
+        Some(EntityLocation {
+            data_index: address.data_index,
+            chunk_index: address.chunk_index,
+            entity_index: route.entity_index,
+        })
+    }
+
+    #[inline(always)]
+    pub(crate) fn entity_route(&self, entity: EntityId) -> Option<EntityRoute> {
         let record = self.entities.get(entity.index() as usize)?;
         if record.generation != entity.generation() {
             return None;
         }
 
-        record.location()
+        record.route()
     }
 
     #[inline(always)]
     pub(crate) fn set_entity_location(&mut self, entity: EntityId, location: EntityLocation) {
+        let chunk_id = self.data[location.data_index].chunk_id(location.chunk_index);
+        assert!(
+            chunk_id.is_assigned(),
+            "entity row must belong to a registered chunk"
+        );
         let record = &mut self.entities[entity.index() as usize];
         debug_assert_eq!(record.generation, entity.generation());
-        record.set_location(location);
+        record.set_route(EntityRoute {
+            chunk_id,
+            entity_index: location.entity_index,
+        });
+    }
+
+    #[inline(always)]
+    pub(crate) fn chunk_route_slot_count(&self) -> usize {
+        self.chunk_directory.slot_count()
     }
 
     /// Returns the total number of live entities across all archetypes.
@@ -311,10 +382,11 @@ impl World {
         self.transitions.clear();
         self.last_transition = None;
         self.component_command_transitions.clear();
+        self.chunk_directory.clear();
         self.free_entities.clear();
         for (index, record) in self.entities.iter_mut().enumerate() {
             if record.is_alive() {
-                record.clear_location();
+                record.clear_route();
                 if let Some(next_generation) = record.generation.checked_add(1) {
                     record.generation = next_generation;
                 }

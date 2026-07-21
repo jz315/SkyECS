@@ -3,11 +3,15 @@
 use super::{Archetype, EntityId, MAX_COMPONENTS};
 
 mod archetype_storage;
+mod batch_growth;
+mod batch_plan;
 mod entity_chunk;
 mod layout;
 mod pool;
 
-pub(crate) use archetype_storage::{ArchetypeStorage, ChunkEntityLocation, ChunkRowSpan};
+pub(crate) use archetype_storage::{
+    ArchetypeStorage, ChunkEntityLocation, ChunkRemoval, ChunkRowSpan,
+};
 pub use entity_chunk::Chunk;
 pub(crate) use layout::ChunkLayout;
 

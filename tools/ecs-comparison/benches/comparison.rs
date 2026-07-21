@@ -14,7 +14,6 @@ criterion_group!(
     suite::bench_heavy_compute,
     suite::bench_random_access,
     suite::bench_entity_ops,
-    suite::bench_mixed_frame,
-    suite::bench_mixed_frame_phases,
+    suite::bench_gameplay_frame,
 );
 criterion_main!(comparison_benches);

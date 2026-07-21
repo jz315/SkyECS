@@ -59,6 +59,30 @@ pub struct IsEnemy;
 #[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, shipyard::Component)]
 pub struct IsAlly;
 
+/// Remaining simulation frames for short-lived gameplay entities.
+#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, shipyard::Component)]
+#[repr(transparent)]
+pub struct Lifetime(pub u32);
+
+/// Logical slot targeted by an AI entity. Logical slots are stable when the
+/// underlying ECS entity handle changes after despawn/respawn.
+#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, shipyard::Component)]
+#[repr(transparent)]
+pub struct TargetSlot(pub u32);
+
+#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, shipyard::Component)]
+#[repr(transparent)]
+pub struct Cooldown(pub u32);
+
+#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, shipyard::Component)]
+#[repr(transparent)]
+pub struct OwnerSlot(pub u32);
+
+/// A transient status component. It is removed eight frames after insertion,
+/// so structural changes never cancel each other in the same frame.
+#[derive(Clone, Copy, Default, bevy_ecs::prelude::Component, shipyard::Component)]
+pub struct Stunned;
+
 #[derive(Clone, Copy, bevy_ecs::prelude::Component, shipyard::Component)]
 pub struct Position2D {
     pub x: f32,

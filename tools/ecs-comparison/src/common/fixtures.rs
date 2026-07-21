@@ -51,6 +51,13 @@ pub type SuiteBundle = (
     VelocityComponent,
 );
 
+pub type SuiteColumns = (
+    Vec<TransformComponent>,
+    Vec<PositionComponent>,
+    Vec<RotationComponent>,
+    Vec<VelocityComponent>,
+);
+
 pub fn suite_transform() -> TransformComponent {
     TransformComponent(BenchmarkMatrix::identity())
 }
@@ -84,6 +91,42 @@ pub fn suite_bundles(count: usize) -> Vec<SuiteBundle> {
     vec![suite_bundle(); count]
 }
 
+pub fn suite_columns(count: usize) -> SuiteColumns {
+    (
+        vec![suite_transform(); count],
+        vec![suite_position(); count],
+        vec![suite_rotation(); count],
+        vec![suite_velocity(); count],
+    )
+}
+
+pub fn suite_columns_from_bundles(bundles: &[SuiteBundle]) -> SuiteColumns {
+    let mut transforms = Vec::with_capacity(bundles.len());
+    let mut positions = Vec::with_capacity(bundles.len());
+    let mut rotations = Vec::with_capacity(bundles.len());
+    let mut velocities = Vec::with_capacity(bundles.len());
+    for &(transform, position, rotation, velocity) in bundles {
+        transforms.push(transform);
+        positions.push(position);
+        rotations.push(rotation);
+        velocities.push(velocity);
+    }
+    (transforms, positions, rotations, velocities)
+}
+
+pub fn suite_columns_into_bundles(columns: SuiteColumns) -> Vec<SuiteBundle> {
+    let (transforms, positions, rotations, velocities) = columns;
+    transforms
+        .into_iter()
+        .zip(positions)
+        .zip(rotations)
+        .zip(velocities)
+        .map(|(((transform, position), rotation), velocity)| {
+            (transform, position, rotation, velocity)
+        })
+        .collect()
+}
+
 /// Construction-contract input with a different value in every row and column.
 ///
 /// The benchmark intentionally uses identical values, but validation needs
@@ -101,6 +144,10 @@ pub fn distinct_suite_bundles(count: usize) -> Vec<SuiteBundle> {
             )
         })
         .collect()
+}
+
+pub fn distinct_suite_columns(count: usize) -> SuiteColumns {
+    suite_columns_from_bundles(&distinct_suite_bundles(count))
 }
 
 pub fn assert_suite_bundles_match(actual: &mut [SuiteBundle], expected: &[SuiteBundle]) {

@@ -27,6 +27,11 @@ name = "comparison"
 path = "benches/comparison.rs"
 harness = false
 
+[[bench]]
+name = "api_candidates"
+path = "benches/api_candidates.rs"
+harness = false
+
 [[bin]]
 name = "compare-ecs-publish"
 path = "src/publish/main.rs"

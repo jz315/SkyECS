@@ -1,5 +1,5 @@
 use super::dense_iteration::world_with_entities;
-use super::entity_insertion::prepared_insert_world;
+use super::entity_insertion::{insert_native_bulk, native_bulk_context, prepared_insert_world};
 use super::fragmented_iteration::fragmented_world;
 use super::mixed_frame::{mixed_world, run_mixed_frame};
 use super::random_fragmented_iteration::{
@@ -34,15 +34,35 @@ pub fn validate_contract() {
 
 fn validate_construction() {
     let construction_inputs = distinct_suite_bundles(8);
-    for bulk in [true, false] {
+    {
+        let mut context = native_bulk_context(crate::common::suite_columns_from_bundles(
+            &construction_inputs,
+        ));
+        assert_eq!(context.world.len(), 0);
+        assert!(context.batch.is_some());
+        insert_native_bulk(&mut context);
+        assert!(context.batch.is_none());
+        assert_eq!(context.world.len(), construction_inputs.len() as u32);
+        let mut actual = context
+            .world
+            .query::<(
+                &TransformComponent,
+                &PositionComponent,
+                &RotationComponent,
+                &VelocityComponent,
+            )>()
+            .iter()
+            .map(|(transform, position, rotation, velocity)| {
+                (*transform, *position, *rotation, *velocity)
+            })
+            .collect::<Vec<_>>();
+        assert_suite_bundles_match(&mut actual, &construction_inputs);
+    }
+    {
         let mut construction_world = prepared_insert_world();
         assert_eq!(construction_world.len(), 0);
-        if bulk {
-            drop(construction_world.spawn_batch(construction_inputs.iter().copied()));
-        } else {
-            for &bundle in &construction_inputs {
-                construction_world.spawn(bundle);
-            }
+        for &bundle in &construction_inputs {
+            construction_world.spawn(bundle);
         }
         let mut actual = construction_world
             .query::<(
@@ -61,20 +81,26 @@ fn validate_construction() {
 }
 
 fn validate_dense_iteration() {
-    let world = world_with_entities(CONTRACT_ENTITY_COUNT);
+    let mut batched_world = world_with_entities(CONTRACT_ENTITY_COUNT);
+    super::dense_iteration::update_batched(&mut batched_world);
+    assert_dense_update(&batched_world);
+
+    let columns_world = world_with_entities(CONTRACT_ENTITY_COUNT);
+    let archetypes =
+        super::dense_iteration::matching_archetypes(&columns_world, CONTRACT_ENTITY_COUNT);
+    super::dense_iteration::update_archetype_columns(&archetypes);
+    assert_dense_update(&columns_world);
+}
+
+fn assert_dense_update(world: &World) {
     assert_eq!(world.len(), CONTRACT_ENTITY_COUNT as u32);
-    let mut count = 0;
-    let mut checksum = 0.0;
-    for (position, velocity) in world
-        .query::<(&mut PositionComponent, &VelocityComponent)>()
+    let positions = world
+        .query::<&PositionComponent>()
         .iter()
-    {
-        position.0 += velocity.0;
-        count += 1;
-        checksum += position.0.x;
-    }
-    assert_eq!(count, CONTRACT_ENTITY_COUNT);
-    assert_eq!(checksum, 256.0);
+        .map(|position| position.0.x)
+        .collect::<Vec<_>>();
+    assert_eq!(positions.len(), CONTRACT_ENTITY_COUNT);
+    assert_eq!(positions.iter().sum::<f32>(), 256.0);
 }
 
 fn validate_entity_lifecycle() {

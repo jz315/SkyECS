@@ -2,12 +2,14 @@ use super::{
     Archetype, Chunk, ChunkLayout, EntityId, CHUNK_SIZE_TIERS, CHUNK_TIER_COUNT, MAX_CHUNK_SIZE,
     REPEATED_TIER_START, SMALL_CHUNK_SIZE, TINY_CHUNK_SIZE,
 };
+use crate::ecs::ChunkId;
 use smallvec::SmallVec;
 
 pub(crate) struct ArchetypeStorage {
     pub archetype: Archetype,
     pub(super) layouts: SmallVec<[ChunkLayout; CHUNK_TIER_COUNT]>,
     pub chunks: Vec<Chunk>,
+    pub(crate) chunk_ids: Vec<ChunkId>,
 }
 
 #[derive(Clone, Copy)]
@@ -27,6 +29,11 @@ pub(crate) struct ChunkRowSpan {
     pub chunk_index: usize,
     pub first_entity_index: usize,
     pub entity_count: usize,
+}
+
+pub(crate) struct ChunkRemoval {
+    pub(crate) moved: Option<(EntityId, ChunkEntityLocation)>,
+    pub(crate) retired_chunk: Option<ChunkId>,
 }
 
 impl ArchetypeStorage {
@@ -68,6 +75,7 @@ impl ArchetypeStorage {
             archetype,
             layouts,
             chunks: Vec::new(),
+            chunk_ids: Vec::new(),
         }
     }
 
@@ -78,16 +86,27 @@ impl ArchetypeStorage {
             .unwrap_or(self.layouts.len() - 1)
     }
 
-    pub(super) fn add_chunk_with_layout(&mut self, layout_index: usize) {
+    pub(super) fn add_chunk(&mut self, layout: ChunkLayout) {
         if self.chunks.capacity() == 0 {
             // Incremental worlds commonly leave most archetypes with a single
             // chunk. Avoid Vec's default four-Chunk first allocation; known
             // batches reserve their complete chunk count before reaching here.
             self.chunks.reserve_exact(1);
+            self.chunk_ids.reserve_exact(1);
         }
-        let layout = &self.layouts[layout_index];
-        let chunk = Chunk::new_with_layout(self.archetype, layout);
+        let chunk = Chunk::new_with_layout(self.archetype, &layout);
         self.chunks.push(chunk);
+        self.chunk_ids.push(ChunkId::UNASSIGNED);
+        debug_assert_eq!(self.chunks.len(), self.chunk_ids.len());
+    }
+
+    #[inline(always)]
+    pub(crate) fn chunk_id(&self, chunk_index: usize) -> ChunkId {
+        self.chunk_ids[chunk_index]
+    }
+
+    pub(super) fn add_chunk_with_layout(&mut self, layout_index: usize) {
+        self.add_chunk(self.layouts[layout_index]);
     }
 
     fn next_growth_action(
@@ -156,7 +175,7 @@ impl ArchetypeStorage {
         }
     }
 
-    fn additional_chunk_count(&self, incoming_entities: usize) -> usize {
+    pub(super) fn additional_chunk_count(&self, incoming_entities: usize) -> usize {
         let Some(tail) = self.chunks.last() else {
             return self.batch_chunk_count(incoming_entities);
         };
@@ -166,11 +185,13 @@ impl ArchetypeStorage {
             return 0;
         }
 
-        let mut layout_index = self
+        let Some(mut layout_index) = self
             .layouts
             .iter()
             .position(|layout| layout.chunk_size() == tail.block_size())
-            .expect("active chunk must use a registered size class");
+        else {
+            return self.batch_chunk_count(remaining);
+        };
         let mut current_capacity = self.layouts[layout_index].max_entity_count();
         let mut same_size_tail_count = self
             .chunks
@@ -220,11 +241,39 @@ impl ArchetypeStorage {
             .unwrap_or(self.layouts.len() - 1)
     }
 
-    fn layout_index_for_batch(&self, entity_count: usize) -> usize {
+    pub(super) fn layout_index_for_batch(&self, entity_count: usize) -> usize {
         self.layouts
             .iter()
             .position(|layout| layout.max_entity_count().saturating_mul(4) >= entity_count)
             .unwrap_or(self.layouts.len() - 1)
+    }
+
+    /// Returns the smallest class a known batch may append without regressing
+    /// the storage's online growth history.
+    pub(super) fn next_batch_chunk_size(&self, incoming_entities: usize) -> usize {
+        let current_size = self.chunks.last().unwrap().block_size();
+        let Some(current_layout_index) = self
+            .layouts
+            .iter()
+            .position(|layout| layout.chunk_size() == current_size)
+        else {
+            return self.layouts[self.layout_index_for_batch(incoming_entities)].chunk_size();
+        };
+        let same_size_tail_count = self
+            .chunks
+            .iter()
+            .rev()
+            .take(4)
+            .take_while(|chunk| chunk.block_size() == current_size)
+            .count();
+        let next_layout_index = match self.next_growth_action(
+            current_layout_index,
+            incoming_entities,
+            same_size_tail_count,
+        ) {
+            GrowthAction::Promote(index) | GrowthAction::Append(index) => index,
+        };
+        self.layouts[next_layout_index].chunk_size()
     }
 
     pub(super) fn grow_tail(&mut self, incoming_entities: usize) {
@@ -234,11 +283,18 @@ impl ArchetypeStorage {
             return;
         };
 
-        let current_layout_index = self
+        let Some(current_layout_index) = self
             .layouts
             .iter()
             .position(|layout| layout.chunk_size() == current_size)
-            .expect("active chunk must use a registered size class");
+        else {
+            // Oversized layouts belong to one known batch only. Once that
+            // operation has ended, resume normal incremental growth instead
+            // of making a single insertion allocate another oversized block.
+            let layout_index = self.layout_index_for_batch(incoming_entities);
+            self.add_chunk_with_layout(layout_index);
+            return;
+        };
         let same_size_tail_count = self
             .chunks
             .iter()
@@ -260,46 +316,6 @@ impl ArchetypeStorage {
         }
     }
 
-    /// Returns a tail chunk with at least one available row, growing the
-    /// storage once when the current tail is full.
-    #[inline]
-    pub(crate) fn ensure_batch_tail(&mut self, guaranteed_remaining: usize) -> usize {
-        if self.chunks.last().is_none_or(Chunk::is_full) {
-            self.grow_tail(guaranteed_remaining.max(1));
-        }
-
-        let chunk_index = self.chunks.len() - 1;
-        debug_assert!(!self.chunks[chunk_index].is_full());
-        chunk_index
-    }
-
-    /// Uses a guaranteed batch size to choose the first block before the hot
-    /// insertion loop starts. Existing chunks are never relocated; a partial
-    /// tail is filled before normal incremental growth appends another block.
-    pub(crate) fn prepare_batch_capacity(&mut self, guaranteed_entities: usize) {
-        let guaranteed_entities = guaranteed_entities.max(1);
-        let Some(tail) = self.chunks.last() else {
-            let layout_index = self.layout_index_for_batch(guaranteed_entities);
-            let chunk_count = self.batch_chunk_count(guaranteed_entities);
-            self.chunks.reserve_exact(chunk_count);
-            self.add_chunk_with_layout(layout_index);
-            return;
-        };
-
-        let available = tail.max_entity_count - tail.entity_count;
-        let tail_size = tail.block_size();
-        let additional_chunks = self.additional_chunk_count(guaranteed_entities);
-        if additional_chunks > 0 {
-            self.chunks.reserve_exact(additional_chunks);
-        }
-        if available < guaranteed_entities && tail_size == TINY_CHUNK_SIZE {
-            let layout_index = self.layout_index_after(TINY_CHUNK_SIZE);
-            let layout = self.layouts[layout_index];
-            debug_assert_eq!(layout.chunk_size(), SMALL_CHUNK_SIZE);
-            self.chunks.last_mut().unwrap().promote_tiny(&layout);
-        }
-    }
-
     /// Allocates every chunk needed by an exact batch without making any row
     /// live. The returned spans can therefore be initialized column by column
     /// before entity metadata is committed.
@@ -308,11 +324,11 @@ impl ArchetypeStorage {
         entity_count: usize,
     ) -> SmallVec<[ChunkRowSpan; 4]> {
         debug_assert!(entity_count > 0);
-        self.prepare_batch_capacity(entity_count);
+        let mut plan = self.prepare_batch_capacity(entity_count);
 
         let mut spans: SmallVec<[ChunkRowSpan; 4]> = SmallVec::new();
         let mut remaining = entity_count;
-        let mut chunk_index = self.ensure_batch_tail(remaining);
+        let mut chunk_index = self.ensure_planned_batch_tail(&mut plan, remaining);
         let mut planned_in_chunk = 0usize;
 
         while remaining > 0 {
@@ -322,7 +338,7 @@ impl ArchetypeStorage {
 
             if available == 0 {
                 let previous_chunk_count = self.chunks.len();
-                self.grow_tail(remaining);
+                self.grow_batch_tail(&mut plan, remaining);
                 if self.chunks.len() != previous_chunk_count {
                     chunk_index = self.chunks.len() - 1;
                     planned_in_chunk = 0;
@@ -397,16 +413,22 @@ impl ArchetypeStorage {
     }
 
     #[inline(always)]
-    pub fn remove_entity(
-        &mut self,
-        location: ChunkEntityLocation,
-    ) -> Option<(EntityId, ChunkEntityLocation)> {
+    pub fn remove_entity(&mut self, location: ChunkEntityLocation) -> ChunkRemoval {
         if self.chunks.is_empty() {
-            return None;
+            return ChunkRemoval {
+                moved: None,
+                retired_chunk: None,
+            };
         }
 
         let last_chunk_index = self.chunks.len() - 1;
-        let last_entity_index = self.chunks[last_chunk_index].entity_count.checked_sub(1)?;
+        let Some(last_entity_index) = self.chunks[last_chunk_index].entity_count.checked_sub(1)
+        else {
+            return ChunkRemoval {
+                moved: None,
+                retired_chunk: None,
+            };
+        };
 
         let removed_is_last =
             location.chunk_index == last_chunk_index && location.entity_index == last_entity_index;
@@ -438,12 +460,21 @@ impl ArchetypeStorage {
         };
 
         self.chunks[last_chunk_index].remove_last_entity();
-        if self.chunks.last().is_some_and(Chunk::is_empty) {
+        let retired_chunk = if self.chunks.last().is_some_and(Chunk::is_empty) {
             // Dropping the empty chunk returns its block to the bounded,
             // thread-local pool shared by every archetype on this thread.
             self.chunks.pop();
-        }
+            self.chunk_ids
+                .pop()
+                .filter(|chunk_id| chunk_id.is_assigned())
+        } else {
+            None
+        };
+        debug_assert_eq!(self.chunks.len(), self.chunk_ids.len());
 
-        moved_entity
+        ChunkRemoval {
+            moved: moved_entity,
+            retired_chunk,
+        }
     }
 }

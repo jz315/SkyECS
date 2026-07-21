@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       runs:
-        description: "Independent rotations (1 for a quick run, 4 for a repeated GitHub snapshot)"
+        description: "Independent order rotations (4 for the bounded publication protocol)"
         required: true
         default: "4"
         type: choice
@@ -55,7 +55,7 @@ jobs:
 
           > **These are provisional shared-runner results, not publication data.** GitHub-hosted runners do not guarantee a fixed CPU model, exclusive CPU time, stable turbo frequency, or isolation from neighboring workloads. Use this run to inspect regressions and collect data without occupying a local machine; reproduce important numbers on a controlled dedicated machine before putting them in documentation or making performance claims.
 
-          A four-run job uses the first four engine-order rotations. It reports a cross-run median, but it does not cover all six Latin-square positions and therefore cannot complete the order-bias check used by the full publication protocol.
+          The bounded publication protocol records four cyclic engine-order rotations to stay within the workflow timeout. It does not cover all six possible engine positions, so the report preserves every per-run distribution and order for review. A one-run job is diagnostic only.
           EOF
 
       - name: Run Compare-ECS
@@ -69,6 +69,44 @@ jobs:
             args+=(--filter "$BENCH_FILTER")
           fi
           cargo compare-ecs-publish -- "${args[@]}"
+
+      - name: Certify Sky gameplay API selection
+        if: success()
+        shell: bash
+        run: |
+          report_dir="$(find target/comparison-reports -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          if [[ -z "$report_dir" ]]; then
+            echo "Compare-ECS completed without producing a report directory." >&2
+            exit 1
+          fi
+          cargo run --release --manifest-path tools/ecs-comparison/Cargo.toml --bin api_selection \
+            > "$report_dir/sky-api-selection.json"
+          {
+            echo
+            echo "## Sky gameplay API certification"
+            echo '```json'
+            cat "$report_dir/sky-api-selection.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Certify hecs dense API selection
+        if: success()
+        shell: bash
+        run: |
+          report_dir="$(find target/comparison-reports -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          if [[ -z "$report_dir" ]]; then
+            echo "Compare-ECS completed without producing a report directory." >&2
+            exit 1
+          fi
+          cargo run --release --manifest-path tools/ecs-comparison/Cargo.toml --bin hecs_dense_api_selection \
+            > "$report_dir/hecs-dense-api-selection.json"
+          {
+            echo
+            echo "## hecs dense API certification"
+            echo '```json'
+            cat "$report_dir/hecs-dense-api-selection.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Add report to the job summary
         if: success()

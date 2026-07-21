@@ -326,7 +326,7 @@ impl World {
         let plan = unsafe { plan.as_ref() };
         let target_data_index = plan.target_data_index;
         self.bump_storage_epoch();
-        let target_location = unsafe { self.data[target_data_index].add_entity(entity) };
+        let target_location = unsafe { self.allocate_storage_row(target_data_index, entity) };
 
         {
             let (source_chunk, target_chunk) = if source_location.data_index < target_data_index {
@@ -376,21 +376,11 @@ impl World {
 
         // Source entity data was bitwise-moved to target; the swap-remove
         // here only rearranges the source chunk — no drops needed.
-        let moved = self.data[source_location.data_index].remove_entity(ChunkEntityLocation {
+        let removal = self.data[source_location.data_index].remove_entity(ChunkEntityLocation {
             chunk_index: source_location.chunk_index,
             entity_index: source_location.entity_index,
         });
-
-        if let Some((moved_entity, moved_location)) = moved {
-            self.set_entity_location(
-                moved_entity,
-                EntityLocation {
-                    data_index: source_location.data_index,
-                    chunk_index: moved_location.chunk_index,
-                    entity_index: moved_location.entity_index,
-                },
-            );
-        }
+        self.finish_chunk_removal(source_location.data_index, removal);
 
         true
     }
@@ -415,7 +405,7 @@ impl World {
 
         let target_data_index = plan.target_data_index;
         self.bump_storage_epoch();
-        let target_location = unsafe { self.data[target_data_index].add_entity(entity) };
+        let target_location = unsafe { self.allocate_storage_row(target_data_index, entity) };
         let mut drop_panic = None;
 
         {
@@ -472,21 +462,11 @@ impl World {
 
         // Source entity data was bitwise-moved (kept columns) and dropped
         // (removed column); the swap-remove only rearranges the chunk.
-        let moved = self.data[source_location.data_index].remove_entity(ChunkEntityLocation {
+        let removal = self.data[source_location.data_index].remove_entity(ChunkEntityLocation {
             chunk_index: source_location.chunk_index,
             entity_index: source_location.entity_index,
         });
-
-        if let Some((moved_entity, moved_location)) = moved {
-            self.set_entity_location(
-                moved_entity,
-                EntityLocation {
-                    data_index: source_location.data_index,
-                    chunk_index: moved_location.chunk_index,
-                    entity_index: moved_location.entity_index,
-                },
-            );
-        }
+        self.finish_chunk_removal(source_location.data_index, removal);
 
         if let Some(payload) = drop_panic {
             std::panic::resume_unwind(payload);
@@ -532,7 +512,7 @@ impl World {
         let plan = unsafe { plan.as_ref() };
         let target_data_index = plan.target_data_index;
         self.bump_storage_epoch();
-        let target_location = unsafe { self.data[target_data_index].add_entity(entity) };
+        let target_location = unsafe { self.allocate_storage_row(target_data_index, entity) };
 
         {
             let (source_chunk, target_chunk) = if source_location.data_index < target_data_index {
@@ -577,20 +557,11 @@ impl World {
             },
         );
 
-        let moved = self.data[source_location.data_index].remove_entity(ChunkEntityLocation {
+        let removal = self.data[source_location.data_index].remove_entity(ChunkEntityLocation {
             chunk_index: source_location.chunk_index,
             entity_index: source_location.entity_index,
         });
-        if let Some((moved_entity, moved_location)) = moved {
-            self.set_entity_location(
-                moved_entity,
-                EntityLocation {
-                    data_index: source_location.data_index,
-                    chunk_index: moved_location.chunk_index,
-                    entity_index: moved_location.entity_index,
-                },
-            );
-        }
+        self.finish_chunk_removal(source_location.data_index, removal);
 
         true
     }
@@ -606,7 +577,7 @@ impl World {
         let plan = unsafe { plan.as_ref() };
         let target_data_index = plan.target_data_index;
         self.bump_storage_epoch();
-        let target_location = unsafe { self.data[target_data_index].add_entity(entity) };
+        let target_location = unsafe { self.allocate_storage_row(target_data_index, entity) };
         let mut drop_panic = None;
 
         {
@@ -657,20 +628,11 @@ impl World {
             },
         );
 
-        let moved = self.data[source_location.data_index].remove_entity(ChunkEntityLocation {
+        let removal = self.data[source_location.data_index].remove_entity(ChunkEntityLocation {
             chunk_index: source_location.chunk_index,
             entity_index: source_location.entity_index,
         });
-        if let Some((moved_entity, moved_location)) = moved {
-            self.set_entity_location(
-                moved_entity,
-                EntityLocation {
-                    data_index: source_location.data_index,
-                    chunk_index: moved_location.chunk_index,
-                    entity_index: moved_location.entity_index,
-                },
-            );
-        }
+        self.finish_chunk_removal(source_location.data_index, removal);
 
         if let Some(payload) = drop_panic {
             std::panic::resume_unwind(payload);
@@ -763,7 +725,7 @@ impl World {
             .collect::<SmallVec<[usize; MAX_COMPONENTS]>>();
 
         self.bump_storage_epoch();
-        let target_location = unsafe { self.data[target_data_index].add_entity(entity) };
+        let target_location = unsafe { self.allocate_storage_row(target_data_index, entity) };
         let mut drop_panic = None;
 
         {
@@ -843,21 +805,11 @@ impl World {
 
         // Every source component was either semantically moved or explicitly
         // dropped above, so compact the source row without running destructors.
-        let moved = self.data[source_location.data_index].remove_entity(ChunkEntityLocation {
+        let removal = self.data[source_location.data_index].remove_entity(ChunkEntityLocation {
             chunk_index: source_location.chunk_index,
             entity_index: source_location.entity_index,
         });
-
-        if let Some((moved_entity, moved_location)) = moved {
-            self.set_entity_location(
-                moved_entity,
-                EntityLocation {
-                    data_index: source_location.data_index,
-                    chunk_index: moved_location.chunk_index,
-                    entity_index: moved_location.entity_index,
-                },
-            );
-        }
+        self.finish_chunk_removal(source_location.data_index, removal);
 
         if let Some(payload) = drop_panic {
             std::panic::resume_unwind(payload);

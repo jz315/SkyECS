@@ -7,14 +7,32 @@ pub(super) fn prepared_insert_world() -> World {
     World::new()
 }
 
+pub(super) struct NativeBulkContext {
+    pub world: World,
+    pub columns: SuiteColumns,
+}
+
+pub(super) fn native_bulk_context(columns: SuiteColumns) -> NativeBulkContext {
+    NativeBulkContext {
+        world: prepared_insert_world(),
+        columns,
+    }
+}
+
+pub(super) fn insert_native_bulk(context: &mut NativeBulkContext) {
+    context
+        .world
+        .spawn_columns(&mut context.columns)
+        .expect("suite columns have equal lengths");
+}
+
 pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("bulk_insert_10k/sky", |b| {
-        let bundles = suite_bundles(SIMPLE_ENTITY_COUNT);
+    group.bench_function("native_bulk_insert_10k/sky", |b| {
         b.iter_batched_ref(
-            prepared_insert_world,
-            |world| {
-                world.spawn_batch(bundles.iter().copied());
-                black_box(&world);
+            || native_bulk_context(suite_columns(SIMPLE_ENTITY_COUNT)),
+            |context| {
+                insert_native_bulk(context);
+                black_box(&context.world);
             },
             BatchSize::SmallInput,
         );

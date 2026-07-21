@@ -1,29 +1,36 @@
 use super::{component_type, EntityId, World};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
-use core::slice;
 
-const MISSING_COLUMN_START: usize = usize::MAX;
+fn component_routes<T: 'static>(world: &World) -> Box<[Option<NonNull<T>>]> {
+    let component = component_type::<T>();
+    let mut columns = Vec::with_capacity(world.chunk_route_slot_count());
+    columns.resize_with(world.chunk_route_slot_count(), || None);
 
-#[derive(Clone, Copy)]
-struct DataColumnStart {
-    start: usize,
-}
-
-impl DataColumnStart {
-    const MISSING: Self = Self {
-        start: MISSING_COLUMN_START,
-    };
-
-    #[inline(always)]
-    fn contains_component(self) -> bool {
-        self.start != MISSING_COLUMN_START
+    if let Some(postings) = world.component_posting(&component) {
+        for posting_index in 0..postings.len() {
+            let entry = postings
+                .entry(posting_index)
+                .expect("posting index must stay in bounds");
+            let data = &world.data[entry.data_index()];
+            for (chunk_index, chunk) in data.chunks.iter().enumerate() {
+                let chunk_id = data.chunk_id(chunk_index);
+                assert!(chunk_id.is_assigned(), "live chunk must have a route");
+                let column = unsafe {
+                    // The posting entry proves this column stores T. Chunk
+                    // always owns a non-null, correctly aligned backing block,
+                    // including the aligned dangling address used for ZSTs.
+                    NonNull::new_unchecked(
+                        chunk.column_ptr(entry.column_index() as usize).cast::<T>(),
+                    )
+                };
+                debug_assert!(columns[chunk_id.index()].is_none());
+                columns[chunk_id.index()] = Some(column);
+            }
+        }
     }
-}
 
-struct ComponentColumn<T> {
-    ptr: NonNull<T>,
-    len: usize,
+    columns.into_boxed_slice()
 }
 
 /// A read-only component accessor bound to one [`World`].
@@ -40,48 +47,14 @@ struct ComponentColumn<T> {
 #[must_use = "component accessors do nothing until get is called"]
 pub struct ComponentAccessor<'w, T> {
     world: &'w World,
-    data_columns: Box<[DataColumnStart]>,
-    columns: Box<[&'w [T]]>,
+    columns: Box<[Option<NonNull<T>>]>,
 }
 
 impl<'w, T: 'static> ComponentAccessor<'w, T> {
     pub(crate) fn new(world: &'w World) -> Self {
-        let component = component_type::<T>();
-        let mut data_columns = vec![DataColumnStart::MISSING; world.data.len()];
-        let mut columns = Vec::new();
-
-        if let Some(postings) = world.component_posting(&component) {
-            columns.reserve(
-                (0..postings.len())
-                    .filter_map(|index| postings.entry(index))
-                    .map(|entry| world.data[entry.data_index()].chunks.len())
-                    .sum(),
-            );
-
-            for posting_index in 0..postings.len() {
-                let entry = postings
-                    .entry(posting_index)
-                    .expect("posting index must stay in bounds");
-                let data = &world.data[entry.data_index()];
-                let start = columns.len();
-                columns.extend(data.chunks.iter().map(|chunk| unsafe {
-                    // The posting entry proves that this column stores T.
-                    // Chunk storage remains fixed for 'w because the accessor holds
-                    // a shared World borrow, and entity_count is the initialized
-                    // prefix of every component column.
-                    slice::from_raw_parts(
-                        chunk.column_ptr(entry.column_index() as usize).cast::<T>(),
-                        chunk.entity_count,
-                    )
-                }));
-                data_columns[entry.data_index()] = DataColumnStart { start };
-            }
-        }
-
         Self {
             world,
-            data_columns: data_columns.into_boxed_slice(),
-            columns: columns.into_boxed_slice(),
+            columns: component_routes(world),
         }
     }
 
@@ -91,21 +64,14 @@ impl<'w, T: 'static> ComponentAccessor<'w, T> {
     /// archetype does not contain `T`.
     #[inline(always)]
     pub fn get(&self, entity: EntityId) -> Option<&'w T> {
-        let location = self.world.entity_location(entity)?;
+        let route = self.world.entity_route(entity)?;
 
         unsafe {
-            // A live EntityRecord always names existing archetype storage, a Chunk, and
-            // initialized entity row. The immutable World borrow prevents all
-            // structural operations that could invalidate those indices. The
-            // optional entry is None exactly when that storage lacks T.
-            let data_column = *self.data_columns.get_unchecked(location.data_index);
-            if !data_column.contains_component() {
-                return None;
-            }
-            let column: &'w [T] = self
-                .columns
-                .get_unchecked(data_column.start + location.chunk_index);
-            Some(column.get_unchecked(location.entity_index))
+            // The immutable World borrow prevents ChunkId reuse or column
+            // relocation. The live record proves the row is initialized;
+            // None means that this physical chunk does not store T.
+            let column = (*self.columns.get_unchecked(route.chunk_id.index()))?;
+            Some(&*column.as_ptr().add(route.entity_index))
         }
     }
 }
@@ -120,50 +86,18 @@ impl<'w, T: 'static> ComponentAccessor<'w, T> {
 #[must_use = "component accessors do nothing until get_mut is called"]
 pub struct ComponentAccessorMut<'w, T> {
     world: NonNull<World>,
-    data_columns: Box<[DataColumnStart]>,
-    columns: Box<[ComponentColumn<T>]>,
+    columns: Box<[Option<NonNull<T>>]>,
     marker: PhantomData<&'w mut World>,
 }
 
 impl<'w, T: 'static> ComponentAccessorMut<'w, T> {
     pub(crate) fn new(world: &'w mut World) -> Self {
+        let columns = component_routes(world);
         let world_ptr = NonNull::from(&mut *world);
-        let component = component_type::<T>();
-        let mut data_columns = vec![DataColumnStart::MISSING; world.data.len()];
-        let mut columns = Vec::new();
-
-        if let Some(postings) = world.component_posting(&component) {
-            columns.reserve(
-                (0..postings.len())
-                    .filter_map(|index| postings.entry(index))
-                    .map(|entry| world.data[entry.data_index()].chunks.len())
-                    .sum(),
-            );
-
-            for posting_index in 0..postings.len() {
-                let entry = postings
-                    .entry(posting_index)
-                    .expect("posting index must stay in bounds");
-                let data = &world.data[entry.data_index()];
-                let start = columns.len();
-                columns.extend(data.chunks.iter().map(|chunk| ComponentColumn {
-                    ptr: unsafe {
-                        // The posting entry proves this column stores T, and Chunk
-                        // always owns a non-null aligned backing block.
-                        NonNull::new_unchecked(
-                            chunk.column_ptr(entry.column_index() as usize).cast::<T>(),
-                        )
-                    },
-                    len: chunk.entity_count,
-                }));
-                data_columns[entry.data_index()] = DataColumnStart { start };
-            }
-        }
 
         Self {
             world: world_ptr,
-            data_columns: data_columns.into_boxed_slice(),
-            columns: columns.into_boxed_slice(),
+            columns,
             marker: PhantomData,
         }
     }
@@ -174,26 +108,16 @@ impl<'w, T: 'static> ComponentAccessorMut<'w, T> {
     /// archetype does not contain `T`.
     #[inline(always)]
     pub fn get_mut(&mut self, entity: EntityId) -> Option<&mut T> {
-        let location = unsafe {
+        let route = unsafe {
             // `marker` retains the exclusive World borrow for 'w, so the World
             // remains alive and no safe structural operation can run.
-            self.world.as_ref().entity_location(entity)?
+            self.world.as_ref().entity_route(entity)?
         };
 
         unsafe {
-            // A live EntityRecord names existing archetype storage, a Chunk, and an initialized
-            // row. The exclusive World borrow keeps those locations stable.
-            // The returned reference is tied to `&mut self`, preventing another
-            // accessor call until that reference is no longer used.
-            let data_column = *self.data_columns.get_unchecked(location.data_index);
-            if !data_column.contains_component() {
-                return None;
-            }
-            let column = self
-                .columns
-                .get_unchecked(data_column.start + location.chunk_index);
-            debug_assert!(location.entity_index < column.len);
-            Some(&mut *column.ptr.as_ptr().add(location.entity_index))
+            // The exclusive World borrow keeps this direct component route valid.
+            let column = (*self.columns.get_unchecked(route.chunk_id.index()))?;
+            Some(&mut *column.as_ptr().add(route.entity_index))
         }
     }
 }
@@ -232,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn stores_matching_chunk_columns_in_one_flat_table() {
+    fn stores_matching_columns_at_their_chunk_route_ids() {
         let mut world = World::new();
         world.spawn((Position(1),));
         world.spawn((Position(2), Velocity(3)));
@@ -251,15 +175,21 @@ mod tests {
             .map(|data| data.chunks.len())
             .sum::<usize>();
 
-        assert_eq!(positions.data_columns.len(), positions.world.data.len());
-        assert_eq!(positions.columns.len(), expected_columns);
+        assert_eq!(
+            positions.columns.len(),
+            positions.world.chunk_route_slot_count()
+        );
         assert_eq!(
             positions
-                .data_columns
+                .columns
                 .iter()
-                .filter(|range| range.contains_component())
+                .filter(|column| column.is_some())
                 .count(),
-            2
+            expected_columns
+        );
+        assert_eq!(
+            std::mem::size_of::<Option<NonNull<Position>>>(),
+            std::mem::size_of::<usize>()
         );
     }
 

@@ -56,14 +56,20 @@ impl World {
         self.entities.reserve(new_entity_count);
 
         self.bump_storage_epoch();
+        let chunk_directory = &mut self.chunk_directory;
         let storage = &mut self.data[data_index];
         let spans = storage.reserve_exact_batch_spans(entity_count);
-        let record_data_index = u32::try_from(data_index)
-            .ok()
-            .filter(|&index| index != u32::MAX)
-            .expect("World storage index limit exhausted");
+        let span_chunk_ids: SmallVec<[ChunkId; 4]> = spans
+            .iter()
+            .map(|span| {
+                chunk_directory.ensure(
+                    &mut storage.chunk_ids[span.chunk_index],
+                    data_index,
+                    span.chunk_index,
+                )
+            })
+            .collect();
         for span in &spans {
-            u32::try_from(span.chunk_index).expect("chunk index limit exhausted");
             u32::try_from(span.first_entity_index + span.entity_count - 1)
                 .expect("chunk entity index limit exhausted");
         }
@@ -78,8 +84,7 @@ impl World {
         let entities = &mut self.entities;
         let free_entities = &mut self.free_entities;
 
-        for span in spans {
-            let record_chunk_index = span.chunk_index as u32;
+        for (span, chunk_id) in spans.into_iter().zip(span_chunk_ids) {
             let chunk = &mut storage.chunks[span.chunk_index];
             debug_assert_eq!(chunk.entity_count, span.first_entity_index);
 
@@ -89,11 +94,7 @@ impl World {
                 let record = &mut entities[index as usize];
                 let entity = EntityId::new(index, record.generation);
                 let record_entity_index = (span.first_entity_index + row_offset) as u32;
-                record.set_location_indices(
-                    record_data_index,
-                    record_chunk_index,
-                    record_entity_index,
-                );
+                record.set_route_indices(chunk_id, record_entity_index);
                 unsafe {
                     chunk.add_entity_reserved_unchecked(entity);
                 }
@@ -106,12 +107,7 @@ impl World {
                 unsafe {
                     EntityRecord::append_reserved(
                         entities,
-                        EntityRecord::occupied_indices(
-                            0,
-                            record_data_index,
-                            record_chunk_index,
-                            record_entity_index,
-                        ),
+                        EntityRecord::occupied_indices(0, chunk_id, record_entity_index),
                     );
                     let actual_entity_index =
                         chunk.add_entity_reserved_unchecked(EntityId::new(index, 0));

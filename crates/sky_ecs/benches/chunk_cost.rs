@@ -56,6 +56,14 @@ fn dense_world() -> World {
     world
 }
 
+fn dense_world_in_ten_batches() -> World {
+    let mut world = World::new();
+    for _ in 0..10 {
+        world.spawn_batch((0..DENSE_ENTITY_COUNT / 10).map(|_| dense_bundle()));
+    }
+    world
+}
+
 fn fragmented_world() -> World {
     let mut world = World::new();
 
@@ -84,6 +92,11 @@ fn update_dense(positions: &mut [Position], velocities: &[Velocity]) {
     }
 }
 
+#[inline(never)]
+fn update_dense_fn(positions: &mut [Position], velocities: &[Velocity]) {
+    update_dense(positions, velocities);
+}
+
 #[inline(always)]
 fn update_fragmented(data: &mut [Data]) {
     for value in data {
@@ -91,11 +104,10 @@ fn update_fragmented(data: &mut [Data]) {
     }
 }
 
-fn dense_chunk_lengths() -> Vec<usize> {
-    let world = dense_world();
+fn dense_chunk_lengths(world: &World) -> Vec<usize> {
     let mut query = PreparedQuery::<(&Position, &Velocity)>::new();
     let mut lengths = Vec::new();
-    query.for_each_chunk(&world, |(positions, velocities)| {
+    query.for_each_chunk(world, |(positions, velocities)| {
         assert_eq!(positions.len(), velocities.len());
         lengths.push(positions.len());
     });
@@ -152,8 +164,10 @@ fn walk_descriptors(descriptors: &[ChunkDescriptor]) -> usize {
 }
 
 fn bench_dense(c: &mut Criterion) {
-    let chunk_lengths = dense_chunk_lengths();
-    print_layout("dense_1m", &chunk_lengths);
+    let chunk_lengths = dense_chunk_lengths(&dense_world());
+    let ten_batch_chunk_lengths = dense_chunk_lengths(&dense_world_in_ten_batches());
+    print_layout("dense_1m_one_batch", &chunk_lengths);
+    print_layout("dense_1m_ten_batches", &ten_batch_chunk_lengths);
 
     let mut group = c.benchmark_group("chunk_cost/dense_1m");
 
@@ -223,6 +237,26 @@ fn bench_dense(c: &mut Criterion) {
             query.for_each_chunk(&mut world, |(positions, velocities)| {
                 update_dense(positions, velocities);
             });
+            black_box(&world);
+        });
+    });
+
+    group.bench_function("full_ecs_fn", |b| {
+        let mut world = dense_world();
+        let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
+        assert_eq!(query.count(&world), DENSE_ENTITY_COUNT);
+        b.iter(|| {
+            query.for_each_chunk_fn(&mut world, update_dense_fn);
+            black_box(&world);
+        });
+    });
+
+    group.bench_function("full_ecs_fn_24_chunks", |b| {
+        let mut world = dense_world_in_ten_batches();
+        let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
+        assert_eq!(query.count(&world), DENSE_ENTITY_COUNT);
+        b.iter(|| {
+            query.for_each_chunk_fn(&mut world, update_dense_fn);
             black_box(&world);
         });
     });

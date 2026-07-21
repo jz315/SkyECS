@@ -1,8 +1,7 @@
-use sky_ecs_comparison::Engine;
 use std::env;
 use std::path::PathBuf;
 
-const DEFAULT_RUN_COUNT: usize = 6;
+const DEFAULT_RUN_COUNT: usize = 4;
 
 pub(super) struct Options {
     pub(super) runs: usize,
@@ -23,10 +22,8 @@ pub(super) fn options() -> Result<Options, Box<dyn std::error::Error>> {
             "--runs" => {
                 runs_explicit = true;
                 options.runs = args.next().ok_or("--runs requires a value")?.parse()?;
-                if !(1..=Engine::ALL.len()).contains(&options.runs) {
-                    return Err(
-                        format!("--runs must be between 1 and {}", Engine::ALL.len()).into(),
-                    );
+                if options.runs == 0 {
+                    return Err("--runs must be at least 1".into());
                 }
             }
             "--filter" => options.filter = Some(args.next().ok_or("--filter requires a value")?),

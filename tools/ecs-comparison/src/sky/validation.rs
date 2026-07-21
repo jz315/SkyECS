@@ -1,5 +1,5 @@
 use super::dense_iteration::world_with_entities;
-use super::entity_insertion::prepared_insert_world;
+use super::entity_insertion::{insert_native_bulk, native_bulk_context, prepared_insert_world};
 use super::fragmented_iteration::fragmented_world;
 use super::mixed_frame::{mixed_world, run_mixed_frame};
 use super::random_fragmented_iteration::{
@@ -33,15 +33,37 @@ pub fn validate_contract() {
 
 fn validate_construction() {
     let construction_inputs = distinct_suite_bundles(8);
-    for bulk in [true, false] {
+    {
+        let mut context = native_bulk_context(crate::common::suite_columns_from_bundles(
+            &construction_inputs,
+        ));
+        assert_eq!(context.world.entity_count(), 0);
+        insert_native_bulk(&mut context);
+        assert!(context.columns.0.is_empty());
+        assert!(context.columns.1.is_empty());
+        assert!(context.columns.2.is_empty());
+        assert!(context.columns.3.is_empty());
+        assert_eq!(context.world.entity_count(), construction_inputs.len());
+        let mut actual = Vec::new();
+        PreparedQuery::<(
+            &TransformComponent,
+            &PositionComponent,
+            &RotationComponent,
+            &VelocityComponent,
+        )>::new()
+        .for_each(
+            &mut context.world,
+            |(transform, position, rotation, velocity)| {
+                actual.push((*transform, *position, *rotation, *velocity));
+            },
+        );
+        assert_suite_bundles_match(&mut actual, &construction_inputs);
+    }
+    {
         let mut construction_world = prepared_insert_world();
         assert_eq!(construction_world.entity_count(), 0);
-        if bulk {
-            construction_world.spawn_batch(construction_inputs.iter().copied());
-        } else {
-            for &bundle in &construction_inputs {
-                construction_world.spawn(bundle);
-            }
+        for &bundle in &construction_inputs {
+            construction_world.spawn(bundle);
         }
         assert_eq!(construction_world.entity_count(), construction_inputs.len());
         let mut actual = Vec::new();

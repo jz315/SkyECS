@@ -715,7 +715,7 @@ fn batch_chunk_count_accounts_for_promotion_and_repeated_tiers() {
 }
 
 #[test]
-fn batch_append_reserves_chunk_descriptors_for_existing_storage() {
+fn batch_append_respects_the_existing_incremental_class_floor() {
     let _guard = PoolGuard::new();
     let archetype = create_archetype().add_rust_component::<Huge>().build();
     let mut data = super::ArchetypeStorage::new(archetype);
@@ -783,7 +783,7 @@ fn batch_selects_smallest_fitting_class_and_preserves_order() {
 }
 
 #[test]
-fn large_batch_starts_in_a_class_that_needs_at_most_four_chunks() {
+fn known_batch_uses_the_bounded_largest_first_remainder_plan() {
     let _guard = PoolGuard::new();
 
     #[allow(dead_code)]
@@ -795,12 +795,74 @@ fn large_batch_starts_in_a_class_that_needs_at_most_four_chunks() {
         .build();
     let mut data = super::ArchetypeStorage::new(archetype);
 
-    data.prepare_batch_capacity(100_000);
+    let mut plan = data.prepare_batch_capacity(100_000);
 
     assert_eq!(data.chunks.len(), 1);
-    assert_eq!(data.batch_chunk_count(100_000), 3);
-    assert!(data.chunks.capacity() >= 3);
+    assert_eq!(data.chunks.capacity(), 3);
     assert_eq!(data.chunks[0].block_size(), MAX_CHUNK_SIZE);
+    assert_eq!(
+        plan.take_next_layout().unwrap().chunk_size(),
+        MAX_CHUNK_SIZE
+    );
+    assert_eq!(
+        plan.take_next_layout().unwrap().chunk_size(),
+        MAX_CHUNK_SIZE
+    );
+    assert!(plan.take_next_layout().is_none());
+}
+
+#[test]
+fn oversized_batch_plan_keeps_the_memory_minimal_three_chunk_layout() {
+    let _guard = PoolGuard::new();
+
+    #[allow(dead_code)]
+    #[derive(Clone, Copy)]
+    struct HundredBytes([u8; 100]);
+
+    let archetype = create_archetype()
+        .add_rust_component::<HundredBytes>()
+        .build();
+    let mut data = super::ArchetypeStorage::new(archetype);
+
+    let mut plan = data.prepare_batch_capacity(1_000_000);
+
+    assert_eq!(plan.remaining_chunk_count(), 2);
+    assert_eq!(data.chunks.len(), 1);
+    assert!(data.chunks.capacity() >= 3);
+    assert_eq!(data.chunks[0].max_entity_count, 671_088);
+    assert_eq!(data.chunks[0].block_size(), 64 * 1024 * 1024);
+    assert_eq!(
+        plan.take_next_layout().unwrap().chunk_size(),
+        16 * 1024 * 1024
+    );
+    assert_eq!(
+        plan.take_next_layout().unwrap().chunk_size(),
+        16 * 1024 * 1024
+    );
+    assert!(plan.take_next_layout().is_none());
+
+    drop(data);
+    assert_eq!(pool_stats(), (0, 0));
+}
+
+#[test]
+fn growth_after_an_oversized_tail_reenters_static_batch_tiers() {
+    let _guard = PoolGuard::new();
+
+    #[allow(dead_code)]
+    #[derive(Clone, Copy)]
+    struct HundredBytes([u8; 100]);
+
+    let archetype = create_archetype()
+        .add_rust_component::<HundredBytes>()
+        .build();
+    let mut data = super::ArchetypeStorage::new(archetype);
+    data.prepare_batch_capacity(1_000_000);
+
+    data.grow_tail(10_000);
+
+    assert_eq!(data.chunks.len(), 2);
+    assert_eq!(data.chunks[1].block_size(), REPEATED_TIER_START);
 }
 
 #[test]

@@ -6,7 +6,7 @@ fn insert_context() -> Context {
     unsafe { Context::new(sky_flecs_c_insert_new(), sky_flecs_c_insert_delete) }
 }
 pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("bulk_insert_10k/flecs_c", |bencher| {
+    group.bench_function("native_bulk_insert_10k/flecs_c", |bencher| {
         bencher.iter_batched_ref(
             insert_context,
             |context| {

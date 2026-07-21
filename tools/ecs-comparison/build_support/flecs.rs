@@ -10,6 +10,7 @@ const FLECS_C_SOURCES: &[&str] = &[
     "native/flecs_c/construction.cpp",
     "native/flecs_c/entity_operations.cpp",
     "native/flecs_c/fragmented_iteration.cpp",
+    "native/flecs_c/gameplay_frame.cpp",
     "native/flecs_c/iteration.cpp",
     "native/flecs_c/mixed_frame.cpp",
     "native/flecs_c/random_access.cpp",

@@ -8,30 +8,44 @@ fn align_up(value: usize, align: usize) -> usize {
 
 #[derive(Clone, Copy)]
 pub(crate) struct ChunkLayout {
-    // Every pooled tier is at most 4 MiB. Oversized one-row layouts are
-    // intentionally limited to u32 offsets as well, which keeps the layout
-    // and every Chunk column table compact on 64-bit targets.
+    // Every pooled tier is at most 4 MiB. Oversized batch and one-row layouts
+    // are unpooled and intentionally limited to u32 offsets as well, which
+    // keeps the layout and every Chunk column table compact on 64-bit targets.
     pub(super) chunk_size: u32,
     pub(super) max_entity_count: u32,
 }
 
 impl ChunkLayout {
-    pub(super) fn exact_one_entity(archetype: Archetype) -> Option<Self> {
-        let mut cursor = 0usize;
-        for component in &archetype.components {
-            cursor = cursor.checked_add(component.align.checked_sub(1)?)? & !(component.align - 1);
-            cursor = cursor.checked_add(component.size)?;
+    pub(super) fn exact_capacity(archetype: Archetype, entity_capacity: usize) -> Option<Self> {
+        if entity_capacity == 0 {
+            return None;
         }
 
-        // A zero-sized archetype always uses the normal adaptive tiers. For an
-        // oversized archetype, allocate exactly the bytes needed by one row.
-        let chunk_size = cursor.max(1);
+        let component_bytes = archetype
+            .components
+            .iter()
+            .try_fold(0usize, |bytes, component| bytes.checked_add(component.size))?;
+        let chunk_size = if component_bytes == 0 {
+            entity_capacity
+        } else {
+            let mut cursor = 0usize;
+            for component in &archetype.components {
+                cursor = align_up(cursor, component.align);
+                cursor = cursor.checked_add(component.size.checked_mul(entity_capacity)?)?;
+            }
+            cursor.max(1)
+        };
+
         let _ = Layout::from_size_align(chunk_size, archetype.alignment.max(1)).ok()?;
-        Self::compute_column_offsets(archetype, 1, chunk_size)?;
+        Self::compute_column_offsets(archetype, entity_capacity, chunk_size)?;
         Some(Self {
             chunk_size: u32::try_from(chunk_size).ok()?,
-            max_entity_count: 1,
+            max_entity_count: u32::try_from(entity_capacity).ok()?,
         })
+    }
+
+    pub(super) fn exact_one_entity(archetype: Archetype) -> Option<Self> {
+        Self::exact_capacity(archetype, 1)
     }
 
     pub(super) fn compute_column_offsets(

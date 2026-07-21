@@ -29,7 +29,7 @@ impl World {
         let data_index = self.ensure_data_index(archetype);
         let entity = self.allocate_entity();
         self.bump_storage_epoch();
-        let location = unsafe { self.data[data_index].add_entity(entity) };
+        let location = unsafe { self.allocate_storage_row(data_index, entity) };
         self.set_entity_location(
             entity,
             EntityLocation {
@@ -59,7 +59,7 @@ impl World {
         let data_index = self.ensure_data_index(archetype);
         let entity = self.allocate_entity();
         self.bump_storage_epoch();
-        let location = unsafe { self.data[data_index].add_entity(entity) };
+        let location = unsafe { self.allocate_storage_row(data_index, entity) };
         self.set_entity_location(
             entity,
             EntityLocation {
@@ -103,16 +103,13 @@ impl World {
             self.entities.reserve(additional_records);
         }
 
-        self.data[data_index].prepare_batch_capacity(batch_size);
+        let mut batch_plan = self.data[data_index].prepare_batch_capacity(batch_size);
 
         let mut iter = std::iter::once(first).chain(iter).peekable();
         let entities = &mut self.entities;
         let free_entities = &mut self.free_entities;
+        let chunk_directory = &mut self.chunk_directory;
         let storage = &mut self.data[data_index];
-        let record_data_index = u32::try_from(data_index)
-            .ok()
-            .filter(|&index| index != u32::MAX)
-            .expect("World storage index limit exhausted");
         let mut live_count = BatchCommitGuard {
             live_entity_count: &mut self.live_entity_count,
             inserted: 0,
@@ -125,7 +122,13 @@ impl World {
         // code, and `BatchCommitGuard` records completed rows on unwind.
         while iter.peek().is_some() {
             let guaranteed_remaining = iter.size_hint().0.max(1);
-            let chunk_index = storage.ensure_batch_tail(guaranteed_remaining);
+            let chunk_index =
+                storage.ensure_planned_batch_tail(&mut batch_plan, guaranteed_remaining);
+            let chunk_id = chunk_directory.ensure(
+                &mut storage.chunk_ids[chunk_index],
+                data_index,
+                chunk_index,
+            );
             let chunk = &mut storage.chunks[chunk_index];
             let first_entity_index = chunk.entity_count;
             let available = chunk.max_entity_count - first_entity_index;
@@ -160,8 +163,6 @@ impl World {
                 chunk.reserve_entity_slots(fast_rows);
             }
 
-            let record_chunk_index =
-                u32::try_from(chunk_index).expect("chunk index limit exhausted");
             let first_record_entity_index =
                 u32::try_from(first_entity_index).expect("chunk entity index limit exhausted");
 
@@ -179,12 +180,7 @@ impl World {
                 unsafe {
                     EntityRecord::append_reserved(
                         entities,
-                        EntityRecord::occupied_indices(
-                            0,
-                            record_data_index,
-                            record_chunk_index,
-                            record_entity_index,
-                        ),
+                        EntityRecord::occupied_indices(0, chunk_id, record_entity_index),
                     );
                     let entity_index = chunk.add_entity_reserved_unchecked(entity);
                     debug_assert_eq!(entity_index, first_entity_index + row_offset);
@@ -199,17 +195,16 @@ impl World {
                     break;
                 };
 
-                let location = EntityLocation {
-                    data_index,
-                    chunk_index,
+                let route = EntityRoute {
+                    chunk_id,
                     entity_index: first_entity_index + row_offset,
                 };
-                let entity = Self::allocate_entity_at_location(entities, free_entities, location);
+                let entity = Self::allocate_entity_at_location(entities, free_entities, route);
                 // SAFETY: this loop is bounded by the tail's available row
                 // count, and the sealed Bundle writer below initializes every
                 // component before the row can be observed.
                 let entity_index = unsafe { chunk.add_entity_unchecked(entity) };
-                debug_assert_eq!(entity_index, location.entity_index);
+                debug_assert_eq!(entity_index, route.entity_index);
 
                 // SAFETY: the cursors were initialized from this chunk's
                 // cached bundle columns at `first_entity_index` and advance by
@@ -320,29 +315,20 @@ impl World {
             }
         }
 
-        let moved = self.data[location.data_index].remove_entity(ChunkEntityLocation {
+        let removal = self.data[location.data_index].remove_entity(ChunkEntityLocation {
             chunk_index: location.chunk_index,
             entity_index: location.entity_index,
         });
 
         let record = &mut self.entities[entity.index() as usize];
-        record.clear_location();
+        record.clear_route();
         if let Some(next_generation) = record.generation.checked_add(1) {
             record.generation = next_generation;
             self.free_entities.push(entity.index());
         }
         self.live_entity_count -= 1;
 
-        if let Some((moved_entity, moved_location)) = moved {
-            self.set_entity_location(
-                moved_entity,
-                EntityLocation {
-                    data_index: location.data_index,
-                    chunk_index: moved_location.chunk_index,
-                    entity_index: moved_location.entity_index,
-                },
-            );
-        }
+        self.finish_chunk_removal(location.data_index, removal);
 
         if let Some(payload) = drop_panic {
             std::panic::resume_unwind(payload);

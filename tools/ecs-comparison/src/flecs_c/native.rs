@@ -44,7 +44,29 @@ unsafe extern "C" {
     pub(super) fn sky_flecs_c_mixed_random(context: *mut c_void) -> u64;
     pub(super) fn sky_flecs_c_mixed_churn(context: *mut c_void) -> u64;
     pub(super) fn sky_flecs_c_mixed_spawn(context: *mut c_void) -> u64;
+    pub(super) fn sky_flecs_c_gameplay_new() -> *mut c_void;
+    pub(super) fn sky_flecs_c_gameplay_delete(context: *mut c_void);
+    pub(super) fn sky_flecs_c_gameplay_frame(context: *mut c_void) -> u64;
+    pub(super) fn sky_flecs_c_gameplay_run_trace(
+        context: *mut c_void,
+        digest: *mut NativeGameplayDigest,
+    ) -> bool;
     pub(super) fn sky_flecs_c_validate() -> bool;
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct NativeGameplayDigest {
+    pub entity_count: u64,
+    pub moving_count: u64,
+    pub health_count: u64,
+    pub lifetime_count: u64,
+    pub stunned_count: u64,
+    pub position_checksum: u64,
+    pub health_checksum: u64,
+    pub lifetime_checksum: u64,
+    pub generation_checksum: u64,
+    pub ai_lookup_checksum: u64,
 }
 
 pub(super) struct Context {

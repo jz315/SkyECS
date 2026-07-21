@@ -6,8 +6,18 @@ fn sky_adapter_satisfies_contract() {
 }
 
 #[test]
+fn sky_gameplay_trace_matches_reference() {
+    sky::validate_gameplay_contract();
+}
+
+#[test]
 fn hecs_adapter_satisfies_contract() {
     hecs::validate_contract();
+}
+
+#[test]
+fn hecs_gameplay_trace_matches_reference() {
+    hecs::validate_gameplay_contract();
 }
 
 #[test]
@@ -16,8 +26,18 @@ fn bevy_adapter_satisfies_contract() {
 }
 
 #[test]
+fn bevy_gameplay_trace_matches_reference() {
+    bevy::validate_gameplay_contract();
+}
+
+#[test]
 fn flecs_c_adapter_satisfies_contract() {
     flecs_c::validate_contract();
+}
+
+#[test]
+fn flecs_c_gameplay_trace_matches_reference() {
+    flecs_c::validate_gameplay_contract();
 }
 
 #[test]
@@ -26,6 +46,16 @@ fn freecs_adapter_satisfies_contract() {
 }
 
 #[test]
+fn freecs_gameplay_trace_matches_reference() {
+    freecs::validate_gameplay_contract();
+}
+
+#[test]
 fn shipyard_adapter_satisfies_contract() {
     shipyard::validate_contract();
+}
+
+#[test]
+fn shipyard_gameplay_trace_matches_reference() {
+    shipyard::validate_gameplay_contract();
 }

@@ -61,6 +61,35 @@ struct Damage(f32);
 struct Marker;
 
 #[test]
+fn chunk_routes_follow_swap_remove_and_reuse_retired_ids() {
+    let mut world = World::new();
+    let first = world.spawn((HugeState([1; 16 * 1024]), Tick(1)));
+    let first_route = world.entity_route(first).unwrap();
+
+    let moved = loop {
+        let entity = world.spawn((HugeState([2; 16 * 1024]), Tick(2)));
+        if world.data[0].chunks.len() == 2 {
+            break entity;
+        }
+    };
+    let retired_route = world.entity_route(moved).unwrap();
+    assert_ne!(retired_route.chunk_id, first_route.chunk_id);
+
+    assert!(world.despawn(first));
+
+    let moved_route = world.entity_route(moved).unwrap();
+    assert_eq!(moved_route.chunk_id, first_route.chunk_id);
+    assert_eq!(world.chunk_directory.resolve(retired_route.chunk_id), None);
+    assert_eq!(world.accessor::<Tick>().get(moved), Some(&Tick(2)));
+
+    let replacement = world.spawn((Velocity { x: 3.0, y: 4.0 },));
+    assert_eq!(
+        world.entity_route(replacement).unwrap().chunk_id,
+        retired_route.chunk_id
+    );
+}
+
+#[test]
 fn spawn_initializes_components_and_get_reads_them() {
     let mut world = World::new();
     let entity = world.spawn((Position { x: 1.0, y: 2.0 }, Velocity { x: 3.0, y: 4.0 }));
@@ -1516,11 +1545,8 @@ fn exact_spawn_batch_starts_from_a_batch_appropriate_size_class() {
     world.spawn_batch((0..10_000).map(|index| (HundredBytes([index as u8; 100]),)));
 
     assert_eq!(world.data.len(), 1);
-    assert_eq!(world.data[0].chunks.len(), 4);
-    assert!(world.data[0]
-        .chunks
-        .iter()
-        .all(|chunk| chunk.block_size() == 256 * 1024));
+    assert_eq!(world.data[0].chunks.len(), 1);
+    assert_eq!(world.data[0].chunks[0].block_size(), 1024 * 1024);
     assert_eq!(world.query::<&HundredBytes>().count(), 10_000);
     let mut first = None;
     world.query::<&HundredBytes>().for_each(|value| {
@@ -1529,6 +1555,87 @@ fn exact_spawn_batch_starts_from_a_batch_appropriate_size_class() {
         }
     });
     assert_eq!(first, Some(0));
+}
+
+#[test]
+fn repeated_known_batches_do_not_regress_to_smaller_chunk_classes() {
+    #[allow(dead_code)]
+    #[derive(Clone, Copy)]
+    struct HundredBytes([u8; 100]);
+
+    let mut world = World::new();
+    for batch in 0..5 {
+        world.spawn_batch(
+            (0..10_000).map(|index| (HundredBytes([(batch * 10_000 + index) as u8; 100]),)),
+        );
+    }
+
+    let block_sizes = world.data[0]
+        .chunks
+        .iter()
+        .map(|chunk| chunk.block_size())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        block_sizes,
+        vec![
+            1024 * 1024,
+            1024 * 1024,
+            1024 * 1024,
+            1024 * 1024,
+            4 * 1024 * 1024,
+        ]
+    );
+    assert_eq!(world.query::<&HundredBytes>().count(), 50_000);
+}
+
+#[test]
+fn exact_large_batch_uses_radix_chunks_and_preserves_values() {
+    #[derive(Clone, Copy)]
+    struct WideRow {
+        index: u32,
+        padding: [u8; 96],
+    }
+
+    const BATCH_COUNT: usize = 180_003;
+    let mut world = World::new();
+    world.spawn((WideRow {
+        index: 0,
+        padding: [0; 96],
+    },));
+    world.spawn_batch((1..=BATCH_COUNT).map(|index| {
+        (WideRow {
+            index: index as u32,
+            padding: [index as u8; 96],
+        },)
+    }));
+
+    assert_eq!(world.data.len(), 1);
+    assert_eq!(world.data[0].chunks.len(), 3);
+    assert_eq!(world.data[0].chunks[0].block_size(), 4 * 1024);
+    assert_eq!(world.data[0].chunks[1].block_size(), 16 * 1024 * 1024);
+    assert_eq!(world.data[0].chunks[2].block_size(), 4 * 1024 * 1024);
+
+    let mut count = 0usize;
+    let mut sum = 0u64;
+    world.query::<&WideRow>().for_each(|row| {
+        count += 1;
+        sum += u64::from(row.index);
+        assert_eq!(row.padding[0], row.index as u8);
+    });
+    assert_eq!(count, BATCH_COUNT + 1);
+    assert_eq!(sum, (0..=BATCH_COUNT as u64).sum::<u64>());
+
+    world.spawn((WideRow {
+        index: (BATCH_COUNT + 1) as u32,
+        padding: [0; 96],
+    },));
+
+    assert_eq!(world.data[0].chunks.len(), 3);
+    assert_eq!(
+        world.data[0].chunks.last().unwrap().block_size(),
+        4 * 1024 * 1024
+    );
+    assert_eq!(world.query::<&WideRow>().count(), BATCH_COUNT + 2);
 }
 
 #[test]

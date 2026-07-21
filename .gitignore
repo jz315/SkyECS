@@ -3,3 +3,4 @@
 *.profraw
 *.syms.json
 sky-profile*.json.gz
+AGENTS.md

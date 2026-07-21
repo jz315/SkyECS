@@ -99,18 +99,10 @@ pub(crate) fn bench_entity_ops(c: &mut Criterion) {
     group.finish();
 }
 
-pub(crate) fn bench_mixed_frame(c: &mut Criterion) {
-    let mut group = benchmark_group(c, "scenario_mixed_frame");
+pub(crate) fn bench_gameplay_frame(c: &mut Criterion) {
+    let mut group = benchmark_group(c, "scenario_gameplay_frame");
     for engine in engine_order() {
-        dispatch!(engine, bench_mixed_frame, &mut group);
-    }
-    group.finish();
-}
-
-pub(crate) fn bench_mixed_frame_phases(c: &mut Criterion) {
-    let mut group = benchmark_group(c, "scenario_mixed_frame_phases");
-    for engine in engine_order() {
-        dispatch!(engine, bench_mixed_frame_phases, &mut group);
+        dispatch!(engine, bench_gameplay_frame, &mut group);
     }
     group.finish();
 }

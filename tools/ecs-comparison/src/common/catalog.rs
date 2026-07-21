@@ -106,8 +106,8 @@ const fn random_without_freecs(
     }
 }
 
-pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 38] = [
-    fixed("prepared_construction/bulk_insert_10k", 10_000),
+pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 32] = [
+    fixed("prepared_construction/native_bulk_insert_10k", 10_000),
     fixed("prepared_construction/single_insert_10k", 10_000),
     fixed("prepared_iteration/simple_10k", 10_000),
     fixed("prepared_iteration_large/simple_100k", 100_000),
@@ -218,31 +218,7 @@ pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 38] = [
     fixed("prepared_random_access/warm_100k", 100_000),
     fixed("entity_ops/spawn_despawn_1k", 1_000),
     fixed("entity_ops/add_remove_component_1k", 1_000),
-    no_items("scenario_mixed_frame/frame", BenchmarkClass::Scenario),
-    no_items(
-        "scenario_mixed_frame_phases/movement",
-        BenchmarkClass::Scenario,
-    ),
-    no_items(
-        "scenario_mixed_frame_phases/health",
-        BenchmarkClass::Scenario,
-    ),
-    no_items(
-        "scenario_mixed_frame_phases/heavy",
-        BenchmarkClass::Scenario,
-    ),
-    no_items(
-        "scenario_mixed_frame_phases/random_access",
-        BenchmarkClass::Scenario,
-    ),
-    no_items(
-        "scenario_mixed_frame_phases/structural_churn",
-        BenchmarkClass::Scenario,
-    ),
-    no_items(
-        "scenario_mixed_frame_phases/spawn_despawn",
-        BenchmarkClass::Scenario,
-    ),
+    no_items("scenario_gameplay_frame/frame", BenchmarkClass::Scenario),
 ];
 
 pub fn benchmark_spec(family: &str) -> Option<&'static BenchmarkSpec> {
@@ -307,7 +283,7 @@ mod tests {
                 .iter()
                 .filter(|spec| spec.class == BenchmarkClass::Scenario)
                 .count(),
-            7
+            1
         );
         assert_eq!(
             CANONICAL_BENCHMARKS
@@ -317,7 +293,7 @@ mod tests {
             1
         );
         assert_eq!(
-            benchmark_class("scenario_mixed_frame/frame/sky"),
+            benchmark_class("scenario_gameplay_frame/frame/sky"),
             Some(BenchmarkClass::Scenario)
         );
     }

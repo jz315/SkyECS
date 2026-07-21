@@ -30,6 +30,11 @@ ecs! {
         regen: Regen => REGEN_MASK,
         is_enemy: IsEnemy => IS_ENEMY_MASK,
         is_ally: IsAlly => IS_ALLY_MASK,
+        lifetime: Lifetime => LIFETIME_MASK,
+        target_slot: TargetSlot => TARGET_SLOT_MASK,
+        cooldown: Cooldown => COOLDOWN_MASK,
+        owner_slot: OwnerSlot => OWNER_SLOT_MASK,
+        stunned: Stunned => STUNNED_MASK,
         fragment_a: FragmentA => A_MASK,
         fragment_b: FragmentB => B_MASK,
         fragment_c: FragmentC => C_MASK,
@@ -89,6 +94,39 @@ pub(super) fn prepared_insert_world() -> World {
     World::default()
 }
 
+pub(super) struct NativeBulkContext {
+    pub world: World,
+    pub columns: SuiteColumns,
+    pub entities: Vec<Entity>,
+}
+
+pub(super) fn native_bulk_context(columns: SuiteColumns) -> NativeBulkContext {
+    NativeBulkContext {
+        world: prepared_insert_world(),
+        columns,
+        entities: Vec::new(),
+    }
+}
+
+pub(super) fn insert_native_bulk(context: &mut NativeBulkContext) {
+    let count = context.columns.0.len();
+    assert_eq!(context.columns.1.len(), count);
+    assert_eq!(context.columns.2.len(), count);
+    assert_eq!(context.columns.3.len(), count);
+    let mut transforms = context.columns.0.drain(..);
+    let mut positions = context.columns.1.drain(..);
+    let mut rotations = context.columns.2.drain(..);
+    let mut velocities = context.columns.3.drain(..);
+    context.entities = context
+        .world
+        .spawn_batch(SUITE_MASK, count, |table, index| {
+            table.transform[index] = transforms.next().expect("one transform per row");
+            table.position[index] = positions.next().expect("one position per row");
+            table.rotation[index] = rotations.next().expect("one rotation per row");
+            table.velocity[index] = velocities.next().expect("one velocity per row");
+        });
+}
+
 pub(super) fn spawn_suite_batch(world: &mut World, count: usize) -> Vec<Entity> {
     world.spawn_batch(SUITE_MASK, count, |table, index| {
         let (transform, position, rotation, velocity) = suite_bundle();
@@ -120,13 +158,13 @@ pub(super) fn spawn_suite_bundle(world: &mut World, bundle: SuiteBundle) -> Enti
         .expect("FreeCS should return the spawned entity")
 }
 pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("bulk_insert_10k/freecs", |b| {
-        let bundles = suite_bundles(SIMPLE_ENTITY_COUNT);
+    group.bench_function("native_bulk_insert_10k/freecs", |b| {
         b.iter_batched_ref(
-            prepared_insert_world,
-            |world| {
-                black_box(spawn_suite_bundles(world, &bundles));
-                black_box(&world);
+            || native_bulk_context(suite_columns(SIMPLE_ENTITY_COUNT)),
+            |context| {
+                insert_native_bulk(context);
+                black_box(&context.entities);
+                black_box(&context.world);
             },
             BatchSize::SmallInput,
         );
