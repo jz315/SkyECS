@@ -102,7 +102,7 @@ impl SkyGameplayWorld {
                         regen_chunk(health, regen);
                     });
                 self.lifetimes
-                    .for_each_chunk(&mut self.world, |lifetimes| lifetime_chunk(lifetimes));
+                    .for_each_chunk(&mut self.world, lifetime_chunk);
             }
             SkyIterationApi::ChunkFunction => {
                 self.movement.for_each_chunk_fn(&mut self.world, move_chunk);

@@ -21,7 +21,9 @@ pub(super) fn insert_native_bulk(context: &mut NativeBulkContext) {
         .bundles
         .take()
         .expect("native bundle batch is consumed once");
-    drop(context.world.bulk_add_entity(bundles));
+    // Shipyard inserts the entities eagerly; the returned iterator only exposes
+    // the IDs of entities that already exist in the world.
+    let _new_entity_ids = context.world.bulk_add_entity(bundles);
 }
 pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.bench_function("native_bulk_insert_10k/shipyard", |b| {

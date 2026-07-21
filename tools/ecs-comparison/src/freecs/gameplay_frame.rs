@@ -254,41 +254,39 @@ fn write_gameplay_values(
 
 fn gameplay_mask(values: &GameplayEntityValues, slot: usize) -> u64 {
     let mut mask = POSITION_MASK;
-    mask |= values
-        .velocity
-        .is_some()
-        .then_some(VELOCITY_MASK)
-        .unwrap_or(0);
-    mask |= values.health.is_some().then_some(HEALTH_MASK).unwrap_or(0);
-    mask |= values.damage.is_some().then_some(DAMAGE_MASK).unwrap_or(0);
-    mask |= values.regen.is_some().then_some(REGEN_MASK).unwrap_or(0);
-    mask |= values.enemy.is_some().then_some(IS_ENEMY_MASK).unwrap_or(0);
-    mask |= values.ally.is_some().then_some(IS_ALLY_MASK).unwrap_or(0);
-    mask |= values
-        .lifetime
-        .is_some()
-        .then_some(LIFETIME_MASK)
-        .unwrap_or(0);
-    mask |= values
-        .target
-        .is_some()
-        .then_some(TARGET_SLOT_MASK)
-        .unwrap_or(0);
-    mask |= values
-        .cooldown
-        .is_some()
-        .then_some(COOLDOWN_MASK)
-        .unwrap_or(0);
-    mask |= values
-        .owner
-        .is_some()
-        .then_some(OWNER_SLOT_MASK)
-        .unwrap_or(0);
-    mask |= values
-        .stunned
-        .is_some()
-        .then_some(STUNNED_MASK)
-        .unwrap_or(0);
+    if values.velocity.is_some() {
+        mask |= VELOCITY_MASK;
+    }
+    if values.health.is_some() {
+        mask |= HEALTH_MASK;
+    }
+    if values.damage.is_some() {
+        mask |= DAMAGE_MASK;
+    }
+    if values.regen.is_some() {
+        mask |= REGEN_MASK;
+    }
+    if values.enemy.is_some() {
+        mask |= IS_ENEMY_MASK;
+    }
+    if values.ally.is_some() {
+        mask |= IS_ALLY_MASK;
+    }
+    if values.lifetime.is_some() {
+        mask |= LIFETIME_MASK;
+    }
+    if values.target.is_some() {
+        mask |= TARGET_SLOT_MASK;
+    }
+    if values.cooldown.is_some() {
+        mask |= COOLDOWN_MASK;
+    }
+    if values.owner.is_some() {
+        mask |= OWNER_SLOT_MASK;
+    }
+    if values.stunned.is_some() {
+        mask |= STUNNED_MASK;
+    }
     mask | match gameplay_slot_spec(slot).variant {
         0 => 0,
         1 => TAG_A_MASK,
