@@ -11,15 +11,98 @@ cargo compare-ecs -- prepared_iteration/simple_10k/sky --exact
 cargo compare-ecs -- prepared_iteration/simple_10k/flecs_c --exact
 cargo compare-ecs -- prepared_random_fragmented_iteration/random_16_tags_8_terms/flecs_c --exact
 cargo compare-ecs -- prepared_random_fragmented_iteration/random_16_components_4_terms/sky --exact
+cargo compare-ecs -- diagnostic_gameplay_phases/ai_source_lookup/sky --exact
 cargo compare-ecs-publish
 ```
 
-`cargo compare-ecs-publish` 默认执行六轮 Latin-square 顺序轮换，并将 Criterion 原始数据、环境信息、置信区间和跨运行中位数写入 `target/comparison-reports/`。下面发布的运行使用了四轮。
+`cargo compare-ecs-publish` 默认执行四轮循环引擎顺序轮换，并将 Criterion 原始数据、环境信息、置信区间和跨运行中位数写入 `target/comparison-reports/`。四轮有界协议用于避免 workflow 超时，但不会覆盖六个引擎的全部顺序位置。
 
-## 当前结果
+## Canonical workload 合同
+
+### 最佳原生批量插入
+
+`prepared_construction/native_bulk_insert_10k` 从空的、已完成 schema
+准备的 World 和完全准备好的引擎原生 batch 开始。输入构造、World 构造、
+注册与析构都在计时外；计时内只包含公共 bulk admission API，以及完成
+1 万个四组件实体插入所必需的 iterator finalize。
+
+| Adapter | 选定公共 API | 已准备的原生输入 |
+|---|---|---|
+| Sky | `World::spawn_columns` | 四个组件 `Vec` |
+| hecs | `World::spawn_column_batch` | 完成的 `ColumnBatch` |
+| Bevy ECS | `World::spawn_batch` | `Vec<SuiteBundle>` |
+| Flecs C | `ecs_bulk_init` | 四个 C++ vector 与排序后绑定的 ID/指针对 |
+| FreeCS | `World::spawn_batch` | 由 initializer 消耗的四个组件列 |
+| Shipyard | `World::bulk_add_entity` | `Vec<SuiteBundle>` |
+
+它与已退役的 `bulk_insert_10k` 不同：旧 workload 强制所有 adapter 接收
+行式 bundle。旧数字会明确标记为历史 workload，不能与新的 native bulk
+数字直接比较。
+
+### 真实游戏帧
+
+`scenario_gameplay_frame/frame` 每次执行确定性 256 帧竞技场/动作游戏
+trace 中的一帧。65,536 个存活逻辑槽位分布在 32 个稳定 archetype：
+
+| 人群 | 实体数 | 主要组件/职责 |
+|---|---:|---|
+| 普通移动实体 | 20,480 | Position + Velocity |
+| 战斗角色 | 16,384 | 敌方伤害或友方恢复；临时 Stunned |
+| AI 角色 | 8,192 | health、target slot、cooldown |
+| 投射物 | 8,192 | velocity、damage、owner、64 帧生命周期 |
+| 静态世界 | 8,192 | position |
+| 特效 | 4,096 | position + lifetime |
+
+每个计时帧执行 53,248 次移动更新、战斗更新、2,048 次 AI 目标直接访问、
+12,288 次 lifetime 更新、128 次延迟 Stunned 移除与 128 次插入，以及
+128 个投射物的 despawn/替换。状态组件真实存活 8 帧，投射物真实存活
+64 帧，不存在同一帧 add/remove 抵消。场景不含矩阵求逆、人为 phase
+重复或其他掩盖 ECS 成本的重计算核。
+
+每个 adapter 都维护相同的逻辑槽位到 ECS entity handle 映射。合同测试
+运行完整 256 帧，并把实体/组件计数以及 position、health、lifetime、
+generation、AI lookup 的 canonical checksum 与独立于 ECS 的 reference
+model 对比。总帧计时与正确性测试复用同一实现。
+完整帧与 phase 测量都会在每个 256 帧 trace 后重建新 context；context 构造
+和 digest 验证不计入报告时长。
+
+`diagnostic_gameplay_phases/{iteration,ai_source_lookup,target_position_lookup,
+status_transition,projectile_recycle}` 仍执行同一个持续演化的五阶段状态机，
+但只累计目标 phase 的计时。Context 构造、其余四阶段、digest 检查和 trace
+重置均不计时。这些行用于诊断完整帧的可能贡献；因为存在计时窗口开销，
+不宣称五项与完整帧严格可加。所有 adapter 都在每帧读取 `TargetSlot`、生成
+目标实体列表，再由 Position phase 消费。Flecs 的 canonical 完整帧仍只有
+一次 FFI，五次调用形式仅用于诊断。
+
+这条原始对比固定为串行；scheduler 和 parallel 路径属于独立 benchmark
+family，不混入结果。
+
+### 最快 API 选择
+
+所有 adapter 只使用稳定公共 API 与可复用 query/view/accessor 状态。Sky
+中存在歧义的实体访问 API 由独立 `api_selection` 程序做 4 轮 AB/BA
+认证。AI source 比较通用 get/get-mut、分离 accessor 与 tuple
+`PreparedEntityView`；目标 Position 比较 `World::get`、`EntityAccessor`
+与 `PreparedEntityView`。每对候选都执行两种顺序并使用 ±2% 判定带；phase
+路径必须成为 Condorcet winner，组合后还必须在完整帧击败现有生产路径。
+GitHub Actions 只生成并保存 report-only JSON，最终性能接受由受控机器判定。实体
+身份稳定的随机访问另由可复现的 `sky_random_access_api_selection` 做 4 轮
+认证，比较 `EntityAccessor::get` 与 `PreparedEntityAccess::iter`；只有
+workload 允许其他引擎在计时外建立等价缓存引用时，计划构建才放在计时
+外。纯密集 1 万/10 万/100 万遍历使用专用 plain-function chunk API；多短
+chunk 的 Gameplay 使用认证结果中的胜者。
+
+## 最近一次公开快照（workload 修订前）
 
 下方所有数值均来自公开的
 [GitHub Actions 运行 #29695552048](https://github.com/jz315/SkyECS/actions/runs/29695552048)，
+commit `e47f48163759f2e0438bcb89504908749999a416`。上传报告 artifact 的
+SHA-256 为 `db5ea692ad4b32eae2614261372e2f98d0e0f9dc55bdee1e8b1d7f844543c324`。
+
+该公开运行早于上述两项 canonical workload 修订。未受影响的
+microbenchmark 行仍可作为历史证据，但旧 bulk 行不能直接改名，已退役
+的 Mixed frame 也不再展示。新的 native bulk 与 Gameplay frame 数字只会
+在更新后的 workflow 完成公开四轮运行后加入。
 
 加粗表示支持该 workload 的 adapter 中的最低中位数。
 
@@ -27,7 +110,7 @@ cargo compare-ecs-publish
 
 | Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| 批量插入 1 万 | 120.928 µs | 352.108 µs | 440.190 µs | **110.409 µs** | 278.079 µs | 166.753 µs |
+| 旧行式 batch 插入 1 万（已退役） | 120.928 µs | 352.108 µs | 440.190 µs | **110.409 µs** | 278.079 µs | 166.753 µs |
 | 单个插入 1 万 | **244.539 µs** | 576.178 µs | 740.224 µs | 741.595 µs | 934.128 µs | 1188.686 µs |
 | Prepared 遍历 1 万 | 8.115 µs | 7.834 µs | 9.349 µs | **7.692 µs** | 11.956 µs | 17.292 µs |
 | Prepared 遍历 10 万 | 81.214 µs | 78.875 µs | 93.647 µs | **77.616 µs** | 120.081 µs | 174.299 µs |
@@ -38,13 +121,6 @@ cargo compare-ecs-publish
 | Prepared 随机访问 10 万 | 399.066 µs | 294.265 µs | 895.874 µs | **167.122 µs** | 447.005 µs | 450.412 µs |
 | Spawn/随机 despawn 1 千 | **45.370 µs** | 46.338 µs | 103.052 µs | 67.469 µs | 112.407 µs | 107.419 µs |
 | 随机 add/remove component 1 千 | 92.425 µs | 111.459 µs | 173.031 µs | 134.730 µs | 212.391 µs | **51.553 µs** |
-| 混合帧 | 349.537 µs | 352.553 µs | 377.572 µs | **331.783 µs** | 409.090 µs | 380.534 µs |
-| 混合帧阶段：movement | 20.867 µs | 20.013 µs | 24.135 µs | **19.517 µs** | 30.347 µs | 54.180 µs |
-| 混合帧阶段：health × 8 | 7.904 µs | 22.760 µs | 46.185 µs | **7.746 µs** | 54.003 µs | 98.447 µs |
-| 混合帧阶段：heavy | 300.912 µs | 297.594 µs | 298.251 µs | **268.548 µs** | 305.817 µs | 281.299 µs |
-| 混合帧阶段：随机访问 | 1.133 µs | 0.851 µs | 2.103 µs | **0.498 µs** | 1.204 µs | 1.016 µs |
-| 混合帧阶段：结构变更 | 18.731 µs | 24.880 µs | 36.712 µs | 30.973 µs | 52.856 µs | **11.836 µs** |
-| 混合帧阶段：spawn/despawn × 32 | **63.422 µs** | 83.603 µs | 182.251 µs | 125.733 µs | 266.171 µs | 256.373 µs |
 
 ### 随机碎片 workloads
 
@@ -87,9 +163,9 @@ cargo compare-ecs-publish
 
 ## 说明
 
-- Health 和 spawn/despawn 分别重复 8 次和 32 次；换算单帧时需除以对应次数。
-
-- 阶段测试使用独立 World，不会与完整混合帧完全相加。
-
-- GitHub-hosted runner 可能会有性能波动。
-
+- GitHub-hosted runner 提供公开可追溯性，但不等于专用机器的隔离环境。
+  报告会保存 runner、toolchain、编译器、commit、Criterion 原始分布与
+  四轮记录完备的顺序轮换，便于独立审查。
+- 旧 Mixed frame 被否决的原因是：八次矩阵求逆在多个 adapter 中占帧
+  时间 80% 以上，而 health 与 spawn phase 又使用人为重复系数。它不再是
+  canonical 结果。

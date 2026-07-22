@@ -168,7 +168,7 @@ where
     {
         let _iteration = self.begin_iteration();
         if let Some(chunks) = self.prepared_chunks() {
-            run_cached_for_each::<Q, _>(chunks, f);
+            run_cached_for_each::<Q, _>(self.world(), chunks, f);
             return;
         }
         run_for_each::<Q, _>(self.world(), self.archetypes, f);
@@ -180,7 +180,7 @@ where
     {
         let _iteration = self.begin_iteration();
         if let Some(chunks) = self.prepared_chunks() {
-            run_cached_for_each_with_entity::<Q, _>(chunks, f);
+            run_cached_for_each_with_entity::<Q, _>(self.world(), chunks, f);
             return;
         }
         run_for_each_with_entity::<Q, _>(self.world(), self.archetypes, f);
@@ -192,7 +192,7 @@ where
     {
         let _iteration = self.begin_iteration();
         if let Some(chunks) = self.prepared_chunks() {
-            run_cached_for_each_chunk::<Q, _>(chunks, f);
+            run_cached_for_each_chunk::<Q, _>(self.world(), chunks, f);
             return;
         }
         run_for_each_chunk::<Q, _>(self.world(), self.archetypes, f);
@@ -204,7 +204,7 @@ where
     {
         let _iteration = self.begin_iteration();
         if let Some(chunks) = self.prepared_chunks() {
-            run_cached_for_each_chunk_with_entities::<Q, _>(chunks, f);
+            run_cached_for_each_chunk_with_entities::<Q, _>(self.world(), chunks, f);
             return;
         }
         run_for_each_chunk_with_entities::<Q, _>(self.world(), self.archetypes, f);
@@ -309,7 +309,7 @@ where
         let jobs = self.parallel_snapshot();
         if !jobs.will_run_parallel() {
             if let Some(chunks) = self.prepared_chunks() {
-                run_cached_for_each::<Q, _>(chunks, f);
+                run_cached_for_each::<Q, _>(unsafe { world.world() }, chunks, f);
                 return;
             }
         }
@@ -326,7 +326,7 @@ where
         let jobs = self.parallel_snapshot();
         if !jobs.will_run_parallel() {
             if let Some(chunks) = self.prepared_chunks() {
-                run_cached_for_each_with_entity::<Q, _>(chunks, f);
+                run_cached_for_each_with_entity::<Q, _>(unsafe { world.world() }, chunks, f);
                 return;
             }
         }
@@ -343,7 +343,7 @@ where
         let jobs = self.parallel_snapshot();
         if !jobs.will_run_parallel() {
             if let Some(chunks) = self.prepared_chunks() {
-                run_cached_for_each_chunk::<Q, _>(chunks, f);
+                run_cached_for_each_chunk::<Q, _>(unsafe { world.world() }, chunks, f);
                 return;
             }
         }
@@ -360,7 +360,11 @@ where
         let jobs = self.parallel_snapshot();
         if !jobs.will_run_parallel() {
             if let Some(chunks) = self.prepared_chunks() {
-                run_cached_for_each_chunk_with_entities::<Q, _>(chunks, f);
+                run_cached_for_each_chunk_with_entities::<Q, _>(
+                    unsafe { world.world() },
+                    chunks,
+                    f,
+                );
                 return;
             }
         }

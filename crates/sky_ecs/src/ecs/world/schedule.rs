@@ -1,42 +1,41 @@
 use super::*;
 
-struct ScheduleRestoreGuard {
-    slot: *mut Option<Schedule>,
-    schedule: Option<Schedule>,
-}
-
-impl ScheduleRestoreGuard {
-    fn new(slot: &mut Option<Schedule>, schedule: Schedule) -> Self {
-        Self {
-            slot: std::ptr::from_mut(slot),
-            schedule: Some(schedule),
-        }
-    }
-
-    fn schedule_mut(&mut self) -> &mut Schedule {
-        self.schedule.as_mut().unwrap()
+fn discard_commands_after_panic(schedule: &mut Schedule) {
+    let discard = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        schedule.discard_commands();
+    }));
+    if let Err(payload) = discard {
+        // Never let a user payload's destructor replace the primary schedule
+        // panic or turn cleanup into a double-panic abort.
+        std::mem::forget(payload);
     }
 }
 
-impl Drop for ScheduleRestoreGuard {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            let discard = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                self.schedule.as_mut().unwrap().discard_commands();
-            }));
-            if let Err(payload) = discard {
-                // Never let a user payload's destructor turn schedule cleanup
-                // into a double-panic abort. The process is already unwinding;
-                // leaking this secondary panic payload is the only safe exit.
-                std::mem::forget(payload);
+impl World {
+    fn run_schedule(
+        &mut self,
+        frame_delta: f32,
+        raw_delta: f32,
+    ) -> Result<TickReport, ScheduleError> {
+        let mut schedule = self.schedule.take().expect("cannot call tick recursively");
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            schedule.run(self, frame_delta, raw_delta)
+        }));
+
+        match result {
+            Ok(result) => {
+                self.schedule = Some(schedule);
+                result
+            }
+            Err(payload) => {
+                discard_commands_after_panic(&mut schedule);
+                self.poison_after_schedule_panic();
+                self.schedule = Some(schedule);
+                std::panic::resume_unwind(payload);
             }
         }
-        unsafe {
-            *self.slot = self.schedule.take();
-        }
     }
-}
-impl World {
+
     /// Install an engine module plugin into this world.
     ///
     /// Plugin constructors are the configuration surface; installing a plugin
@@ -165,16 +164,19 @@ impl World {
     /// error without advancing time or running any system.
     pub fn tick(&mut self) -> Result<TickReport, ScheduleError> {
         self.assert_schedule_tick_allowed();
-        let schedule = self.schedule.take().expect("cannot call tick recursively");
-        let mut guard = ScheduleRestoreGuard::new(&mut self.schedule, schedule);
         let now = std::time::Instant::now();
-        let raw_delta = match guard.schedule_mut().last_tick {
+        let raw_delta = match self
+            .schedule
+            .as_ref()
+            .expect("cannot call tick recursively")
+            .last_tick
+        {
             Some(last) => (now - last).as_secs_f32(),
             None => 0.0,
         };
-        let result = guard.schedule_mut().run(self, raw_delta, raw_delta);
+        let result = self.run_schedule(raw_delta, raw_delta);
         if result.is_ok() {
-            guard.schedule_mut().last_tick = Some(now);
+            self.schedule.as_mut().unwrap().last_tick = Some(now);
         }
         result
     }
@@ -210,9 +212,7 @@ impl World {
         raw_delta: f32,
     ) -> Result<TickReport, ScheduleError> {
         self.assert_schedule_tick_allowed();
-        let schedule = self.schedule.take().expect("cannot call tick recursively");
-        let mut guard = ScheduleRestoreGuard::new(&mut self.schedule, schedule);
-        guard.schedule_mut().run(self, frame_delta, raw_delta)
+        self.run_schedule(frame_delta, raw_delta)
     }
 
     /// Tears down all initialised systems in reverse order.
@@ -220,8 +220,14 @@ impl World {
     /// Call this before dropping the world if your systems need a clean
     /// shutdown (e.g. flushing buffers, releasing external resources).
     pub fn shutdown(&mut self) {
-        let schedule = self.schedule.take().expect("cannot shutdown during tick");
-        let mut guard = ScheduleRestoreGuard::new(&mut self.schedule, schedule);
-        guard.schedule_mut().shutdown(self);
+        let mut schedule = self.schedule.take().expect("cannot shutdown during tick");
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            schedule.shutdown(self);
+        }));
+        self.schedule = Some(schedule);
+        if let Err(payload) = result {
+            self.poison_after_schedule_panic();
+            std::panic::resume_unwind(payload);
+        }
     }
 }

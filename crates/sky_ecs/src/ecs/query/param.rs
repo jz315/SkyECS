@@ -197,7 +197,10 @@ unsafe impl<T: 'static> QueryParam for Option<&mut T> {
 ///
 /// Implementations must describe every component access accurately, preserve
 /// the aliasing mode of each parameter, and only construct references within
-/// the storage and lifetime represented by the supplied chunk.
+/// the storage and lifetime represented by the supplied chunk. Implementations
+/// of [`for_each_entity_raw_parts`](Self::for_each_entity_raw_parts) must invoke
+/// the callback exactly once for every row in the requested range and must not
+/// invoke it for rows outside that range.
 pub unsafe trait QuerySpec {
     type Chunk<'w>;
     type Item<'w>;
@@ -226,6 +229,38 @@ pub unsafe trait QuerySpec {
         start: usize,
         len: usize,
     ) -> Self::Chunk<'w>;
+
+    /// Builds one typed item from prevalidated raw component columns.
+    ///
+    /// Built-in query specifications override this with a direct row fetch.
+    /// The default preserves compatibility for external implementations by
+    /// asking their entity visitor to yield a one-row range.
+    ///
+    /// # Safety
+    ///
+    /// Every pointer must address the corresponding descriptor column,
+    /// `entity_index` must select an initialized in-bounds row, and the caller
+    /// must uphold every declared shared/exclusive component access for `'w`.
+    #[doc(hidden)]
+    unsafe fn item_from_raw_parts<'w>(
+        component_ptrs: &[*mut u8],
+        entity_index: usize,
+    ) -> Self::Item<'w> {
+        let mut result = None;
+
+        unsafe {
+            // SAFETY: the caller supplies a valid single-row range. The
+            // QuerySpec contract requires exactly one callback for that range.
+            Self::for_each_entity_raw_parts(component_ptrs, entity_index, 1, &mut |item| {
+                assert!(
+                    result.replace(item).is_none(),
+                    "QuerySpec::for_each_entity_raw_parts yielded one row more than once"
+                );
+            });
+        }
+
+        result.expect("QuerySpec::for_each_entity_raw_parts did not yield the requested row")
+    }
 
     /// Visits a prevalidated subrange of raw component columns entity by entity.
     ///
@@ -298,6 +333,16 @@ unsafe impl<P: QueryParam> QuerySpec for P {
         // SAFETY: the caller guarantees that slot zero belongs to P and that
         // the requested range is initialized, in bounds, and correctly aliased.
         unsafe { P::slice_from_raw(component_ptrs[0], start, len) }
+    }
+
+    #[inline(always)]
+    unsafe fn item_from_raw_parts<'w>(
+        component_ptrs: &[*mut u8],
+        entity_index: usize,
+    ) -> Self::Item<'w> {
+        // SAFETY: the caller guarantees that slot zero belongs to P and that
+        // `entity_index` names a live row with P's declared aliasing mode.
+        unsafe { P::item_from_raw(component_ptrs[0], entity_index) }
     }
 
     #[inline(always)]
@@ -385,6 +430,22 @@ macro_rules! impl_query_spec_tuple {
                     (
                         $(
                             $Param::slice_from_raw(component_ptrs[$index], start, len),
+                        )+
+                    )
+                }
+            }
+
+            #[inline(always)]
+            unsafe fn item_from_raw_parts<'w>(
+                component_ptrs: &[*mut u8],
+                entity_index: usize,
+            ) -> Self::Item<'w> {
+                // SAFETY: slots correspond to their tuple parameters and the
+                // caller validated this live row and the combined aliasing.
+                unsafe {
+                    (
+                        $(
+                            $Param::item_from_raw(component_ptrs[$index], entity_index),
                         )+
                     )
                 }

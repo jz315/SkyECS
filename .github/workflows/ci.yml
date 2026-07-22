@@ -70,12 +70,20 @@ jobs:
         shell: bash
         run: |
           cargo miri test -p sky_ecs --lib ecs::bundle::tests::sixteen_component_bundle_initializes_every_column -- --exact
-          cargo miri test -p sky_ecs --lib ecs::accessor::tests::reads_non_copy_components_without_affecting_drop_semantics -- --exact
+          cargo miri test -p sky_ecs --lib ecs::query::sequential::tests::chunk_plan_survives_in_chunk_row_churn -- --exact
+          MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --lib ecs::query::sequential::tests::chunk_plan_survives_in_chunk_row_churn -- --exact
+          cargo miri test -p sky_ecs --test entity_access reads_non_copy_components_without_affecting_drop_semantics -- --exact
+          cargo miri test -p sky_ecs --lib ecs::access::entity_view::tests::refreshes_pointer_when_tiny_chunk_keeps_id_during_promotion -- --exact
+          MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --lib ecs::access::entity_view::tests::refreshes_pointer_when_tiny_chunk_keeps_id_during_promotion -- --exact
+          cargo miri test -p sky_ecs --test prepared_entity_view optional_only_queries_distinguish_live_entities_from_invalid_ids -- --exact
           cargo miri test -p sky_ecs --lib ecs::chunk::tests::panicking_component_drop_releases_storage_before_resuming -- --exact
           cargo miri test -p sky_ecs --lib ecs::chunk::tests::thread_exit_storage_drop_survives_pool_tls_destruction -- --exact
           MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test -p sky_ecs --lib ecs::world::tests::direct_
           cargo miri test -p sky_ecs --lib ecs::commands::tests::apply_panic_discards_unvisited_reusable_slots -- --exact
           cargo miri test -p sky_ecs --lib ecs::commands::tests::apply_panic_swallows_panics_from_unvisited_command_drops -- --exact
+          cargo miri test -p sky_ecs --lib ecs::system::tests::scheduled_resmut_is_miri_clean -- --exact
+          cargo miri test -p sky_ecs --lib ecs::system::tests::scheduled_resource_access_mode_transitions_are_miri_clean -- --exact
+          cargo miri test -p sky_ecs --lib ecs::system::tests::fixed_system_panic_poisons_world_before_the_step_can_repeat -- --exact
 
   msrv:
     name: MSRV

@@ -174,6 +174,24 @@ fn expand_query_data(input: DeriveInput) -> Result<TokenStream2> {
             }
 
             #[inline(always)]
+            unsafe fn item_from_raw_parts<'__sky_world>(
+                component_ptrs: &[*mut u8],
+                entity_index: usize,
+            ) -> Self::Item<'__sky_world> {
+                unsafe {
+                    #name {
+                        #(
+                            #field_names:
+                                <#static_types as #support::QueryParam>::item_from_raw(
+                                    component_ptrs[#field_indices],
+                                    entity_index,
+                                ),
+                        )*
+                    }
+                }
+            }
+
+            #[inline(always)]
             unsafe fn for_each_entity<'__sky_world, __SkyFunc>(
                 chunk: &'__sky_world #support::Chunk,
                 component_indices: &[u8],

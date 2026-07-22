@@ -7,7 +7,7 @@ used independently.
 ## Documentation
 
 - [Tutorial](https://github.com/jz315/SkyECS/blob/main/docs/TUTORIAL.md) / [中文](https://github.com/jz315/SkyECS/blob/main/docs/TUTORIAL_zh.md)
-- [API guide](https://github.com/jz315/SkyECS/blob/main/docs/API.md) / [中文](https://github.com/jz315/SkyECS/blob/main/docs/API_zh.md)
+- [API reference](https://github.com/jz315/SkyECS/blob/main/docs/API.md) / [中文](https://github.com/jz315/SkyECS/blob/main/docs/API_zh.md)
 - [Generated Rust API documentation](https://docs.rs/sky_ecs)
 - [Progressive examples](https://github.com/jz315/SkyECS/blob/main/crates/sky_ecs/examples/README.md) / [中文](https://github.com/jz315/SkyECS/blob/main/crates/sky_ecs/examples/README_zh.md)
 
@@ -57,7 +57,7 @@ fn main() {
 }
 ```
 
-For repeated random access to one component type, bind a component accessor to
+For repeated random access to one component type, bind an entity accessor to
 the world before entering the hot loop:
 
 ```rust
@@ -74,6 +74,21 @@ The accessor resolves matching component columns once and keeps a read-only
 borrow of the world while it is alive. Use `World::get` for occasional lookups,
 or when the world must be structurally changed between accesses.
 
+When the same fixed entity order is reused, prepare its component addresses
+once and iterate the resulting direct access plan:
+
+```rust
+let positions = world.prepare_access::<Position>(&entities).unwrap();
+
+for position in positions.iter() {
+    println!("({}, {})", position.x, position.y);
+}
+```
+
+Preparation fails if an entity is stale or lacks the requested component. A
+mutable plan is available through `prepare_access_mut`; it additionally rejects
+duplicate entities so its iterator can safely yield disjoint mutable references.
+
 Repeated random updates use an exclusive accessor:
 
 ```rust
@@ -85,6 +100,25 @@ for entity in entities {
     }
 }
 ```
+
+When one entity lookup needs several components, retain a tuple-capable view
+and bind it once per access phase:
+
+```rust
+let mut ai = sky_ecs::PreparedEntityView::<(&TargetSlot, &mut Cooldown)>::new();
+let mut view = ai.bind_mut(&mut world);
+
+for entity in entities {
+    if let Some((target, cooldown)) = view.get_mut(entity) {
+        cooldown.0 = cooldown.0.saturating_sub(1);
+        use_target(target);
+    }
+}
+```
+
+Binding refreshes component pointers after structural changes while reusing
+the prepared route-table allocations. Each lookup validates the entity route
+once and returns the complete tuple.
 
 ## Queries
 
@@ -188,7 +222,8 @@ Internal Sky ECS benchmarks are kept separate and run with `cargo bench`.
 |---|---|
 | Read-only query | `World::query` |
 | Mutable query | `World::query_mut` |
-| Repeated random component access | `World::accessor`, `World::accessor_mut` |
+| Repeated access with arbitrary entity IDs | `World::accessor`, `World::accessor_mut` |
+| Reused fixed entity sequence | `World::prepare_access`, `World::prepare_access_mut` |
 | Explicit reusable query plan | `PreparedQuery` |
 | Parallel entity iteration | `par_for_each` |
 | Parallel chunk iteration | `par_for_each_chunk` |

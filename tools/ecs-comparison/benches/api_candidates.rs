@@ -15,9 +15,20 @@ fn sky_gameplay_api_candidates(criterion: &mut Criterion) {
     group.finish();
 }
 
+fn sky_random_access_api_candidates(criterion: &mut Criterion) {
+    let mut group = criterion.benchmark_group("sky_random_access_api_candidates");
+    group
+        .warm_up_time(Duration::from_secs(2))
+        .measurement_time(Duration::from_secs(4))
+        .sample_size(60);
+    sky::bench_random_access_api_candidates(&mut group);
+    group.finish();
+}
+
 criterion_group!(
     api_candidates,
     sky_gameplay_api_candidates,
+    sky_random_access_api_candidates,
     hecs_dense::bench_10k,
     hecs_dense::bench_100k,
     hecs_dense::bench_1m,

@@ -106,3 +106,11 @@ pub(crate) fn bench_gameplay_frame(c: &mut Criterion) {
     }
     group.finish();
 }
+
+pub(crate) fn bench_gameplay_phases(c: &mut Criterion) {
+    let mut group = benchmark_group(c, "diagnostic_gameplay_phases");
+    for engine in engine_order() {
+        dispatch!(engine, bench_gameplay_phases, &mut group);
+    }
+    group.finish();
+}

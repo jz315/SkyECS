@@ -4,7 +4,11 @@
 //!
 //! - [`World`] — the central container for entities, components, and resources.
 //! - [`EntityId`] — a generational handle to a live entity.
-//! - [`ComponentAccessor`] / [`ComponentAccessorMut`] — bound random-access fast paths.
+//! - [`EntityAccessor`] / [`EntityAccessorMut`] — bound random-access fast paths.
+//! - [`PreparedEntityAccess`] / [`PreparedEntityAccessMut`] — direct access for a
+//!   validated fixed entity sequence.
+//! - [`PreparedEntityView`] — reusable prepared tuple access for arbitrary
+//!   entity IDs.
 //! - [`CommandBuffer`] — an owned deferred buffer for manual structural changes.
 //! - [`Commands`] — a borrowed deferred writer available as a system parameter.
 //! - [`Bundle`] — trait implemented for component tuples used in [`World::spawn`].
@@ -16,7 +20,7 @@
 //! - [`StageLabel`] — type-level labels used by [`World::stage`].
 //! - [`Time`] — per-frame timing information.
 
-mod accessor;
+mod access;
 mod archetype;
 mod bundle;
 mod chunk;
@@ -34,7 +38,10 @@ mod system;
 pub(crate) mod time;
 mod world;
 
-pub use accessor::{ComponentAccessor, ComponentAccessorMut};
+pub use access::{
+    BoundEntityView, BoundEntityViewMut, EntityAccessor, EntityAccessorMut, PrepareAccessError,
+    PreparedEntityAccess, PreparedEntityAccessMut, PreparedEntityView,
+};
 pub use bundle::Bundle;
 pub use column_bundle::{ColumnBundle, ColumnLengthMismatch};
 pub use commands::{CommandBuffer, Commands};

@@ -22,7 +22,7 @@ mod validation;
 pub use dense_iteration::{bench_iteration, bench_iteration_1m, bench_iteration_large};
 pub use entity_insertion::bench_insert;
 pub use fragmented_iteration::bench_fragmented_iteration;
-pub use gameplay_frame::{bench_gameplay_frame, validate_gameplay_contract};
+pub use gameplay_frame::{bench_gameplay_frame, bench_gameplay_phases, validate_gameplay_contract};
 pub use heavy_compute::bench_heavy_compute;
 pub use mixed_frame::{bench_mixed_frame, bench_mixed_frame_phases};
 pub use random_access::bench_random_access;

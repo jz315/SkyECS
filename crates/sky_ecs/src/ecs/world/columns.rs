@@ -55,9 +55,11 @@ impl World {
         );
         self.entities.reserve(new_entity_count);
 
-        self.bump_storage_epoch();
+        self.bump_row_layout_epoch();
         let chunk_directory = &mut self.chunk_directory;
-        let storage = &mut self.data[data_index];
+        let mut storage_guard =
+            ChunkSetEpochGuard::new(&mut self.data[data_index], &mut self.storage_epochs);
+        let storage = storage_guard.storage_mut();
         let spans = storage.reserve_exact_batch_spans(entity_count);
         let span_chunk_ids: SmallVec<[ChunkId; 4]> = spans
             .iter()

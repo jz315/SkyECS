@@ -25,6 +25,8 @@ shared workloads and public APIs.
 - Extreme performance: an Archetype architecture and deep core optimizations
   provide exceptionally fast execution.
 - Native parallelism: built-in multithreading makes full use of multi-core CPUs.
+- Prepared entity access: validate a fixed entity sequence once, then read or
+  update components through a compact direct-address plan.
 - Elegant and easy to use: intuitive APIs let developers focus on application
   and game logic.
 - Dynamic extensibility: alongside the typed API, a complete dynamic API supports
@@ -74,20 +76,27 @@ storage limit, not a limit on the component types available to a `World`.
 ## Documentation
 
 - [Tutorial](docs/TUTORIAL.md)
-- [API guide](docs/API.md)
+- [API reference](docs/API.md)
 - [Generated Rust API documentation](https://docs.rs/sky_ecs)
 - [Progressive examples](crates/sky_ecs/examples/README.md)
 
 ## Benchmarks
 
+The numeric rows below are a traceable historical snapshot from public
+[GitHub Actions run #29695552048](https://github.com/jz315/SkyECS/actions/runs/29695552048)
+at commit `e47f48163759f2e0438bcb89504908749999a416`. The old Mixed frame has been
+retired: matrix inversion dominated it, so it did not represent ECS behavior.
+Its replacement is a deterministic 65,536-entity, 256-frame gameplay trace with
+real status and projectile lifetimes. New gameplay and best-native-bulk numbers
+will appear here only after the updated four-rotation public workflow completes.
 
 | Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| Bulk insert 10k | 120.93 µs | 352.11 µs | 440.19 µs | **110.41 µs** | 278.08 µs | 166.75 µs |
+| Legacy row-batch insert 10k (retired) | 120.93 µs | 352.11 µs | 440.19 µs | **110.41 µs** | 278.08 µs | 166.75 µs |
 | Prepared iteration 10k | 8.12 µs | 7.83 µs | 9.35 µs | **7.69 µs** | 11.96 µs | 17.29 µs |
 | Prepared iteration 100k | 81.21 µs | 78.88 µs | 93.65 µs | **77.62 µs** | 120.08 µs | 174.30 µs |
 | Spawn/random despawn 1k | **45.37 µs** | 46.34 µs | 103.05 µs | 67.47 µs | 112.41 µs | 107.42 µs |
-| Mixed frame | 349.54 µs | 352.55 µs | 377.57 µs | **331.78 µs** | 409.09 µs | 380.53 µs |
+| Gameplay frame (new canonical) | pending public rerun | pending | pending | pending | pending | pending |
 
 See the [benchmark documentation](benches/BENCHMARKS.md) for the complete workload
 list, all recorded rows, environment, compiler configuration, and methodology.

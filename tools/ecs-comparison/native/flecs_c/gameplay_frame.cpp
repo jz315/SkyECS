@@ -189,7 +189,7 @@ struct Context {
     ecs_query_t* lifetimes = nullptr;
     std::vector<ecs_entity_t> entities;
     std::vector<std::uint32_t> generations;
-    std::vector<ecs_ref_t> ai_target_positions;
+    std::vector<ecs_entity_t> target_entities;
     std::size_t frame_index = 0;
     std::uint64_t ai_lookup_checksum = 0;
 
@@ -343,15 +343,7 @@ Context* create_context() {
         return nullptr;
     }
 
-    context->ai_target_positions.resize(AI_COUNT);
-    for (std::size_t index = 0; index < AI_COUNT; ++index) {
-        const std::size_t slot = AI_START + index;
-        const std::size_t target = ai_target_slot(slot);
-        context->ai_target_positions[index] = ecs_ref_init_id(
-            context->world,
-            context->entities[target],
-            c.position);
-    }
+    context->target_entities.reserve(AI_LOOKUPS);
     return context;
 }
 
@@ -409,32 +401,50 @@ void run_lifetimes(Context& context) {
     }
 }
 
-std::uint64_t run_frame(Context& context) {
-    const std::size_t frame = context.frame_index;
+void run_iteration(Context& context) {
     run_movement(context);
     run_health_query<Damage>(context.world, context.enemies, true);
     run_health_query<Regen>(context.world, context.allies, false);
     run_lifetimes(context);
+}
 
+void run_ai_source(Context& context) {
+    const std::size_t frame = context.frame_index;
+    context.target_entities.clear();
     const std::size_t ai_cohort = frame % AI_COHORTS;
     for (std::size_t index = 0; index < AI_LOOKUPS; ++index) {
         const std::size_t slot = AI_START + ai_cohort + index * AI_COHORTS;
+        const auto* target = static_cast<const TargetSlot*>(ecs_get_id(
+            context.world,
+            context.entities[slot],
+            context.components.target_slot));
         auto* cooldown = static_cast<Cooldown*>(ecs_get_mut_id(
             context.world,
             context.entities[slot],
             context.components.cooldown));
+        context.target_entities.push_back(context.entities[target->value]);
         cooldown->value = cooldown->value == 0 ? 0 : cooldown->value - 1;
-        ecs_ref_t& reference = context.ai_target_positions[slot - AI_START];
-        const auto* position = static_cast<const Position*>(ecs_ref_get_id(
+    }
+}
+
+void run_target_positions(Context& context) {
+    const std::size_t frame = context.frame_index;
+    const std::size_t ai_cohort = frame % AI_COHORTS;
+    for (std::size_t index = 0; index < AI_LOOKUPS; ++index) {
+        const std::size_t slot = AI_START + ai_cohort + index * AI_COHORTS;
+        const auto* position = static_cast<const Position*>(ecs_get_id(
             context.world,
-            &reference,
+            context.target_entities[index],
             context.components.position));
         context.ai_lookup_checksum = mix_checksum(
             context.ai_lookup_checksum,
             slot,
             bits(position->x));
     }
+}
 
+void run_status_transition(Context& context) {
+    const std::size_t frame = context.frame_index;
     const std::size_t remove_cohort = (frame + STATUS_DURATION) % STATUS_COHORTS;
     const std::size_t add_cohort = frame % STATUS_COHORTS;
     for (std::size_t index = 0; index < STATUS_CHANGES; ++index) {
@@ -445,7 +455,10 @@ std::uint64_t run_frame(Context& context) {
         const std::size_t slot = COMBAT_START + add_cohort + index * STATUS_COHORTS;
         ecs_add_id(context.world, context.entities[slot], context.components.stunned);
     }
+}
 
+void run_projectile_recycle(Context& context) {
+    const std::size_t frame = context.frame_index;
     const std::size_t projectile_cohort = frame % PROJECTILE_LIFETIME;
     for (std::size_t index = 0; index < PROJECTILE_RECYCLES; ++index) {
         const std::size_t slot =
@@ -455,6 +468,14 @@ std::uint64_t run_frame(Context& context) {
         context.entities[slot] = spawn_entity(context, slot, generation, false);
     }
     context.frame_index = (context.frame_index + 1) % FRAME_COUNT;
+}
+
+std::uint64_t run_frame(Context& context) {
+    run_iteration(context);
+    run_ai_source(context);
+    run_target_positions(context);
+    run_status_transition(context);
+    run_projectile_recycle(context);
     return context.ai_lookup_checksum;
 }
 
@@ -515,6 +536,43 @@ void sky_flecs_c_gameplay_delete(void* context) {
 std::uint64_t sky_flecs_c_gameplay_frame(void* context) {
     return sky_ecs_bench::flecs_c::gameplay_frame::run_frame(
         *static_cast<GameplayContext*>(context));
+}
+
+std::uint64_t sky_flecs_c_gameplay_iteration(void* context) {
+    auto& gameplay = *static_cast<GameplayContext*>(context);
+    sky_ecs_bench::flecs_c::gameplay_frame::run_iteration(gameplay);
+    return gameplay.ai_lookup_checksum;
+}
+
+std::uint64_t sky_flecs_c_gameplay_ai_source(void* context) {
+    auto& gameplay = *static_cast<GameplayContext*>(context);
+    sky_ecs_bench::flecs_c::gameplay_frame::run_ai_source(gameplay);
+    return gameplay.ai_lookup_checksum;
+}
+
+std::uint64_t sky_flecs_c_gameplay_target_positions(void* context) {
+    auto& gameplay = *static_cast<GameplayContext*>(context);
+    sky_ecs_bench::flecs_c::gameplay_frame::run_target_positions(gameplay);
+    return gameplay.ai_lookup_checksum;
+}
+
+std::uint64_t sky_flecs_c_gameplay_status_transition(void* context) {
+    auto& gameplay = *static_cast<GameplayContext*>(context);
+    sky_ecs_bench::flecs_c::gameplay_frame::run_status_transition(gameplay);
+    return gameplay.ai_lookup_checksum;
+}
+
+std::uint64_t sky_flecs_c_gameplay_projectile_recycle(void* context) {
+    auto& gameplay = *static_cast<GameplayContext*>(context);
+    sky_ecs_bench::flecs_c::gameplay_frame::run_projectile_recycle(gameplay);
+    return gameplay.ai_lookup_checksum;
+}
+
+bool sky_flecs_c_gameplay_digest(void* context, GameplayDigest* digest) {
+    if (!context || !digest) return false;
+    *digest = sky_ecs_bench::flecs_c::gameplay_frame::digest(
+        *static_cast<GameplayContext*>(context));
+    return true;
 }
 
 bool sky_flecs_c_gameplay_run_trace(void* context, GameplayDigest* digest) {

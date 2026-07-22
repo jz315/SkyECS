@@ -28,7 +28,7 @@ impl World {
     pub(crate) unsafe fn add_entity(&mut self, archetype: Archetype) -> EntityId {
         let data_index = self.ensure_data_index(archetype);
         let entity = self.allocate_entity();
-        self.bump_storage_epoch();
+        self.bump_row_layout_epoch();
         let location = unsafe { self.allocate_storage_row(data_index, entity) };
         self.set_entity_location(
             entity,
@@ -58,7 +58,7 @@ impl World {
         let (archetype, columns) = B::cached_meta();
         let data_index = self.ensure_data_index(archetype);
         let entity = self.allocate_entity();
-        self.bump_storage_epoch();
+        self.bump_row_layout_epoch();
         let location = unsafe { self.allocate_storage_row(data_index, entity) };
         self.set_entity_location(
             entity,
@@ -91,7 +91,7 @@ impl World {
 
         let (archetype, columns) = B::cached_meta();
         let data_index = self.ensure_data_index(archetype);
-        self.bump_storage_epoch();
+        self.bump_row_layout_epoch();
 
         let batch_size = upper.filter(|&upper| upper == lower).unwrap_or(lower);
 
@@ -103,13 +103,17 @@ impl World {
             self.entities.reserve(additional_records);
         }
 
-        let mut batch_plan = self.data[data_index].prepare_batch_capacity(batch_size);
+        let mut storage_guard =
+            ChunkSetEpochGuard::new(&mut self.data[data_index], &mut self.storage_epochs);
+        let mut batch_plan = storage_guard
+            .storage_mut()
+            .prepare_batch_capacity(batch_size);
 
         let mut iter = std::iter::once(first).chain(iter).peekable();
         let entities = &mut self.entities;
         let free_entities = &mut self.free_entities;
         let chunk_directory = &mut self.chunk_directory;
-        let storage = &mut self.data[data_index];
+        let storage = storage_guard.storage_mut();
         let mut live_count = BatchCommitGuard {
             live_entity_count: &mut self.live_entity_count,
             inserted: 0,
@@ -298,7 +302,7 @@ impl World {
             return false;
         };
 
-        self.bump_storage_epoch();
+        self.bump_row_layout_epoch();
         let mut drop_panic = None;
 
         {
@@ -315,10 +319,13 @@ impl World {
             }
         }
 
-        let removal = self.data[location.data_index].remove_entity(ChunkEntityLocation {
-            chunk_index: location.chunk_index,
-            entity_index: location.entity_index,
-        });
+        let removal = self.remove_storage_row(
+            location.data_index,
+            ChunkEntityLocation {
+                chunk_index: location.chunk_index,
+                entity_index: location.entity_index,
+            },
+        );
 
         let record = &mut self.entities[entity.index() as usize];
         record.clear_route();
@@ -355,87 +362,6 @@ impl World {
                 .add(location.entity_index * std::mem::size_of::<T>());
             &*(ptr as *const T)
         })
-    }
-
-    /// Creates a read-only accessor for repeated random access to component `T`.
-    ///
-    /// Construction resolves `T` once for every archetype and caches typed
-    /// views of matching chunk columns. This is useful when a hot loop performs
-    /// many lookups by [`EntityId`]. For an occasional lookup, use
-    /// [`World::get`] directly.
-    ///
-    /// The accessor holds a shared borrow of this world, so structural changes
-    /// cannot occur while it remains in use.
-    ///
-    /// ```
-    /// use sky_ecs::World;
-    ///
-    /// #[derive(Debug, PartialEq)]
-    /// struct Position(f32, f32);
-    ///
-    /// let mut world = World::new();
-    /// let entity = world.spawn((Position(1.0, 2.0),));
-    /// let positions = world.accessor::<Position>();
-    ///
-    /// assert_eq!(positions.get(entity), Some(&Position(1.0, 2.0)));
-    /// ```
-    ///
-    /// Structural mutation is rejected while the accessor is still used:
-    ///
-    /// ```compile_fail
-    /// use sky_ecs::World;
-    ///
-    /// struct Position(f32, f32);
-    ///
-    /// let mut world = World::new();
-    /// let entity = world.spawn((Position(1.0, 2.0),));
-    /// let positions = world.accessor::<Position>();
-    /// world.spawn((Position(3.0, 4.0),));
-    /// let _ = positions.get(entity);
-    /// ```
-    #[inline]
-    pub fn accessor<T: 'static>(&self) -> ComponentAccessor<'_, T> {
-        ComponentAccessor::new(self)
-    }
-
-    /// Creates an exclusive accessor for repeated random updates to component `T`.
-    ///
-    /// Like [`World::accessor`], construction resolves matching component
-    /// columns before the hot loop. The accessor exclusively borrows the world,
-    /// and each component reference remains tied to one mutable accessor borrow.
-    ///
-    /// ```
-    /// use sky_ecs::World;
-    ///
-    /// struct Position(f32, f32);
-    ///
-    /// let mut world = World::new();
-    /// let entity = world.spawn((Position(1.0, 2.0),));
-    /// {
-    ///     let mut positions = world.accessor_mut::<Position>();
-    ///     positions.get_mut(entity).unwrap().0 += 3.0;
-    /// }
-    /// assert_eq!(world.get::<Position>(entity).unwrap().0, 4.0);
-    /// ```
-    ///
-    /// Mutable references from the same accessor cannot overlap:
-    ///
-    /// ```compile_fail
-    /// use sky_ecs::World;
-    ///
-    /// struct Position(f32, f32);
-    ///
-    /// let mut world = World::new();
-    /// let first = world.spawn((Position(1.0, 2.0),));
-    /// let second = world.spawn((Position(3.0, 4.0),));
-    /// let mut positions = world.accessor_mut::<Position>();
-    /// let first_position = positions.get_mut(first).unwrap();
-    /// let second_position = positions.get_mut(second).unwrap();
-    /// first_position.0 += second_position.0;
-    /// ```
-    #[inline]
-    pub fn accessor_mut<T: 'static>(&mut self) -> ComponentAccessorMut<'_, T> {
-        ComponentAccessorMut::new(self)
     }
 
     /// Returns an exclusive reference to component `T` on `entity`.

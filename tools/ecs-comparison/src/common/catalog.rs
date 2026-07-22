@@ -106,7 +106,7 @@ const fn random_without_freecs(
     }
 }
 
-pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 32] = [
+pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 37] = [
     fixed("prepared_construction/native_bulk_insert_10k", 10_000),
     fixed("prepared_construction/single_insert_10k", 10_000),
     fixed("prepared_iteration/simple_10k", 10_000),
@@ -219,6 +219,26 @@ pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 32] = [
     fixed("entity_ops/spawn_despawn_1k", 1_000),
     fixed("entity_ops/add_remove_component_1k", 1_000),
     no_items("scenario_gameplay_frame/frame", BenchmarkClass::Scenario),
+    no_items(
+        "diagnostic_gameplay_phases/iteration",
+        BenchmarkClass::Diagnostic,
+    ),
+    no_items(
+        "diagnostic_gameplay_phases/ai_source_lookup",
+        BenchmarkClass::Diagnostic,
+    ),
+    no_items(
+        "diagnostic_gameplay_phases/target_position_lookup",
+        BenchmarkClass::Diagnostic,
+    ),
+    no_items(
+        "diagnostic_gameplay_phases/status_transition",
+        BenchmarkClass::Diagnostic,
+    ),
+    no_items(
+        "diagnostic_gameplay_phases/projectile_recycle",
+        BenchmarkClass::Diagnostic,
+    ),
 ];
 
 pub fn benchmark_spec(family: &str) -> Option<&'static BenchmarkSpec> {
@@ -290,7 +310,7 @@ mod tests {
                 .iter()
                 .filter(|spec| spec.class == BenchmarkClass::Diagnostic)
                 .count(),
-            1
+            6
         );
         assert_eq!(
             benchmark_class("scenario_gameplay_frame/frame/sky"),

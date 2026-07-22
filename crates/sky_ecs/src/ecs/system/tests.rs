@@ -80,6 +80,57 @@ fn conflicting_resource_writes_preserve_registration_order() {
 }
 
 #[test]
+fn scheduled_resmut_is_miri_clean() {
+    fn bump(mut value: ResMut<u32>) {
+        *value += 1;
+    }
+
+    let mut world = World::new();
+    world.insert_resource(0_u32);
+    world.stage(Update).add(bump);
+
+    world.tick_with_delta(0.0).unwrap();
+
+    assert_eq!(world.get_resource::<u32>(), Some(&1));
+}
+
+#[test]
+fn scheduled_resource_access_mode_transitions_are_miri_clean() {
+    fn read_zero(value: Res<u32>) {
+        assert_eq!(*value, 0);
+    }
+
+    fn write_one(mut value: ResMut<u32>) {
+        *value = 1;
+    }
+
+    fn read_one(value: Res<u32>) {
+        assert_eq!(*value, 1);
+    }
+
+    let mut world = World::new();
+    world.insert_resource(0_u32);
+    world
+        .stage(Update)
+        .add(read_zero)
+        .add(write_one)
+        .add(read_one);
+    world.tick_with_delta(0.0).unwrap();
+
+    let mut readers = World::new();
+    readers.insert_resource(1_u32);
+    readers
+        .stage(Update)
+        .parallel_wave_min_systems(usize::MAX)
+        .unwrap()
+        .add(read_one)
+        .add(read_one)
+        .add(read_one);
+    let report = readers.tick_with_delta(0.0).unwrap();
+    assert_eq!(report.waves_run, 1);
+}
+
+#[test]
 fn commands_apply_at_stage_boundary() {
     let mut world = World::new();
     world.stage(Update).add_named("queue_spawn", queue_spawn);
@@ -458,10 +509,14 @@ fn removing_a_required_resource_mid_frame_is_an_invariant_panic() {
         let _ = world.tick_with_delta(0.016);
     }));
     assert!(panic.is_err());
+    assert!(world.is_poisoned());
 
     world.insert_resource(RequiredResource(11));
-    world.tick_with_delta(0.016).unwrap();
-    assert_eq!(world.get_resource::<RequiredValue>().unwrap().0, 11);
+    let retry = catch_unwind(AssertUnwindSafe(|| {
+        let _ = world.tick_with_delta(0.016);
+    }));
+    assert!(retry.is_err());
+    assert_eq!(world.get_resource::<RequiredValue>().unwrap().0, 0);
 }
 
 struct RemoveRequiredDuringInit;
@@ -487,10 +542,14 @@ fn initialization_cannot_silently_invalidate_frame_resources() {
     }));
     assert!(panic.is_err());
     assert_eq!(world.time.frame_count, 0);
+    assert!(world.is_poisoned());
 
     world.insert_resource(RequiredResource(9));
-    world.tick_with_delta(1.0 / 60.0).unwrap();
-    assert_eq!(world.get_resource::<RequiredValue>().unwrap().0, 9);
+    let retry = catch_unwind(AssertUnwindSafe(|| {
+        let _ = world.tick_with_delta(1.0 / 60.0);
+    }));
+    assert!(retry.is_err());
+    assert_eq!(world.get_resource::<RequiredValue>().unwrap().0, 0);
 }
 
 #[derive(Default)]
@@ -626,7 +685,7 @@ fn automatic_wave_boundaries_do_not_flush_commands() {
 }
 
 #[test]
-fn panic_discards_pending_commands_and_restores_schedule() {
+fn panic_discards_pending_commands_restores_schedule_and_poisons_world() {
     let should_panic = Arc::new(AtomicBool::new(true));
     let system_flag = Arc::clone(&should_panic);
     let mut world = World::new();
@@ -642,7 +701,7 @@ fn panic_discards_pending_commands_and_restores_schedule() {
     }));
     assert!(panic.is_err());
     assert_eq!(world.entity_count(), 0);
-    assert!(!world.is_poisoned());
+    assert!(world.is_poisoned());
 
     let diagnostics = world.schedule_diagnostics();
     let commands = diagnostics
@@ -658,24 +717,11 @@ fn panic_discards_pending_commands_and_restores_schedule() {
     assert_eq!(commands.last_discarded, 1);
     assert_eq!(commands.total_discarded, 1);
 
-    world.tick_with_delta(0.016).unwrap();
-    assert_eq!(world.entity_count(), 1);
-
-    let diagnostics = world.schedule_diagnostics();
-    let commands = diagnostics
-        .stages
-        .iter()
-        .find(|stage| stage.name == std::any::type_name::<Update>())
-        .unwrap()
-        .segments[0]
-        .waves[0][0]
-        .commands;
-    assert_eq!(commands.last_enqueued, 1);
-    assert_eq!(commands.last_applied, 1);
-    assert_eq!(commands.last_discarded, 0);
-    assert_eq!(commands.total_enqueued, 2);
-    assert_eq!(commands.total_applied, 1);
-    assert_eq!(commands.total_discarded, 1);
+    let retry = catch_unwind(AssertUnwindSafe(|| {
+        let _ = world.tick_with_delta(0.016);
+    }));
+    assert!(retry.is_err());
+    assert_eq!(world.entity_count(), 0);
 }
 
 #[test]
@@ -695,12 +741,48 @@ fn panicking_command_payload_cannot_abort_schedule_unwind_cleanup() {
     }));
     assert!(panic.is_err());
 
-    world.tick_with_delta(0.016).unwrap();
+    assert!(world.is_poisoned());
     assert!(!world.contains_resource::<PanicOnDrop>());
 }
 
 #[derive(Default)]
 struct FixedDeltas(Vec<f32>);
+
+#[derive(Default)]
+struct PanickingFixedRuns(u32);
+
+fn panic_in_fixed_step(mut runs: ResMut<PanickingFixedRuns>) {
+    runs.0 += 1;
+    panic!("intentional fixed system panic");
+}
+
+#[test]
+fn fixed_system_panic_poisons_world_before_the_step_can_repeat() {
+    let mut world = World::new();
+    world.insert_resource(PanickingFixedRuns::default());
+    world
+        .stage(FixedUpdate)
+        .fixed(FixedStep::seconds(1.0).unwrap())
+        .unwrap()
+        .add(panic_in_fixed_step);
+
+    let panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = world.tick_with_delta(1.0);
+    }));
+    assert!(panic.is_err());
+    assert!(world.is_poisoned());
+    assert_eq!(world.get_resource::<PanickingFixedRuns>().unwrap().0, 1);
+    assert_eq!(world.time.frame_count, 1);
+    assert_eq!(world.time.elapsed, 0.0);
+    assert_eq!(world.time.raw_elapsed, 0.0);
+
+    let retry = catch_unwind(AssertUnwindSafe(|| {
+        let _ = world.tick_with_delta(0.0);
+    }));
+    assert!(retry.is_err());
+    assert_eq!(world.get_resource::<PanickingFixedRuns>().unwrap().0, 1);
+    assert_eq!(world.time.frame_count, 1);
+}
 
 struct ExtraFixed;
 

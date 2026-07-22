@@ -39,7 +39,7 @@ impl ParallelChunkJob {
 #[derive(Default)]
 pub(crate) struct ParallelJobCache {
     cached_world: Option<Arc<()>>,
-    cached_storage_epoch: Option<u64>,
+    cached_row_layout_epoch: Option<u64>,
     cached_thread_count: usize,
     jobs: Arc<Vec<ParallelChunkJob>>,
     total_entities: usize,
@@ -82,7 +82,7 @@ fn collect_chunk_jobs(
         cache.rebuild_count += 1;
     }
     cache.cached_world = Some(Arc::clone(world.cache_token()));
-    cache.cached_storage_epoch = Some(world.storage_epoch());
+    cache.cached_row_layout_epoch = Some(world.row_layout_epoch());
     let thread_count = rayon::current_num_threads();
     cache.cached_thread_count = thread_count;
 
@@ -138,7 +138,7 @@ fn cached_total_entities(cache: &ParallelJobCache, world: &World) -> Option<usiz
         .cached_world
         .as_ref()
         .is_some_and(|cached| Arc::ptr_eq(cached, world.cache_token()))
-        || cache.cached_storage_epoch != Some(world.storage_epoch())
+        || cache.cached_row_layout_epoch != Some(world.row_layout_epoch())
         || cache.cached_thread_count != rayon::current_num_threads()
     {
         return None;
@@ -182,7 +182,7 @@ pub(crate) fn prepare_job_cache(
 /// performs cache discovery or stripe construction.
 pub(crate) fn prepared_job_snapshot(cache: &ParallelJobCache) -> ParallelJobSnapshot {
     debug_assert!(
-        cache.cached_storage_epoch.is_some(),
+        cache.cached_row_layout_epoch.is_some(),
         "parallel job cache must be prepared before system execution"
     );
     ParallelJobSnapshot {

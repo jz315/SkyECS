@@ -52,6 +52,11 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
         self.prepared.cached_archetype_count()
     }
 
+    #[cfg(test)]
+    pub(crate) fn sequential_rebuild_count(&self) -> usize {
+        self.sequential_chunks.rebuild_count()
+    }
+
     #[inline(always)]
     fn prepare(&mut self, world: &World) {
         self.prepared.prepare::<Flt>(world, &self.descriptor);
@@ -74,7 +79,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
             .sequential_chunks
             .get_or_prepare(&self.prepared.archetypes, world)
         {
-            sequential::run_for_each_chunk::<Q, _>(chunks, f);
+            sequential::run_for_each_chunk::<Q, _>(world, chunks, f);
             return;
         }
         for cached in self.prepared.archetypes.iter() {
@@ -180,7 +185,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
             .sequential_chunks
             .get_or_prepare(&self.prepared.archetypes, world)
         {
-            sequential::run_for_each::<Q, _>(chunks, f);
+            sequential::run_for_each::<Q, _>(world, chunks, f);
             return;
         }
         for cached in self.prepared.archetypes.iter() {
@@ -229,7 +234,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
             .sequential_chunks
             .get_or_prepare(&self.prepared.archetypes, world)
         {
-            sequential::run_for_each_with_entity::<Q, _>(chunks, f);
+            sequential::run_for_each_with_entity::<Q, _>(world, chunks, f);
             return;
         }
         for cached in self.prepared.archetypes.iter() {
@@ -278,7 +283,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
             .sequential_chunks
             .get_or_prepare(&self.prepared.archetypes, world)
         {
-            sequential::run_for_each_chunk_with_entities::<Q, _>(chunks, f);
+            sequential::run_for_each_chunk_with_entities::<Q, _>(world, chunks, f);
             return;
         }
         for cached in self.prepared.archetypes.iter() {
@@ -871,7 +876,7 @@ mod tests {
     }
 
     #[test]
-    fn sequential_chunk_plan_never_reuses_pointers_across_worlds() {
+    fn sequential_chunk_plan_never_reuses_routes_across_worlds() {
         fn fragmented_world(x: f32) -> World {
             let mut world = World::new();
             world.spawn((Position { x, y: 0.0 },));

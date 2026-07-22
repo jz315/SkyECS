@@ -1,7 +1,6 @@
 use crate::common::*;
 use criterion::{measurement::WallTime, BenchmarkGroup};
 use hecs::{Entity, EntityBuilder, PreparedQuery, World};
-use std::hint::black_box;
 
 pub(super) struct HecsGameplayWorld {
     world: World,
@@ -48,6 +47,14 @@ impl HecsGameplayWorld {
     }
 
     pub(super) fn run_frame(&mut self, frame: &GameplayFrame) {
+        self.run_iteration_phase();
+        self.run_ai_source_phase(frame);
+        self.run_target_position_phase(frame);
+        self.run_status_transition_phase(frame);
+        self.run_projectile_recycle_phase(frame);
+    }
+
+    fn run_iteration_phase(&mut self) {
         for (position, velocity) in self.movement.query(&self.world).iter() {
             position.0 += velocity.0;
         }
@@ -63,7 +70,9 @@ impl HecsGameplayWorld {
                 lifetime.0 = 256;
             }
         }
+    }
 
+    fn run_ai_source_phase(&mut self, frame: &GameplayFrame) {
         self.target_entities.clear();
         {
             let mut ai = self.ai.view_mut(&mut self.world);
@@ -75,6 +84,9 @@ impl HecsGameplayWorld {
                 cooldown.0 = cooldown.0.saturating_sub(1);
             }
         }
+    }
+
+    fn run_target_position_phase(&mut self, frame: &GameplayFrame) {
         {
             let positions = self.positions.view_mut(&mut self.world);
             for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
@@ -88,7 +100,9 @@ impl HecsGameplayWorld {
                 );
             }
         }
+    }
 
+    fn run_status_transition_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.remove_stunned.iter() {
             self.world
                 .remove_one::<Stunned>(self.entities[slot])
@@ -99,7 +113,9 @@ impl HecsGameplayWorld {
                 .insert_one(self.entities[slot], Stunned)
                 .expect("adding duplicate Stunned");
         }
+    }
 
+    fn run_projectile_recycle_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.recycle_projectiles.iter() {
             self.world
                 .despawn(self.entities[slot])
@@ -165,6 +181,22 @@ impl HecsGameplayWorld {
             generation_checksum,
             ai_lookup_checksum: self.ai_lookup_checksum,
         }
+    }
+}
+
+impl GameplayPhaseAdapter for HecsGameplayWorld {
+    fn run_phase(&mut self, phase: GameplayPhase, frame: &GameplayFrame) {
+        match phase {
+            GameplayPhase::Iteration => self.run_iteration_phase(),
+            GameplayPhase::AiSourceLookup => self.run_ai_source_phase(frame),
+            GameplayPhase::TargetPositionLookup => self.run_target_position_phase(frame),
+            GameplayPhase::StatusTransition => self.run_status_transition_phase(frame),
+            GameplayPhase::ProjectileRecycle => self.run_projectile_recycle_phase(frame),
+        }
+    }
+
+    fn digest(&self) -> GameplayDigest {
+        HecsGameplayWorld::digest(self)
     }
 }
 
@@ -244,14 +276,14 @@ pub fn validate_gameplay_contract() {
 }
 
 pub fn bench_gameplay_frame(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("frame/hecs", |bencher| {
-        let trace = GameplayTrace::standard();
-        let mut gameplay = HecsGameplayWorld::new(&trace);
-        let mut frame = 0;
-        bencher.iter(|| {
-            gameplay.run_frame(&trace.frames()[frame]);
-            frame = (frame + 1) % GAMEPLAY_FRAME_COUNT;
-            black_box(&gameplay.world);
-        });
-    });
+    crate::common::bench_full_gameplay_frames(
+        group,
+        "hecs",
+        HecsGameplayWorld::new,
+        HecsGameplayWorld::run_frame,
+    );
+}
+
+pub fn bench_gameplay_phases(group: &mut BenchmarkGroup<'_, WallTime>) {
+    crate::common::bench_gameplay_phases(group, "hecs", HecsGameplayWorld::new);
 }

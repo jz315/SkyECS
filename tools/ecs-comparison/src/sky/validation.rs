@@ -120,7 +120,7 @@ fn validate_random_access() {
         .collect();
     let random_orders = deterministic_orders(&random_entities);
     let positions = random_world.accessor::<PositionComponent>();
-    for order in random_orders {
+    for order in &random_orders {
         let random_checksum = order.iter().fold(0_u64, |checksum, &entity| {
             add_position_checksum(
                 checksum,
@@ -129,6 +129,17 @@ fn validate_random_access() {
                     .expect("contract entity must be readable through accessor"),
             )
         });
+        assert_eq!(
+            random_checksum,
+            position_checksum_value(1.0, CONTRACT_ENTITY_COUNT)
+        );
+    }
+
+    for order in &random_orders {
+        let prepared = random_world
+            .prepare_access::<PositionComponent>(order)
+            .expect("contract entities must be valid for prepared access");
+        let random_checksum = prepared.iter().fold(0_u64, add_position_checksum);
         assert_eq!(
             random_checksum,
             position_checksum_value(1.0, CONTRACT_ENTITY_COUNT)

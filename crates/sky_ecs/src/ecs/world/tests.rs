@@ -13,35 +13,43 @@ struct Velocity {
 }
 
 #[test]
-fn storage_epoch_tracks_layout_changes_but_not_value_updates() {
+fn row_layout_epoch_tracks_layout_changes_but_not_value_updates() {
     let mut world = World::new();
-    assert_eq!(world.storage_epoch(), 0);
+    assert_eq!(world.row_layout_epoch(), 0);
 
     let entity = world.spawn((Position { x: 1.0, y: 2.0 },));
-    assert_eq!(world.storage_epoch(), 1);
+    assert_eq!(world.row_layout_epoch(), 1);
 
     world.get_mut::<Position>(entity).unwrap().x = 3.0;
     assert!(world.insert(entity, Position { x: 4.0, y: 5.0 }));
-    assert_eq!(world.storage_epoch(), 1);
+    assert_eq!(world.row_layout_epoch(), 1);
 
     world.spawn_batch([
         (Position { x: 6.0, y: 7.0 },),
         (Position { x: 8.0, y: 9.0 },),
     ]);
-    assert_eq!(world.storage_epoch(), 2);
+    assert_eq!(world.row_layout_epoch(), 2);
 
     assert!(world.insert(entity, Velocity { x: 1.0, y: 1.0 }));
-    assert_eq!(world.storage_epoch(), 3);
+    assert_eq!(world.row_layout_epoch(), 3);
     assert!(world.remove::<Velocity>(entity));
-    assert_eq!(world.storage_epoch(), 4);
+    assert_eq!(world.row_layout_epoch(), 4);
 
     assert!(world.despawn(entity));
-    assert_eq!(world.storage_epoch(), 5);
+    assert_eq!(world.row_layout_epoch(), 5);
     assert!(!world.despawn(entity));
-    assert_eq!(world.storage_epoch(), 5);
+    assert_eq!(world.row_layout_epoch(), 5);
 
     world.clear();
-    assert_eq!(world.storage_epoch(), 6);
+    assert_eq!(world.row_layout_epoch(), 6);
+}
+
+#[test]
+#[should_panic(expected = "world archetype epoch exhausted")]
+fn archetype_epoch_panics_instead_of_wrapping() {
+    let mut world = World::new();
+    world.archetype_epoch = usize::MAX;
+    world.bump_archetype_epoch();
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1064,7 +1072,7 @@ fn commands_apply_final_archetype_with_one_storage_migration() {
             },))
         })
         .collect::<Vec<_>>();
-    let epoch_before = world.storage_epoch;
+    let epoch_before = world.row_layout_epoch();
 
     let mut commands = CommandBuffer::new();
     for (index, &entity) in entities.iter().enumerate() {
@@ -1080,7 +1088,10 @@ fn commands_apply_final_archetype_with_one_storage_migration() {
     }
     commands.apply(&mut world);
 
-    assert_eq!(world.storage_epoch, epoch_before + entities.len() as u64);
+    assert_eq!(
+        world.row_layout_epoch(),
+        epoch_before + entities.len() as u64
+    );
     assert_eq!(
         world.data.len(),
         2,
@@ -1114,7 +1125,7 @@ fn single_component_commands_keep_the_cached_transition_fast_path() {
             },))
         })
         .collect::<Vec<_>>();
-    let epoch_before = world.storage_epoch;
+    let epoch_before = world.row_layout_epoch();
     let mut commands = CommandBuffer::new();
     for &entity in &entities {
         commands.insert(entity, Velocity { x: 1.0, y: 2.0 });
@@ -1122,7 +1133,10 @@ fn single_component_commands_keep_the_cached_transition_fast_path() {
 
     commands.apply(&mut world);
 
-    assert_eq!(world.storage_epoch, epoch_before + entities.len() as u64);
+    assert_eq!(
+        world.row_layout_epoch(),
+        epoch_before + entities.len() as u64
+    );
     assert_eq!(world.transitions.len(), 1);
     assert!(world.component_command_transitions.is_empty());
     assert_eq!(world.data.len(), 2);
@@ -1146,7 +1160,7 @@ fn commands_single_migration_preserves_overwrite_and_drop_ownership() {
         Droppable::new(&old),
         DroppableB::new(&removed),
     ));
-    let epoch_before = world.storage_epoch;
+    let epoch_before = world.row_layout_epoch();
 
     let mut commands = CommandBuffer::new();
     commands.insert(entity, Droppable::new(&superseded));
@@ -1156,7 +1170,7 @@ fn commands_single_migration_preserves_overwrite_and_drop_ownership() {
     commands.insert(entity, Velocity { x: 8.0, y: 13.0 });
     commands.apply(&mut world);
 
-    assert_eq!(world.storage_epoch, epoch_before + 1);
+    assert_eq!(world.row_layout_epoch(), epoch_before + 1);
     assert_eq!(old.load(Ordering::Relaxed), 1);
     assert_eq!(removed.load(Ordering::Relaxed), 1);
     assert_eq!(superseded.load(Ordering::Relaxed), 1);
@@ -1748,7 +1762,7 @@ struct HighAlignDroppable {
 impl Drop for HighAlignDroppable {
     fn drop(&mut self) {
         let address = self as *const Self as usize;
-        if !address.is_multiple_of(std::mem::align_of::<Self>()) {
+        if address % std::mem::align_of::<Self>() != 0 {
             self.misaligned_count.fetch_add(1, Ordering::Relaxed);
         }
         self.drop_count.fetch_add(1, Ordering::Relaxed);

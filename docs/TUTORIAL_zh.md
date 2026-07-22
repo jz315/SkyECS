@@ -1,6 +1,6 @@
 # Sky ECS 教程
 
-[English](TUTORIAL.md) · [API 指南](API_zh.md)
+[English](TUTORIAL.md) · [API 参考](API_zh.md)
 
 本教程从一个小型移动模拟开始，再将它改造为由调度器驱动的 ECS 应用。
 
@@ -169,5 +169,5 @@ cargo run -p sky_ecs --example step_09_plugin
 ```
 
 第 01 至 07 步是核心路径，第 08 至 09 步介绍高级 API。先查看
-[示例索引](../crates/sky_ecs/examples/README_zh.md)，再继续阅读 [API 指南](API_zh.md) 或
+[示例索引](../crates/sky_ecs/examples/README_zh.md)，再继续阅读 [API 参考](API_zh.md) 或
 [Rust API 文档](https://docs.rs/sky_ecs)。

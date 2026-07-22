@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Renamed the bound random-access types to `EntityAccessor` and
+  `EntityAccessorMut`; the former `ComponentAccessor` names are removed.
+- Added `prepare_access` and `prepare_access_mut` with compact direct-address
+  plans for fixed entity sequences, strict validation, and duplicate rejection
+  for mutable access.
+- Added reusable tuple-capable `PreparedEntityView`, with optional-component
+  semantics and bind-time pointer refresh for structurally changing worlds.
+- Restored comparable five-phase gameplay diagnostics and aligned Flecs with
+  the per-frame `TargetSlot` data flow used by every other adapter.
+
 ## [0.1.3] - 2026-07-18
 
 - Hardened component ownership, destruction, command application, and

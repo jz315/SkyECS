@@ -31,7 +31,7 @@ pub fn bench_random_fragmented_iteration(group: &mut BenchmarkGroup<'_, WallTime
                 move |bencher| {
                     let masks = random_fragment_masks(component_count);
                     let expected = random_fragment_match_count(&masks, term_count) as u64;
-                    let mut context =
+                    let context =
                         random_fragmented_context(storage, component_count, term_count, &masks);
                     // SAFETY: The prepared context remains alive and has this concrete type.
                     assert_eq!(

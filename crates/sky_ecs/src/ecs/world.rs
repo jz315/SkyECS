@@ -16,10 +16,13 @@ use std::sync::Arc;
 
 mod columns;
 mod entities;
+mod epochs;
 mod queries;
 mod resources;
 mod schedule;
 mod transitions;
+
+use epochs::{ChunkSetEpochGuard, StorageEpochs};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct TransitionKey {
@@ -53,6 +56,21 @@ struct ComponentCommandTransitionPlan {
     copy_spans: SmallVec<[CopySpan; 8]>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorldPoisonReason {
+    CommandPanic,
+    SchedulePanic,
+}
+
+impl WorldPoisonReason {
+    fn description(self) -> &'static str {
+        match self {
+            Self::CommandPanic => "a deferred command panic",
+            Self::SchedulePanic => "a schedule or system panic",
+        }
+    }
+}
+
 /// The central container for all ECS data.
 ///
 /// A `World` owns every entity, component, and resource.  It provides methods
@@ -80,11 +98,11 @@ struct ComponentCommandTransitionPlan {
 pub struct World {
     cache_token: Arc<()>,
     query_cache: QueryCacheStore,
-    command_poisoned: bool,
+    poison_reason: Option<WorldPoisonReason>,
     pub time: Time,
     pub(crate) data: Vec<ArchetypeStorage>,
     archetype_epoch: usize,
-    storage_epoch: u64,
+    storage_epochs: StorageEpochs,
     resource_epoch: u64,
     archetype_to_data_index: FxHashMap<Archetype, usize>,
     component_postings: ComponentPostingIndex,
@@ -114,11 +132,11 @@ impl World {
         Self {
             cache_token: Arc::new(()),
             query_cache: QueryCacheStore::default(),
-            command_poisoned: false,
+            poison_reason: None,
             time: Time::default(),
             data: Vec::new(),
             archetype_epoch: 0,
-            storage_epoch: 0,
+            storage_epochs: StorageEpochs::default(),
             resource_epoch: 0,
             archetype_to_data_index: FxHashMap::default(),
             component_postings: ComponentPostingIndex::default(),
@@ -136,14 +154,15 @@ impl World {
         }
     }
 
-    /// Returns whether a deferred command panicked while being applied.
+    /// Returns whether a command, schedule, or system panicked while mutating
+    /// this World.
     ///
     /// A poisoned World remains inspectable and can be shut down, but it
     /// cannot safely apply more command buffers or advance its schedule: an
-    /// arbitrary command may have mutated only part of its intended state.
+    /// command or system may have mutated only part of its intended state.
     #[inline]
     pub fn is_poisoned(&self) -> bool {
-        self.command_poisoned
+        self.poison_reason.is_some()
     }
 
     fn allocate_entity(&mut self) -> EntityId {
@@ -203,9 +222,24 @@ impl World {
         data_index: usize,
         entity: EntityId,
     ) -> ChunkEntityLocation {
-        let location = unsafe { self.data[data_index].add_entity(entity) };
+        let location = {
+            let mut storage =
+                ChunkSetEpochGuard::new(&mut self.data[data_index], &mut self.storage_epochs);
+            unsafe { storage.storage_mut().add_entity(entity) }
+        };
         self.ensure_chunk_route(data_index, location.chunk_index);
         location
+    }
+
+    #[inline(always)]
+    fn remove_storage_row(
+        &mut self,
+        data_index: usize,
+        location: ChunkEntityLocation,
+    ) -> ChunkRemoval {
+        let mut storage =
+            ChunkSetEpochGuard::new(&mut self.data[data_index], &mut self.storage_epochs);
+        storage.storage_mut().remove_entity(location)
     }
 
     #[inline(always)]
@@ -225,18 +259,7 @@ impl World {
         }
     }
 
-    /// Invalidates cached views whose raw ranges depend on chunk layout.
-    ///
-    /// Bump this before any operation that can change chunk addresses, entity
-    /// ranges, or entity ordering. Component value updates do not affect it.
-    #[inline(always)]
-    fn bump_storage_epoch(&mut self) {
-        self.storage_epoch = self
-            .storage_epoch
-            .checked_add(1)
-            .expect("world storage epoch exhausted");
-    }
-
+    /// Invalidates cached resource views after the resource set changes.
     #[inline(always)]
     fn bump_resource_epoch(&mut self) {
         self.resource_epoch = self
@@ -245,22 +268,42 @@ impl World {
             .expect("world resource epoch exhausted");
     }
 
+    #[inline(always)]
+    fn bump_archetype_epoch(&mut self) {
+        self.archetype_epoch = self
+            .archetype_epoch
+            .checked_add(1)
+            .expect("world archetype epoch exhausted");
+    }
+
     pub(crate) fn assert_command_apply_allowed(&self) {
-        assert!(
-            !self.command_poisoned,
-            "cannot apply commands to a poisoned World"
-        );
+        if let Some(reason) = self.poison_reason {
+            panic!(
+                "cannot apply commands to a poisoned World after {}",
+                reason.description()
+            );
+        }
     }
 
     pub(crate) fn poison_after_command_panic(&mut self) {
-        self.command_poisoned = true;
+        if self.poison_reason.is_none() {
+            self.poison_reason = Some(WorldPoisonReason::CommandPanic);
+        }
+    }
+
+    pub(crate) fn poison_after_schedule_panic(&mut self) {
+        if self.poison_reason.is_none() {
+            self.poison_reason = Some(WorldPoisonReason::SchedulePanic);
+        }
     }
 
     fn assert_schedule_tick_allowed(&self) {
-        assert!(
-            !self.command_poisoned,
-            "cannot tick a poisoned World after a deferred command panic"
-        );
+        if let Some(reason) = self.poison_reason {
+            panic!(
+                "cannot tick a poisoned World after {}",
+                reason.description()
+            );
+        }
     }
 
     #[inline(always)]
@@ -276,12 +319,12 @@ impl World {
             return index;
         }
 
+        self.bump_archetype_epoch();
         let index = self.data.len();
         self.data.push(ArchetypeStorage::new(archetype));
         self.component_postings.append_archetype(index, &archetype);
         self.archetype_to_data_index.insert(archetype, index);
         self.last_data_index = Some((archetype, index));
-        self.archetype_epoch += 1;
         index
     }
 
@@ -353,7 +396,9 @@ impl World {
     /// If one or more destructors panic, all entities are still removed before
     /// the first panic resumes.
     pub fn clear(&mut self) {
-        self.bump_storage_epoch();
+        self.bump_row_layout_epoch();
+        self.bump_chunk_set_epoch();
+        self.bump_archetype_epoch();
         let mut drop_panic = None;
 
         // Drop every component under an unwind boundary, then mark each chunk
@@ -396,7 +441,6 @@ impl World {
             }
         }
         self.live_entity_count = 0;
-        self.archetype_epoch += 1;
 
         if let Some(payload) = drop_panic {
             std::panic::resume_unwind(payload);

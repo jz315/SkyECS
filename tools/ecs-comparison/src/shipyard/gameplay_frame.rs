@@ -1,7 +1,6 @@
 use crate::common::*;
 use criterion::{measurement::WallTime, BenchmarkGroup};
 use shipyard::{EntityId, Get, IntoIter, View, ViewMut, World};
-use std::hint::black_box;
 
 pub(super) struct ShipyardGameplayWorld {
     world: World,
@@ -37,6 +36,14 @@ impl ShipyardGameplayWorld {
     }
 
     pub(super) fn run_frame(&mut self, frame: &GameplayFrame) {
+        self.run_iteration_phase();
+        self.run_ai_source_phase(frame);
+        self.run_target_position_phase(frame);
+        self.run_status_transition_phase(frame);
+        self.run_projectile_recycle_phase(frame);
+    }
+
+    fn run_iteration_phase(&mut self) {
         {
             let (mut positions, velocities) = self
                 .world
@@ -73,7 +80,9 @@ impl ShipyardGameplayWorld {
                 }
             });
         }
+    }
 
+    fn run_ai_source_phase(&mut self, frame: &GameplayFrame) {
         self.target_entities.clear();
         {
             let (targets, mut cooldowns) = self
@@ -93,6 +102,9 @@ impl ShipyardGameplayWorld {
                 self.target_entities.push(self.entities[target]);
             }
         }
+    }
+
+    fn run_target_position_phase(&mut self, frame: &GameplayFrame) {
         {
             let positions = self.world.borrow::<View<PositionComponent>>().unwrap();
             for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
@@ -106,7 +118,9 @@ impl ShipyardGameplayWorld {
                 );
             }
         }
+    }
 
+    fn run_status_transition_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.remove_stunned.iter() {
             self.world
                 .delete_component::<(Stunned,)>(self.entities[slot]);
@@ -114,7 +128,9 @@ impl ShipyardGameplayWorld {
         for &slot in frame.add_stunned.iter() {
             self.world.add_component(self.entities[slot], (Stunned,));
         }
+    }
 
+    fn run_projectile_recycle_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.recycle_projectiles.iter() {
             assert!(self.world.delete_entity(self.entities[slot]));
             let generation = self.generations[slot].wrapping_add(1);
@@ -186,6 +202,22 @@ impl ShipyardGameplayWorld {
             generation_checksum,
             ai_lookup_checksum: self.ai_lookup_checksum,
         }
+    }
+}
+
+impl GameplayPhaseAdapter for ShipyardGameplayWorld {
+    fn run_phase(&mut self, phase: GameplayPhase, frame: &GameplayFrame) {
+        match phase {
+            GameplayPhase::Iteration => self.run_iteration_phase(),
+            GameplayPhase::AiSourceLookup => self.run_ai_source_phase(frame),
+            GameplayPhase::TargetPositionLookup => self.run_target_position_phase(frame),
+            GameplayPhase::StatusTransition => self.run_status_transition_phase(frame),
+            GameplayPhase::ProjectileRecycle => self.run_projectile_recycle_phase(frame),
+        }
+    }
+
+    fn digest(&self) -> GameplayDigest {
+        ShipyardGameplayWorld::digest(self)
     }
 }
 
@@ -263,14 +295,14 @@ pub fn validate_gameplay_contract() {
 }
 
 pub fn bench_gameplay_frame(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("frame/shipyard", |bencher| {
-        let trace = GameplayTrace::standard();
-        let mut gameplay = ShipyardGameplayWorld::new(&trace);
-        let mut frame = 0;
-        bencher.iter(|| {
-            gameplay.run_frame(&trace.frames()[frame]);
-            frame = (frame + 1) % GAMEPLAY_FRAME_COUNT;
-            black_box(&gameplay.world);
-        });
-    });
+    crate::common::bench_full_gameplay_frames(
+        group,
+        "shipyard",
+        ShipyardGameplayWorld::new,
+        ShipyardGameplayWorld::run_frame,
+    );
+}
+
+pub fn bench_gameplay_phases(group: &mut BenchmarkGroup<'_, WallTime>) {
+    crate::common::bench_gameplay_phases(group, "shipyard", ShipyardGameplayWorld::new);
 }

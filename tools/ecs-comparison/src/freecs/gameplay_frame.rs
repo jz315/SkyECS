@@ -1,7 +1,6 @@
 use super::*;
 use criterion::{measurement::WallTime, BenchmarkGroup};
 use std::collections::BTreeMap;
-use std::hint::black_box;
 
 const GAMEPLAY_MOVE_MASK: u64 = POSITION_MASK | VELOCITY_MASK;
 const GAMEPLAY_ENEMY_MASK: u64 = HEALTH_MASK | DAMAGE_MASK | IS_ENEMY_MASK;
@@ -73,6 +72,14 @@ impl FreecsGameplayWorld {
     }
 
     pub(super) fn run_frame(&mut self, frame: &GameplayFrame) {
+        self.run_iteration_phase();
+        self.run_ai_source_phase(frame);
+        self.run_target_position_phase(frame);
+        self.run_status_transition_phase(frame);
+        self.run_projectile_recycle_phase(frame);
+    }
+
+    fn run_iteration_phase(&mut self) {
         self.world
             .for_each_mut(GAMEPLAY_MOVE_MASK, 0, |_entity, table, index| {
                 table.position[index].0 += table.velocity[index].0;
@@ -92,7 +99,9 @@ impl FreecsGameplayWorld {
                     table.lifetime[index].0 = 256;
                 }
             });
+    }
 
+    fn run_ai_source_phase(&mut self, frame: &GameplayFrame) {
         self.target_entities.clear();
         for &slot in frame.ai_slots.iter() {
             let ai = self.entities[slot];
@@ -108,6 +117,9 @@ impl FreecsGameplayWorld {
             cooldown.0 = cooldown.0.saturating_sub(1);
             self.target_entities.push(self.entities[target]);
         }
+    }
+
+    fn run_target_position_phase(&mut self, frame: &GameplayFrame) {
         for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
             let position = self
                 .world
@@ -119,7 +131,9 @@ impl FreecsGameplayWorld {
                 position.0.x.to_bits() as u64,
             );
         }
+    }
 
+    fn run_status_transition_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.remove_stunned.iter() {
             assert!(self.world.remove_stunned(self.entities[slot]));
         }
@@ -127,7 +141,9 @@ impl FreecsGameplayWorld {
             assert!(self.world.get_stunned(self.entities[slot]).is_none());
             self.world.set_stunned(self.entities[slot], Stunned);
         }
+    }
 
+    fn run_projectile_recycle_phase(&mut self, frame: &GameplayFrame) {
         let old_entities = frame
             .recycle_projectiles
             .iter()
@@ -197,6 +213,22 @@ impl FreecsGameplayWorld {
             generation_checksum,
             ai_lookup_checksum: self.ai_lookup_checksum,
         }
+    }
+}
+
+impl GameplayPhaseAdapter for FreecsGameplayWorld {
+    fn run_phase(&mut self, phase: GameplayPhase, frame: &GameplayFrame) {
+        match phase {
+            GameplayPhase::Iteration => self.run_iteration_phase(),
+            GameplayPhase::AiSourceLookup => self.run_ai_source_phase(frame),
+            GameplayPhase::TargetPositionLookup => self.run_target_position_phase(frame),
+            GameplayPhase::StatusTransition => self.run_status_transition_phase(frame),
+            GameplayPhase::ProjectileRecycle => self.run_projectile_recycle_phase(frame),
+        }
+    }
+
+    fn digest(&self) -> GameplayDigest {
+        FreecsGameplayWorld::digest(self)
     }
 }
 
@@ -317,14 +349,14 @@ pub fn validate_gameplay_contract() {
 }
 
 pub fn bench_gameplay_frame(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("frame/freecs", |bencher| {
-        let trace = GameplayTrace::standard();
-        let mut gameplay = FreecsGameplayWorld::new(&trace);
-        let mut frame = 0;
-        bencher.iter(|| {
-            gameplay.run_frame(&trace.frames()[frame]);
-            frame = (frame + 1) % GAMEPLAY_FRAME_COUNT;
-            black_box(&gameplay.world);
-        });
-    });
+    crate::common::bench_full_gameplay_frames(
+        group,
+        "freecs",
+        FreecsGameplayWorld::new,
+        FreecsGameplayWorld::run_frame,
+    );
+}
+
+pub fn bench_gameplay_phases(group: &mut BenchmarkGroup<'_, WallTime>) {
+    crate::common::bench_gameplay_phases(group, "freecs", FreecsGameplayWorld::new);
 }

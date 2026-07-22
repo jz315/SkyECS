@@ -5,12 +5,17 @@ impl World {
         self.archetype_epoch
     }
 
-    pub(crate) fn storage_epoch(&self) -> u64 {
-        self.storage_epoch
-    }
-
     pub(crate) fn cache_token(&self) -> &Arc<()> {
         &self.cache_token
+    }
+
+    #[inline(always)]
+    pub(crate) fn resolve_chunk(&self, chunk_id: ChunkId) -> &Chunk {
+        let address = self
+            .chunk_directory
+            .resolve(chunk_id)
+            .expect("cached chunk route must remain registered");
+        &self.data[address.data_index].chunks[address.chunk_index]
     }
 
     pub(crate) fn query_snapshot<Q, Flt>(&self) -> Arc<Vec<CachedArchetype>>

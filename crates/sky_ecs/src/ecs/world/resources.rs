@@ -87,8 +87,6 @@ impl World {
         if std::any::TypeId::of::<R>() == std::any::TypeId::of::<Time>() {
             return Some(std::ptr::from_ref(&self.time).cast::<R>().cast_mut());
         }
-        self.resources
-            .get::<R>()
-            .map(|resource| std::ptr::from_ref(resource).cast_mut())
+        self.resources.ptr::<R>()
     }
 }

@@ -1,7 +1,6 @@
 use crate::common::*;
 use bevy_ecs::{entity::Entity, query::QueryState, world::World};
 use criterion::{measurement::WallTime, BenchmarkGroup};
-use std::hint::black_box;
 
 pub(super) struct BevyGameplayWorld {
     world: World,
@@ -60,6 +59,14 @@ impl BevyGameplayWorld {
     }
 
     pub(super) fn run_frame(&mut self, frame: &GameplayFrame) {
+        self.run_iteration_phase();
+        self.run_ai_source_phase(frame);
+        self.run_target_position_phase(frame);
+        self.run_status_transition_phase(frame);
+        self.run_projectile_recycle_phase(frame);
+    }
+
+    fn run_iteration_phase(&mut self) {
         for (mut position, velocity) in self.movement.iter_mut(&mut self.world) {
             position.0 += velocity.0;
         }
@@ -75,7 +82,9 @@ impl BevyGameplayWorld {
                 lifetime.0 = 256;
             }
         }
+    }
 
+    fn run_ai_source_phase(&mut self, frame: &GameplayFrame) {
         self.target_entities.clear();
         for &slot in frame.ai_slots.iter() {
             let (target, mut cooldown) = self
@@ -85,6 +94,9 @@ impl BevyGameplayWorld {
             self.target_entities.push(self.entities[target.0 as usize]);
             cooldown.0 = cooldown.0.saturating_sub(1);
         }
+    }
+
+    fn run_target_position_phase(&mut self, frame: &GameplayFrame) {
         for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
             let position = self
                 .positions
@@ -96,7 +108,9 @@ impl BevyGameplayWorld {
                 position.0.x.to_bits() as u64,
             );
         }
+    }
 
+    fn run_status_transition_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.remove_stunned.iter() {
             let mut entity = self.world.entity_mut(self.entities[slot]);
             assert!(entity.contains::<Stunned>(), "removing absent Stunned");
@@ -107,7 +121,9 @@ impl BevyGameplayWorld {
             assert!(!entity.contains::<Stunned>(), "adding duplicate Stunned");
             entity.insert(Stunned);
         }
+    }
 
+    fn run_projectile_recycle_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.recycle_projectiles.iter() {
             assert!(self.world.despawn(self.entities[slot]));
             let generation = self.generations[slot].wrapping_add(1);
@@ -172,6 +188,22 @@ impl BevyGameplayWorld {
             generation_checksum,
             ai_lookup_checksum: self.ai_lookup_checksum,
         }
+    }
+}
+
+impl GameplayPhaseAdapter for BevyGameplayWorld {
+    fn run_phase(&mut self, phase: GameplayPhase, frame: &GameplayFrame) {
+        match phase {
+            GameplayPhase::Iteration => self.run_iteration_phase(),
+            GameplayPhase::AiSourceLookup => self.run_ai_source_phase(frame),
+            GameplayPhase::TargetPositionLookup => self.run_target_position_phase(frame),
+            GameplayPhase::StatusTransition => self.run_status_transition_phase(frame),
+            GameplayPhase::ProjectileRecycle => self.run_projectile_recycle_phase(frame),
+        }
+    }
+
+    fn digest(&self) -> GameplayDigest {
+        BevyGameplayWorld::digest(self)
     }
 }
 
@@ -265,14 +297,14 @@ pub fn validate_gameplay_contract() {
 }
 
 pub fn bench_gameplay_frame(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("frame/bevy", |bencher| {
-        let trace = GameplayTrace::standard();
-        let mut gameplay = BevyGameplayWorld::new(&trace);
-        let mut frame = 0;
-        bencher.iter(|| {
-            gameplay.run_frame(&trace.frames()[frame]);
-            frame = (frame + 1) % GAMEPLAY_FRAME_COUNT;
-            black_box(&gameplay.world);
-        });
-    });
+    crate::common::bench_full_gameplay_frames(
+        group,
+        "bevy",
+        BevyGameplayWorld::new,
+        BevyGameplayWorld::run_frame,
+    );
+}
+
+pub fn bench_gameplay_phases(group: &mut BenchmarkGroup<'_, WallTime>) {
+    crate::common::bench_gameplay_phases(group, "bevy", BevyGameplayWorld::new);
 }

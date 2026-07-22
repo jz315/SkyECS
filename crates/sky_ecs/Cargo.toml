@@ -23,7 +23,9 @@ smallvec = "1.13.2"
 sky_ecs_derive = { version = "0.1.0", path = "../sky_ecs_derive" }
 
 [dev-dependencies]
-criterion = "0.8.2"
+# Criterion 0.8 requires Rust 1.86. Keep the published crate's local benches
+# on the workspace MSRV; the comparison harness owns its newer toolchain.
+criterion = "0.7.0"
 
 [features]
 default = []

@@ -1,6 +1,6 @@
 # Sky ECS Tutorial
 
-[中文](TUTORIAL_zh.md) · [API guide](API.md)
+[中文](TUTORIAL_zh.md) · [API reference](API.md)
 
 This tutorial builds a small movement simulation and then turns it into a
 scheduled ECS application.
@@ -174,5 +174,5 @@ cargo run -p sky_ecs --example step_09_plugin
 ```
 
 Steps 01-07 are the core path; steps 08-09 cover advanced APIs. See the
-[example index](../crates/sky_ecs/examples/README.md), then continue with the [API guide](API.md) or the
+[example index](../crates/sky_ecs/examples/README.md), then continue with the [API reference](API.md) or the
 [generated Rust documentation](https://docs.rs/sky_ecs).

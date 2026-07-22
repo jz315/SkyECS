@@ -10,6 +10,7 @@ pub(crate) struct ArchetypeStorage {
     pub(super) layouts: SmallVec<[ChunkLayout; CHUNK_TIER_COUNT]>,
     pub chunks: Vec<Chunk>,
     pub(crate) chunk_ids: Vec<ChunkId>,
+    chunk_set_version: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -76,7 +77,24 @@ impl ArchetypeStorage {
             layouts,
             chunks: Vec::new(),
             chunk_ids: Vec::new(),
+            chunk_set_version: 0,
         }
+    }
+
+    #[inline(always)]
+    pub(crate) fn chunk_set_version(&self) -> u64 {
+        self.chunk_set_version
+    }
+
+    /// Marks a mutation that changes the set of physical chunks. This is
+    /// deliberately separate from row and backing changes inside an existing
+    /// Chunk.
+    #[inline(always)]
+    pub(super) fn mark_chunk_set_changed(&mut self) {
+        self.chunk_set_version = self
+            .chunk_set_version
+            .checked_add(1)
+            .expect("archetype chunk-set version exhausted");
     }
 
     pub(super) fn layout_index_after(&self, chunk_size: usize) -> usize {
@@ -87,6 +105,9 @@ impl ArchetypeStorage {
     }
 
     pub(super) fn add_chunk(&mut self, layout: ChunkLayout) {
+        // Mark before allocation so an unwind can never leave a World cache
+        // believing that its chunk route plan is still complete.
+        self.mark_chunk_set_changed();
         if self.chunks.capacity() == 0 {
             // Incremental worlds commonly leave most archetypes with a single
             // chunk. Avoid Vec's default four-Chunk first allocation; known
@@ -463,6 +484,7 @@ impl ArchetypeStorage {
         let retired_chunk = if self.chunks.last().is_some_and(Chunk::is_empty) {
             // Dropping the empty chunk returns its block to the bounded,
             // thread-local pool shared by every archetype on this thread.
+            self.mark_chunk_set_changed();
             self.chunks.pop();
             self.chunk_ids
                 .pop()

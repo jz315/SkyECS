@@ -1,56 +1,45 @@
 use super::{CachedArchetype, Chunk, ComponentIndexMap, EntityId, QuerySpec, World};
+use crate::ecs::ChunkId;
 use std::sync::Arc;
 
 const MIN_FLATTENED_CHUNKS: usize = 8;
 const MAX_AVERAGE_ENTITIES_PER_CHUNK: usize = 512;
 
 #[derive(Clone, Copy)]
-struct RawChunkPtr(*const Chunk);
-
-// Safety: cached pointers are dereferenced only after validating both the
-// originating World identity and its storage epoch. Any mutation that can move
-// a Chunk increments the epoch before changing storage.
-unsafe impl Send for RawChunkPtr {}
-unsafe impl Sync for RawChunkPtr {}
-
-#[derive(Clone, Copy)]
 pub(crate) struct SequentialChunk {
-    chunk: RawChunkPtr,
+    chunk_id: ChunkId,
     pub(crate) component_indices: ComponentIndexMap,
 }
 
 impl SequentialChunk {
     #[inline(always)]
-    pub(crate) unsafe fn chunk<'w>(&self) -> &'w Chunk {
-        // Safety: `SequentialChunkCache::get_or_prepare` returns cached
-        // pointers only after matching both the World identity and the
-        // storage epoch. The caller also holds that World borrowed for `'w`.
-        unsafe { &*self.chunk.0 }
+    pub(crate) fn chunk<'w>(&self, world: &'w World) -> &'w Chunk {
+        world.resolve_chunk(self.chunk_id)
     }
 }
 
 #[inline(always)]
-pub(crate) fn run_for_each<Q, F>(chunks: &[SequentialChunk], mut f: F)
+pub(crate) fn run_for_each<Q, F>(world: &World, chunks: &[SequentialChunk], mut f: F)
 where
     Q: QuerySpec,
     F: for<'w> FnMut(Q::Item<'w>),
 {
     for cached in chunks {
         unsafe {
-            Q::for_each_entity(cached.chunk(), &cached.component_indices, &mut f);
+            Q::for_each_entity(cached.chunk(world), &cached.component_indices, &mut f);
         }
     }
 }
 
 #[inline(always)]
-pub(crate) fn run_for_each_with_entity<Q, F>(chunks: &[SequentialChunk], mut f: F)
+pub(crate) fn run_for_each_with_entity<Q, F>(world: &World, chunks: &[SequentialChunk], mut f: F)
 where
     Q: QuerySpec,
     F: for<'w> FnMut(EntityId, Q::Item<'w>),
 {
     for cached in chunks {
         unsafe {
-            let chunk = cached.chunk();
+            let chunk = cached.chunk(world);
             let entities = chunk.entities();
             let mut entity_index = 0usize;
             Q::for_each_entity(chunk, &cached.component_indices, &mut |item| {
@@ -62,27 +51,33 @@ where
 }
 
 #[inline(always)]
-pub(crate) fn run_for_each_chunk<Q, F>(chunks: &[SequentialChunk], mut f: F)
+pub(crate) fn run_for_each_chunk<Q, F>(world: &World, chunks: &[SequentialChunk], mut f: F)
 where
     Q: QuerySpec,
     F: for<'w> FnMut(Q::Chunk<'w>),
 {
     for cached in chunks {
         unsafe {
-            f(Q::chunk_from_raw(cached.chunk(), &cached.component_indices));
+            f(Q::chunk_from_raw(
+                cached.chunk(world),
+                &cached.component_indices,
+            ));
         }
     }
 }
 
 #[inline(always)]
-pub(crate) fn run_for_each_chunk_with_entities<Q, F>(chunks: &[SequentialChunk], mut f: F)
-where
+pub(crate) fn run_for_each_chunk_with_entities<Q, F>(
+    world: &World,
+    chunks: &[SequentialChunk],
+    mut f: F,
+) where
     Q: QuerySpec,
     F: for<'w> FnMut(&'w [EntityId], Q::Chunk<'w>),
 {
     for cached in chunks {
         unsafe {
-            let chunk = cached.chunk();
+            let chunk = cached.chunk(world);
             f(
                 chunk.entities(),
                 Q::chunk_from_raw(chunk, &cached.component_indices),
@@ -102,7 +97,7 @@ enum CacheState {
 #[derive(Default)]
 pub(crate) struct SequentialChunkCache {
     world: Option<Arc<()>>,
-    storage_epoch: Option<u64>,
+    chunk_set_epoch: Option<u64>,
     chunks: Vec<SequentialChunk>,
     state: CacheState,
     #[cfg(test)]
@@ -110,8 +105,8 @@ pub(crate) struct SequentialChunkCache {
 }
 
 impl SequentialChunkCache {
-    /// Returns a flattened non-empty chunk plan once the same storage layout
-    /// has been observed twice in a row.
+    /// Returns a flattened non-empty chunk plan once the same chunk set has
+    /// been observed twice in a row.
     ///
     /// The first call after a structural change stays on the direct archetype
     /// path. This avoids paying to construct a cache in workloads that mutate
@@ -126,11 +121,11 @@ impl SequentialChunkCache {
             .world
             .as_ref()
             .is_some_and(|cached| Arc::ptr_eq(cached, world.cache_token()));
-        let same_storage = same_world && self.storage_epoch == Some(world.storage_epoch());
+        let same_chunks = same_world && self.chunk_set_epoch == Some(world.chunk_set_epoch());
 
-        if !same_storage {
+        if !same_chunks {
             self.world = Some(Arc::clone(world.cache_token()));
-            self.storage_epoch = Some(world.storage_epoch());
+            self.chunk_set_epoch = Some(world.chunk_set_epoch());
             self.chunks.clear();
             self.state = CacheState::Observe;
             return None;
@@ -152,20 +147,22 @@ impl SequentialChunkCache {
         let mut total_entities = 0usize;
         for cached in archetypes {
             let data = &world.data[cached.data_index];
-            for chunk in &data.chunks {
+            for (chunk_index, chunk) in data.chunks.iter().enumerate() {
                 debug_assert!(chunk.entity_count != 0);
+                let chunk_id = data.chunk_ids[chunk_index];
+                debug_assert!(chunk_id.is_assigned());
                 total_entities += chunk.entity_count;
                 self.chunks.push(SequentialChunk {
-                    chunk: RawChunkPtr(chunk),
+                    chunk_id,
                     component_indices: cached.component_indices,
                 });
             }
         }
 
-        // Flattening removes metadata pointer chasing, but indirect raw chunk
-        // access can inhibit code generation for long dense loops. Keep the
-        // direct nested traversal when work per chunk already amortizes its
-        // metadata cost, and flatten only genuinely fragmented layouts.
+        // Flattening removes archetype metadata traversal, but stable chunk
+        // route resolution has its own cost. Keep the direct nested traversal
+        // when work per chunk already amortizes that metadata, and flatten
+        // only genuinely fragmented layouts.
         let fragmented = self.chunks.len() >= MIN_FLATTENED_CHUNKS
             && total_entities
                 <= self
@@ -186,7 +183,7 @@ impl SequentialChunkCache {
         Some(&self.chunks)
     }
 
-    /// Observes the current storage layout during a scheduler's serial
+    /// Observes the current chunk set during a scheduler's serial
     /// preparation pass. Stable systems can then read the flattened plan
     /// without interior mutation while they execute.
     #[inline]
@@ -195,7 +192,7 @@ impl SequentialChunkCache {
     }
 
     /// Returns a previously prepared plan if it still belongs to this exact
-    /// World storage layout.
+    /// World chunk set.
     #[inline(always)]
     pub(crate) fn current<'a>(&'a self, world: &World) -> Option<&'a [SequentialChunk]> {
         let same_world = self
@@ -204,7 +201,7 @@ impl SequentialChunkCache {
             .is_some_and(|cached| Arc::ptr_eq(cached, world.cache_token()));
         (self.state == CacheState::Ready
             && same_world
-            && self.storage_epoch == Some(world.storage_epoch()))
+            && self.chunk_set_epoch == Some(world.chunk_set_epoch()))
         .then_some(self.chunks.as_slice())
     }
 }
@@ -213,5 +210,53 @@ impl SequentialChunkCache {
 impl SequentialChunkCache {
     pub(crate) fn rebuild_count(&self) -> usize {
         self.rebuild_count
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ecs::{PreparedQuery, World};
+
+    struct Position;
+    struct MatchA;
+    struct MatchB;
+    struct MatchC;
+    struct MatchD;
+    struct MatchE;
+    struct MatchF;
+    struct MatchG;
+
+    #[test]
+    fn chunk_plan_survives_in_chunk_row_churn() {
+        let mut world = World::new();
+        world.spawn((Position,));
+        world.spawn((Position, MatchA));
+        world.spawn((Position, MatchB));
+        world.spawn((Position, MatchC));
+        world.spawn((Position, MatchD));
+        world.spawn((Position, MatchE));
+        world.spawn((Position, MatchF));
+        world.spawn((Position, MatchG));
+
+        let mut query = PreparedQuery::<&Position>::new();
+        query.for_each(&world, |_| {});
+        query.for_each(&world, |_| {});
+        assert_eq!(query.sequential_rebuild_count(), 1);
+
+        let added = world.spawn((Position,));
+        for _ in 0..2 {
+            let mut seen = 0;
+            query.for_each(&world, |_| seen += 1);
+            assert_eq!(seen, 9);
+        }
+        assert_eq!(query.sequential_rebuild_count(), 1);
+
+        assert!(world.despawn(added));
+        for _ in 0..2 {
+            let mut seen = 0;
+            query.for_each(&world, |_| seen += 1);
+            assert_eq!(seen, 8);
+        }
+        assert_eq!(query.sequential_rebuild_count(), 1);
     }
 }

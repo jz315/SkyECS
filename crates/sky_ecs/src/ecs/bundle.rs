@@ -7,6 +7,7 @@ use smallvec::{smallvec, SmallVec};
 use std::{
     any::TypeId,
     cell::{Cell, RefCell},
+    collections::hash_map::Entry,
     ptr,
     sync::RwLock,
 };
@@ -69,16 +70,12 @@ fn bundle_meta<B: 'static>(
         return meta;
     }
 
-    if let Some(meta) = BUNDLE_META.read().unwrap().get(&type_id).copied() {
-        LOCAL_BUNDLE_META.with(|cache| {
-            cache.borrow_mut().insert(type_id, meta);
-        });
-        LAST_BUNDLE_META.set(Some((type_id, meta)));
-        return meta;
-    }
-
-    let mut cache = BUNDLE_META.write().unwrap();
-    if let Some(meta) = cache.get(&type_id).copied() {
+    if let Some(meta) = BUNDLE_META
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&type_id)
+        .copied()
+    {
         LOCAL_BUNDLE_META.with(|cache| {
             cache.borrow_mut().insert(type_id, meta);
         });
@@ -100,9 +97,22 @@ fn bundle_meta<B: 'static>(
             (component_index, ty.size)
         })
         .collect();
-    let meta = Box::leak(Box::new(BundleMeta { archetype, columns }));
+    let candidate = BundleMeta { archetype, columns };
 
-    let meta = *cache.entry(type_id).or_insert(meta);
+    // Keep all user-type validation, archetype construction, and allocation
+    // outside the process-wide lock. Only the winning insertion is leaked.
+    let meta = {
+        let mut cache = BUNDLE_META
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match cache.entry(type_id) {
+            Entry::Occupied(entry) => *entry.get(),
+            Entry::Vacant(entry) => {
+                let meta = Box::leak(Box::new(candidate));
+                *entry.insert(meta)
+            }
+        }
+    };
     LOCAL_BUNDLE_META.with(|cache| {
         cache.borrow_mut().insert(type_id, meta);
     });
@@ -355,6 +365,7 @@ impl_bundle_tuple!(
 mod tests {
     use super::Bundle;
     use crate::ecs::World;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     macro_rules! components {
         ($($name:ident = $value:expr),+ $(,)?) => {
@@ -440,5 +451,21 @@ mod tests {
             C15 = 15,
             C16 = 16,
         );
+    }
+
+    #[test]
+    fn invalid_bundle_does_not_poison_global_cache() {
+        struct Duplicate;
+        struct Fresh;
+
+        let invalid = catch_unwind(AssertUnwindSafe(|| {
+            let mut world = World::new();
+            world.spawn((Duplicate, Duplicate));
+        }));
+        assert!(invalid.is_err());
+
+        let mut world = World::new();
+        world.spawn((Fresh,));
+        assert_eq!(world.entity_count(), 1);
     }
 }

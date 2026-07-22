@@ -1,9 +1,7 @@
 use crate::common::*;
 use criterion::{measurement::WallTime, BenchmarkGroup};
 use sky_ecs::dynamic::{DynamicBundle, WorldDynamicExt};
-use sky_ecs::{EntityId, PreparedQuery, World};
-use std::hint::black_box;
-use std::time::{Duration, Instant};
+use sky_ecs::{EntityId, PreparedEntityView, PreparedQuery, World};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SkyIterationApi {
@@ -14,11 +12,20 @@ pub(super) enum SkyIterationApi {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SkyLookupApi {
     WorldGet,
-    ComponentAccessor,
+    EntityAccessor,
+    PreparedEntityView,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SkyAiApi {
+    WorldGetPair,
+    SplitAccessors,
+    PreparedEntityView,
 }
 
 pub(super) const SELECTED_ITERATION_API: SkyIterationApi = SkyIterationApi::ChunkClosure;
-pub(super) const SELECTED_LOOKUP_API: SkyLookupApi = SkyLookupApi::ComponentAccessor;
+pub(super) const SELECTED_LOOKUP_API: SkyLookupApi = SkyLookupApi::EntityAccessor;
+pub(super) const SELECTED_AI_API: SkyAiApi = SkyAiApi::PreparedEntityView;
 
 pub(super) struct SkyGameplayWorld {
     world: World,
@@ -29,6 +36,8 @@ pub(super) struct SkyGameplayWorld {
     enemies: PreparedQuery<(&'static mut Health, &'static Damage)>,
     allies: PreparedQuery<(&'static mut Health, &'static Regen)>,
     lifetimes: PreparedQuery<&'static mut Lifetime>,
+    ai: PreparedEntityView<(&'static TargetSlot, &'static mut Cooldown)>,
+    positions: PreparedEntityView<&'static PositionComponent>,
     ai_lookup_checksum: u64,
 }
 
@@ -73,20 +82,36 @@ impl SkyGameplayWorld {
             enemies,
             allies,
             lifetimes,
+            ai: PreparedEntityView::new(),
+            positions: PreparedEntityView::new(),
             ai_lookup_checksum: 0,
         }
     }
 
     pub(super) fn run_frame(&mut self, frame: &GameplayFrame) {
-        self.run_frame_with_apis(frame, SELECTED_ITERATION_API, SELECTED_LOOKUP_API);
+        self.run_frame_with_apis(
+            frame,
+            SELECTED_ITERATION_API,
+            SELECTED_AI_API,
+            SELECTED_LOOKUP_API,
+        );
     }
 
     pub(super) fn run_frame_with_apis(
         &mut self,
         frame: &GameplayFrame,
         iteration_api: SkyIterationApi,
+        ai_api: SkyAiApi,
         lookup_api: SkyLookupApi,
     ) {
+        self.run_iteration_phase(iteration_api);
+        self.run_ai_source_phase(frame, ai_api);
+        self.run_target_position_phase(frame, lookup_api);
+        self.run_status_transition_phase(frame);
+        self.run_projectile_recycle_phase(frame);
+    }
+
+    pub(super) fn run_iteration_phase(&mut self, iteration_api: SkyIterationApi) {
         match iteration_api {
             SkyIterationApi::ChunkClosure => {
                 self.movement
@@ -113,23 +138,66 @@ impl SkyGameplayWorld {
                     .for_each_chunk(&mut self.world, lifetime_chunk);
             }
         }
+    }
 
+    pub(super) fn run_ai_source_phase(&mut self, frame: &GameplayFrame, ai_api: SkyAiApi) {
         self.target_entities.clear();
-        for &slot in frame.ai_slots.iter() {
-            let ai_entity = self.entities[slot];
-            let target_slot = self
-                .world
-                .get::<TargetSlot>(ai_entity)
-                .expect("AI entity must have TargetSlot")
-                .0 as usize;
-            self.target_entities.push(self.entities[target_slot]);
-            let cooldown = self
-                .world
-                .get_mut::<Cooldown>(ai_entity)
-                .expect("AI entity must have Cooldown");
-            cooldown.0 = cooldown.0.saturating_sub(1);
+        match ai_api {
+            SkyAiApi::WorldGetPair => {
+                for &slot in frame.ai_slots.iter() {
+                    let ai_entity = self.entities[slot];
+                    let target_slot = self
+                        .world
+                        .get::<TargetSlot>(ai_entity)
+                        .expect("AI entity must have TargetSlot")
+                        .0 as usize;
+                    self.target_entities.push(self.entities[target_slot]);
+                    let cooldown = self
+                        .world
+                        .get_mut::<Cooldown>(ai_entity)
+                        .expect("AI entity must have Cooldown");
+                    cooldown.0 = cooldown.0.saturating_sub(1);
+                }
+            }
+            SkyAiApi::SplitAccessors => {
+                {
+                    let targets = self.world.accessor::<TargetSlot>();
+                    for &slot in frame.ai_slots.iter() {
+                        let target_slot = targets
+                            .get(self.entities[slot])
+                            .expect("AI entity must have TargetSlot")
+                            .0 as usize;
+                        self.target_entities.push(self.entities[target_slot]);
+                    }
+                }
+                {
+                    let mut cooldowns = self.world.accessor_mut::<Cooldown>();
+                    for &slot in frame.ai_slots.iter() {
+                        let cooldown = cooldowns
+                            .get_mut(self.entities[slot])
+                            .expect("AI entity must have Cooldown");
+                        cooldown.0 = cooldown.0.saturating_sub(1);
+                    }
+                }
+            }
+            SkyAiApi::PreparedEntityView => {
+                let mut ai = self.ai.bind_mut(&mut self.world);
+                for &slot in frame.ai_slots.iter() {
+                    let (target, cooldown) = ai
+                        .get_mut(self.entities[slot])
+                        .expect("AI entity must have TargetSlot and Cooldown");
+                    self.target_entities.push(self.entities[target.0 as usize]);
+                    cooldown.0 = cooldown.0.saturating_sub(1);
+                }
+            }
         }
+    }
 
+    pub(super) fn run_target_position_phase(
+        &mut self,
+        frame: &GameplayFrame,
+        lookup_api: SkyLookupApi,
+    ) {
         match lookup_api {
             SkyLookupApi::WorldGet => {
                 for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
@@ -144,7 +212,7 @@ impl SkyGameplayWorld {
                     );
                 }
             }
-            SkyLookupApi::ComponentAccessor => {
+            SkyLookupApi::EntityAccessor => {
                 let positions = self.world.accessor::<PositionComponent>();
                 for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
                     let position = positions
@@ -157,8 +225,23 @@ impl SkyGameplayWorld {
                     );
                 }
             }
+            SkyLookupApi::PreparedEntityView => {
+                let positions = self.positions.bind(&self.world);
+                for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
+                    let position = positions
+                        .get(target)
+                        .expect("AI target must have PositionComponent");
+                    self.ai_lookup_checksum = gameplay_mix_checksum(
+                        self.ai_lookup_checksum,
+                        slot as u64,
+                        position.0.x.to_bits() as u64,
+                    );
+                }
+            }
         }
+    }
 
+    pub(super) fn run_status_transition_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.remove_stunned.iter() {
             let removed = self.world.remove::<Stunned>(self.entities[slot]);
             assert!(removed, "removing absent Stunned at slot {slot}");
@@ -167,7 +250,9 @@ impl SkyGameplayWorld {
             let inserted = self.world.insert(self.entities[slot], Stunned);
             assert!(inserted, "adding duplicate Stunned at slot {slot}");
         }
+    }
 
+    pub(super) fn run_projectile_recycle_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.recycle_projectiles.iter() {
             assert!(self.world.despawn(self.entities[slot]));
             let generation = self.generations[slot].wrapping_add(1);
@@ -332,201 +417,58 @@ pub fn validate_gameplay_contract() {
     reference.run_trace(&trace);
     assert_eq!(reference.digest(), GAMEPLAY_CANONICAL_DIGEST);
 
-    for (iteration_api, lookup_api) in [
-        (SkyIterationApi::ChunkClosure, SkyLookupApi::WorldGet),
+    for (iteration_api, ai_api, lookup_api) in [
+        (
+            SkyIterationApi::ChunkClosure,
+            SkyAiApi::WorldGetPair,
+            SkyLookupApi::WorldGet,
+        ),
         (
             SkyIterationApi::ChunkFunction,
-            SkyLookupApi::ComponentAccessor,
+            SkyAiApi::SplitAccessors,
+            SkyLookupApi::EntityAccessor,
+        ),
+        (
+            SkyIterationApi::ChunkFunction,
+            SkyAiApi::PreparedEntityView,
+            SkyLookupApi::PreparedEntityView,
         ),
     ] {
         let mut gameplay = SkyGameplayWorld::new(&trace);
         for frame in trace.frames() {
-            gameplay.run_frame_with_apis(frame, iteration_api, lookup_api);
+            gameplay.run_frame_with_apis(frame, iteration_api, ai_api, lookup_api);
         }
         assert_eq!(gameplay.digest(), GAMEPLAY_CANONICAL_DIGEST);
     }
 }
 
-pub fn bench_gameplay_frame(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("frame/sky", |bencher| {
-        let trace = GameplayTrace::standard();
-        let mut gameplay = SkyGameplayWorld::new(&trace);
-        let mut frame = 0;
-        bencher.iter(|| {
-            gameplay.run_frame(&trace.frames()[frame]);
-            frame = (frame + 1) % GAMEPLAY_FRAME_COUNT;
-            black_box(&gameplay.world);
-        });
-    });
-}
-
-pub fn bench_gameplay_api_candidates(group: &mut BenchmarkGroup<'_, WallTime>) {
-    for (name, iteration, lookup) in [
-        (
-            "iteration_chunk_closure",
-            SkyIterationApi::ChunkClosure,
-            SkyLookupApi::ComponentAccessor,
-        ),
-        (
-            "iteration_chunk_function",
-            SkyIterationApi::ChunkFunction,
-            SkyLookupApi::ComponentAccessor,
-        ),
-        (
-            "lookup_world_get",
-            SkyIterationApi::ChunkFunction,
-            SkyLookupApi::WorldGet,
-        ),
-        (
-            "lookup_component_accessor",
-            SkyIterationApi::ChunkFunction,
-            SkyLookupApi::ComponentAccessor,
-        ),
-    ] {
-        group.bench_function(name, move |bencher| {
-            let trace = GameplayTrace::standard();
-            let mut gameplay = SkyGameplayWorld::new(&trace);
-            let mut frame = 0;
-            bencher.iter(|| {
-                gameplay.run_frame_with_apis(&trace.frames()[frame], iteration, lookup);
-                frame = (frame + 1) % GAMEPLAY_FRAME_COUNT;
-                black_box(&gameplay.world);
-            });
-        });
-    }
-}
-
-#[derive(Clone, Copy, Debug, serde::Serialize)]
-pub struct SkyApiCandidateResult {
-    pub first: &'static str,
-    pub first_ns_per_frame: f64,
-    pub second: &'static str,
-    pub second_ns_per_frame: f64,
-    pub winner: &'static str,
-    pub difference_percent: f64,
-}
-
-#[derive(Clone, Copy, Debug, serde::Serialize)]
-pub struct SkyGameplayApiCertification {
-    pub rotations: usize,
-    pub traces_per_rotation: usize,
-    pub frames_per_trace: usize,
-    pub iteration: SkyApiCandidateResult,
-    pub lookup: SkyApiCandidateResult,
-}
-
-pub fn certify_gameplay_apis(
-    rotations: usize,
-    traces_per_rotation: usize,
-) -> SkyGameplayApiCertification {
-    assert!(rotations > 0);
-    assert!(traces_per_rotation > 0);
-    let trace = GameplayTrace::standard();
-    let iteration = paired_certification(
-        &trace,
-        rotations,
-        traces_per_rotation,
-        "PreparedQuery::for_each_chunk",
-        SkyIterationApi::ChunkClosure,
-        SkyLookupApi::ComponentAccessor,
-        "PreparedQuery::for_each_chunk_fn",
-        SkyIterationApi::ChunkFunction,
-        SkyLookupApi::ComponentAccessor,
-    );
-    let lookup = paired_certification(
-        &trace,
-        rotations,
-        traces_per_rotation,
-        "World::get",
-        SELECTED_ITERATION_API,
-        SkyLookupApi::WorldGet,
-        "ComponentAccessor::get",
-        SELECTED_ITERATION_API,
-        SkyLookupApi::ComponentAccessor,
-    );
-    SkyGameplayApiCertification {
-        rotations,
-        traces_per_rotation,
-        frames_per_trace: GAMEPLAY_FRAME_COUNT,
-        iteration,
-        lookup,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn paired_certification(
-    trace: &GameplayTrace,
-    rotations: usize,
-    traces_per_rotation: usize,
-    first_name: &'static str,
-    first_iteration: SkyIterationApi,
-    first_lookup: SkyLookupApi,
-    second_name: &'static str,
-    second_iteration: SkyIterationApi,
-    second_lookup: SkyLookupApi,
-) -> SkyApiCandidateResult {
-    let mut first = SkyGameplayWorld::new(trace);
-    let mut second = SkyGameplayWorld::new(trace);
-    for _ in 0..2 {
-        run_candidate_trace(&mut first, trace, first_iteration, first_lookup);
-        run_candidate_trace(&mut second, trace, second_iteration, second_lookup);
-    }
-
-    let mut first_elapsed = Duration::ZERO;
-    let mut second_elapsed = Duration::ZERO;
-    for rotation in 0..rotations {
-        for _ in 0..traces_per_rotation {
-            if rotation % 2 == 0 {
-                first_elapsed +=
-                    time_candidate_trace(&mut first, trace, first_iteration, first_lookup);
-                second_elapsed +=
-                    time_candidate_trace(&mut second, trace, second_iteration, second_lookup);
-            } else {
-                second_elapsed +=
-                    time_candidate_trace(&mut second, trace, second_iteration, second_lookup);
-                first_elapsed +=
-                    time_candidate_trace(&mut first, trace, first_iteration, first_lookup);
+impl GameplayPhaseAdapter for SkyGameplayWorld {
+    fn run_phase(&mut self, phase: GameplayPhase, frame: &GameplayFrame) {
+        match phase {
+            GameplayPhase::Iteration => self.run_iteration_phase(SELECTED_ITERATION_API),
+            GameplayPhase::AiSourceLookup => self.run_ai_source_phase(frame, SELECTED_AI_API),
+            GameplayPhase::TargetPositionLookup => {
+                self.run_target_position_phase(frame, SELECTED_LOOKUP_API);
             }
+            GameplayPhase::StatusTransition => self.run_status_transition_phase(frame),
+            GameplayPhase::ProjectileRecycle => self.run_projectile_recycle_phase(frame),
         }
     }
 
-    let frame_count = (rotations * traces_per_rotation * GAMEPLAY_FRAME_COUNT) as f64;
-    let first_ns = first_elapsed.as_nanos() as f64 / frame_count;
-    let second_ns = second_elapsed.as_nanos() as f64 / frame_count;
-    let (winner, faster, slower) = if first_ns <= second_ns {
-        (first_name, first_ns, second_ns)
-    } else {
-        (second_name, second_ns, first_ns)
-    };
-    SkyApiCandidateResult {
-        first: first_name,
-        first_ns_per_frame: first_ns,
-        second: second_name,
-        second_ns_per_frame: second_ns,
-        winner,
-        difference_percent: (slower / faster - 1.0) * 100.0,
+    fn digest(&self) -> GameplayDigest {
+        SkyGameplayWorld::digest(self)
     }
 }
 
-fn time_candidate_trace(
-    gameplay: &mut SkyGameplayWorld,
-    trace: &GameplayTrace,
-    iteration: SkyIterationApi,
-    lookup: SkyLookupApi,
-) -> Duration {
-    let start = Instant::now();
-    run_candidate_trace(gameplay, trace, iteration, lookup);
-    start.elapsed()
+pub fn bench_gameplay_frame(group: &mut BenchmarkGroup<'_, WallTime>) {
+    crate::common::bench_full_gameplay_frames(
+        group,
+        "sky",
+        SkyGameplayWorld::new,
+        SkyGameplayWorld::run_frame,
+    );
 }
 
-fn run_candidate_trace(
-    gameplay: &mut SkyGameplayWorld,
-    trace: &GameplayTrace,
-    iteration: SkyIterationApi,
-    lookup: SkyLookupApi,
-) {
-    for frame in trace.frames() {
-        gameplay.run_frame_with_apis(frame, iteration, lookup);
-    }
-    black_box(&gameplay.world);
+pub fn bench_gameplay_phases(group: &mut BenchmarkGroup<'_, WallTime>) {
+    crate::common::bench_gameplay_phases(group, "sky", SkyGameplayWorld::new);
 }

@@ -22,6 +22,7 @@ Flecs、`freecs` 和 `shipyard`。
 
 - 极致性能：Archetype架构，深度的核心优化，带来极速的性能体验。
 - 原生并行：内置多线程，充分利用多核 CPU 。
+- 预解析实体访问：固定实体序列只校验和寻址一次，随后通过紧凑的直接地址计划读取或更新组件。
 - 优雅易用：自然直觉的用户接口，让开发者专注于核心业务与游戏逻辑的开发。
 - 动态拓展：除强类型接口外，提供完善的动态 API，便于运行时反射或与其他语言（如 C#、脚本语言）进行绑定与交互。
 
@@ -67,20 +68,27 @@ fn main() {
 ## 文档
 
 - [入门教程](docs/TUTORIAL_zh.md)
-- [API 指南](docs/API_zh.md)
+- [API 参考](docs/API_zh.md)
 - [Rust API 文档](https://docs.rs/sky_ecs)
 - [渐进式示例](crates/sky_ecs/examples/README_zh.md)
 
 ## 性能测试
 
+下方数字是可追溯的历史公开快照，来自 commit
+`e47f48163759f2e0438bcb89504908749999a416` 的
+[GitHub Actions 运行 #29695552048](https://github.com/jz315/SkyECS/actions/runs/29695552048)。
+旧 Mixed frame 已退役：矩阵求逆占据了绝大多数时间，无法反映 ECS
+行为。替代方案是确定性的 65,536 实体、256 帧真实 Gameplay trace，
+状态和投射物都有真实生命周期。新的 Gameplay 与最佳原生 bulk 数字只会
+在更新后的公开四轮 workflow 完成后写入 README。
 
 | Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| 批量插入 1 万 | 120.93 µs | 352.11 µs | 440.19 µs | **110.41 µs** | 278.08 µs | 166.75 µs |
+| 旧行式 batch 插入 1 万（已退役） | 120.93 µs | 352.11 µs | 440.19 µs | **110.41 µs** | 278.08 µs | 166.75 µs |
 | Prepared 遍历 1 万 | 8.12 µs | 7.83 µs | 9.35 µs | **7.69 µs** | 11.96 µs | 17.29 µs |
 | Prepared 遍历 10 万 | 81.21 µs | 78.88 µs | 93.65 µs | **77.62 µs** | 120.08 µs | 174.30 µs |
 | Spawn/随机 despawn 1 千 | **45.37 µs** | 46.34 µs | 103.05 µs | 67.47 µs | 112.41 µs | 107.42 µs |
-| 混合帧 | 349.54 µs | 352.55 µs | 377.57 µs | **331.78 µs** | 409.09 µs | 380.53 µs |
+| Gameplay frame（新 canonical） | 等待公开复跑 | 等待 | 等待 | 等待 | 等待 | 等待 |
 
 完整的 workload、所有已记录项目、环境、编译器配置和测试方法见[性能测试文档](benches/BENCHMARKS_CN.md)。
 

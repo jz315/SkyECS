@@ -47,6 +47,15 @@ unsafe extern "C" {
     pub(super) fn sky_flecs_c_gameplay_new() -> *mut c_void;
     pub(super) fn sky_flecs_c_gameplay_delete(context: *mut c_void);
     pub(super) fn sky_flecs_c_gameplay_frame(context: *mut c_void) -> u64;
+    pub(super) fn sky_flecs_c_gameplay_iteration(context: *mut c_void) -> u64;
+    pub(super) fn sky_flecs_c_gameplay_ai_source(context: *mut c_void) -> u64;
+    pub(super) fn sky_flecs_c_gameplay_target_positions(context: *mut c_void) -> u64;
+    pub(super) fn sky_flecs_c_gameplay_status_transition(context: *mut c_void) -> u64;
+    pub(super) fn sky_flecs_c_gameplay_projectile_recycle(context: *mut c_void) -> u64;
+    pub(super) fn sky_flecs_c_gameplay_digest(
+        context: *mut c_void,
+        digest: *mut NativeGameplayDigest,
+    ) -> bool;
     pub(super) fn sky_flecs_c_gameplay_run_trace(
         context: *mut c_void,
         digest: *mut NativeGameplayDigest,
@@ -82,7 +91,7 @@ impl Context {
         }
     }
 
-    pub(super) fn pointer(&mut self) -> *mut c_void {
+    pub(super) fn pointer(&self) -> *mut c_void {
         self.pointer.as_ptr()
     }
 }

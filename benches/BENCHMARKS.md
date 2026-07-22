@@ -11,15 +11,109 @@ cargo compare-ecs -- prepared_iteration/simple_10k/sky --exact
 cargo compare-ecs -- prepared_iteration/simple_10k/flecs_c --exact
 cargo compare-ecs -- prepared_random_fragmented_iteration/random_16_tags_8_terms/flecs_c --exact
 cargo compare-ecs -- prepared_random_fragmented_iteration/random_16_components_4_terms/sky --exact
+cargo compare-ecs -- diagnostic_gameplay_phases/ai_source_lookup/sky --exact
 cargo compare-ecs-publish
 ```
 
-`cargo compare-ecs-publish` defaults to six Latin-square order rotations and writes raw Criterion data, environment metadata, confidence intervals, and cross-run medians to `target/comparison-reports/`. The published run below used four rotations.
+`cargo compare-ecs-publish` defaults to four cyclic engine-order rotations and writes raw Criterion data, environment metadata, confidence intervals, and cross-run medians to `target/comparison-reports/`. The bounded four-run protocol avoids workflow timeouts but does not cover all six possible engine positions.
 
-## Current results
+## Canonical workload contracts
+
+### Best native bulk insert
+
+`prepared_construction/native_bulk_insert_10k` starts with an empty,
+schema-prepared World and a fully prepared engine-native batch. Input creation,
+World creation, registration, and destruction are outside the timer. The timer
+contains the public bulk admission API and any iterator finalization needed to
+complete insertion of exactly 10,000 four-component entities.
+
+| Adapter | Selected public API | Prepared native input |
+|---|---|---|
+| Sky | `World::spawn_columns` | four component `Vec`s |
+| hecs | `World::spawn_column_batch` | completed `ColumnBatch` |
+| Bevy ECS | `World::spawn_batch` | `Vec<SuiteBundle>` |
+| Flecs C | `ecs_bulk_init` | four C++ vectors with sorted ID/pointer pairs |
+| FreeCS | `World::spawn_batch` | four component columns consumed by the initializer |
+| Shipyard | `World::bulk_add_entity` | `Vec<SuiteBundle>` |
+
+This is not the same workload as the retired `bulk_insert_10k`, which supplied
+row bundles to every adapter. Historical values for that workload are labeled
+as legacy and must not be compared directly with native-bulk results.
+
+### Real gameplay frame
+
+`scenario_gameplay_frame/frame` runs one frame from a deterministic 256-frame
+arena/action trace. It contains 65,536 live logical slots distributed across
+32 stable archetypes:
+
+| Population | Entities | Main components/role |
+|---|---:|---|
+| Ordinary movers | 20,480 | Position + Velocity |
+| Combat actors | 16,384 | enemy damage or ally regeneration; transient Stunned |
+| AI actors | 8,192 | health, target slot, cooldown |
+| Projectiles | 8,192 | velocity, damage, owner, 64-frame lifetime |
+| Static world | 8,192 | position only |
+| Effects | 4,096 | position + lifetime |
+
+Every measured frame performs 53,248 movement updates, combat updates, 2,048
+AI target lookups, 12,288 lifetime updates, 128 delayed Stunned removals plus
+128 insertions, and 128 projectile despawn/replacements. Status components live
+for eight frames and projectiles live for 64 frames; no structural operation is
+added and removed in the same frame. There are no matrix inversions, artificial
+phase repetitions, or other compute kernels that hide ECS costs.
+
+Every adapter maintains the same logical-slot-to-entity map. Contract tests run
+all 256 frames and compare entity/component counts plus canonical position,
+health, lifetime, generation, and AI-lookup checksums against an ECS-independent
+reference model. Total-frame timing and correctness use the same implementation.
+Both full-frame and phase measurements reset to a fresh context after each
+256-frame trace; context construction and digest validation are outside the
+reported duration.
+
+`diagnostic_gameplay_phases/{iteration,ai_source_lookup,target_position_lookup,
+status_transition,projectile_recycle}` executes the same evolving five-phase
+state machine but accumulates time only around one phase. Context construction,
+the other four phases, digest checks, and trace resets are excluded. These rows
+diagnose likely frame contributions; timer-window overhead means they are not
+claimed to add exactly to the full-frame row. Every adapter reads `TargetSlot`
+each frame, builds the target-entity list, then consumes it in the Position
+phase. Flecs keeps one FFI call for the canonical full frame and exposes the
+five-call form only for diagnostics.
+
+The raw comparison is serial. Scheduler and parallel execution belong in
+separate benchmark families.
+
+### Fast API selection
+
+Each adapter uses stable public APIs and reusable query/view/accessor state.
+Sky's ambiguous entity-lookup choices have a separate four-round AB/BA
+certification executable (`api_selection`). AI source compares the generic
+get/get-mut pair, split accessors, and tuple `PreparedEntityView`; target
+Position compares `World::get`, `EntityAccessor`, and `PreparedEntityView`.
+Each pair uses both execution orders and a ±2% decision band. A phase path must
+be the Condorcet winner, and the combined phase winners must also beat the
+production full frame before the selector recommends a switch. GitHub Actions
+stores this report-only JSON output with the benchmark artifact; acceptance is
+made on a controlled machine. Stable-identity random
+access has a separate reproducible four-rotation selector
+(`sky_random_access_api_selection`) comparing `EntityAccessor::get` with
+`PreparedEntityAccess::iter`; plan construction stays outside the timed
+workload exactly when equivalent cached references are allowed. Dense
+10k/100k/1m iteration uses the dedicated plain-function chunk API; gameplay's
+many shorter chunks use the winner recorded by the certification.
+
+## Last public snapshot (before the workload revision)
 
 All values below come from public
-[GitHub Actions run #29695552048](https://github.com/jz315/SkyECS/actions/runs/29695552048)
+[GitHub Actions run #29695552048](https://github.com/jz315/SkyECS/actions/runs/29695552048),
+commit `e47f48163759f2e0438bcb89504908749999a416`. The uploaded report artifact has
+SHA-256 `db5ea692ad4b32eae2614261372e2f98d0e0f9dc55bdee1e8b1d7f844543c324`.
+
+This public run predates both canonical workload changes above. Its unaffected
+microbenchmark rows remain useful historical evidence, but the legacy bulk row
+must not be relabeled and the retired Mixed frame is intentionally omitted.
+New native-bulk and gameplay-frame numbers will be added only after the updated
+workflow completes a public four-rotation run.
 
 bold marks the lowest median among supported adapters.
 
@@ -27,7 +121,7 @@ bold marks the lowest median among supported adapters.
 
 | Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| Bulk insert 10k | 120.928 µs | 352.108 µs | 440.190 µs | **110.409 µs** | 278.079 µs | 166.753 µs |
+| Legacy row-batch insert 10k (retired) | 120.928 µs | 352.108 µs | 440.190 µs | **110.409 µs** | 278.079 µs | 166.753 µs |
 | Single insert 10k | **244.539 µs** | 576.178 µs | 740.224 µs | 741.595 µs | 934.128 µs | 1188.686 µs |
 | Prepared iteration 10k | 8.115 µs | 7.834 µs | 9.349 µs | **7.692 µs** | 11.956 µs | 17.292 µs |
 | Prepared iteration 100k | 81.214 µs | 78.875 µs | 93.647 µs | **77.616 µs** | 120.081 µs | 174.299 µs |
@@ -38,13 +132,6 @@ bold marks the lowest median among supported adapters.
 | Prepared random access 100k | 399.066 µs | 294.265 µs | 895.874 µs | **167.122 µs** | 447.005 µs | 450.412 µs |
 | Spawn/random despawn 1k | **45.370 µs** | 46.338 µs | 103.052 µs | 67.469 µs | 112.407 µs | 107.419 µs |
 | Random add/remove component 1k | 92.425 µs | 111.459 µs | 173.031 µs | 134.730 µs | 212.391 µs | **51.553 µs** |
-| Mixed frame | 349.537 µs | 352.553 µs | 377.572 µs | **331.783 µs** | 409.090 µs | 380.534 µs |
-| Mixed phase: movement | 20.867 µs | 20.013 µs | 24.135 µs | **19.517 µs** | 30.347 µs | 54.180 µs |
-| Mixed phase: health × 8 | 7.904 µs | 22.760 µs | 46.185 µs | **7.746 µs** | 54.003 µs | 98.447 µs |
-| Mixed phase: heavy | 300.912 µs | 297.594 µs | 298.251 µs | **268.548 µs** | 305.817 µs | 281.299 µs |
-| Mixed phase: random access | 1.133 µs | 0.851 µs | 2.103 µs | **0.498 µs** | 1.204 µs | 1.016 µs |
-| Mixed phase: structural churn | 18.731 µs | 24.880 µs | 36.712 µs | 30.973 µs | 52.856 µs | **11.836 µs** |
-| Mixed phase: spawn/despawn × 32 | **63.422 µs** | 83.603 µs | 182.251 µs | 125.733 µs | 266.171 µs | 256.373 µs |
 
 ### Random-fragmentation workloads
 
@@ -87,4 +174,12 @@ The suite follows the complete random-fragmentation matrix from
   archive uses Clang 18.1.3 with `-O3 -flto -DNDEBUG`; Clang and LLD perform
   the final Linux link and native LTO.
 
-##
+## Notes
+
+- GitHub-hosted runners provide public provenance but not dedicated-machine
+  isolation. Reports include the runner, toolchain, compiler, commit, raw
+  Criterion distributions, and all four recorded order rotations so claims can be
+  independently inspected.
+- The retired Mixed frame was rejected because eight matrix inversions consumed
+  more than 80% of several adapters' frame time, while health and spawn phases
+  used artificial repetition factors. It is not a canonical result.
