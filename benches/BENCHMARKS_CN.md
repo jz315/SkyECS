@@ -17,113 +17,10 @@ cargo compare-ecs-publish
 
 `cargo compare-ecs-publish` 默认执行四轮循环引擎顺序轮换，并将 Criterion 原始数据、环境信息、置信区间和跨运行中位数写入 `target/comparison-reports/`。四轮有界协议用于避免 workflow 超时，但不会覆盖六个引擎的全部顺序位置。
 
-正式发布在 contracts 或 Criterion 启动前要求 Git 工作树干净。
-`--allow-dirty` 仅供本地诊断；对应 JSON 会标记为不可复现，Markdown 标题会标记
-`NON-PUBLICATION / DIRTY WORKTREE`。
 
-## Canonical workload 合同
 
-### 最佳原生批量插入场景
 
-`scenario_native_bulk_construction/insert_10k` 从空的、已完成 schema
-准备的 World 和完全准备好的引擎原生 batch 开始。输入构造、World 构造、
-注册与析构都在计时外；计时内只包含公共 bulk admission API，以及完成
-1 万个四组件实体插入所必需的 iterator finalize。
-
-| Adapter | 选定公共 API | 已准备的原生输入 |
-|---|---|---|
-| Sky | `World::spawn_columns` | 四个组件 `Vec` |
-| hecs | `World::spawn_column_batch` | 完成的 `ColumnBatch` |
-| Bevy ECS | `World::spawn_batch` | `Vec<SuiteBundle>` |
-| Flecs C | `ecs_bulk_init` | 四个 C++ vector 与排序后绑定的 ID/指针对 |
-| FreeCS | `World::spawn_batch` | 由 initializer 消耗的四个组件列 |
-| Shipyard | `World::bulk_add_entity` | `Vec<SuiteBundle>` |
-
-它与已退役的 `bulk_insert_10k` 不同：旧 workload 强制所有 adapter 接收
-行式 bundle。旧数字会明确标记为历史 workload，不能与新的 native bulk
-数字直接比较。由于准备输入是各引擎特有的，这一行属于 Scenario，不参与
-Comparable 胜负统计或顺序偏差计算。
-
-### Entity ID 与固定序列
-
-`entity_id_random_access/{hot_10k,warm_100k}` 属于 Comparable：计时区内每次
-访问都从 Entity ID 开始，并使用该引擎已经认证的最快公共 ID 查询 API，
-不得替换为直接地址计划。
-
-`scenario_fixed_sequence_access` 单独衡量稳定、重复实体序列。它报告 1 万和
-10 万实体的计划构建、稳定遍历，以及构建后执行 1/4/16/64 次遍历的总成本；
-报告同时给出指针 payload 与每次 traversal 的摊销时间。这类计划借用结构
-冻结的 World，因此归类为 Scenario。
-
-### 真实游戏帧
-
-`scenario_gameplay_frame/frame` 每次执行确定性 256 帧竞技场/动作游戏
-trace 中的一帧。65,536 个存活逻辑槽位分布在 32 个稳定 archetype：
-
-| 人群 | 实体数 | 主要组件/职责 |
-|---|---:|---|
-| 普通移动实体 | 20,480 | Position + Velocity |
-| 战斗角色 | 16,384 | 敌方伤害或友方恢复；临时 Stunned |
-| AI 角色 | 8,192 | health、target slot、cooldown |
-| 投射物 | 8,192 | velocity、damage、owner、64 帧生命周期 |
-| 静态世界 | 8,192 | position |
-| 特效 | 4,096 | position + lifetime |
-
-每个计时帧执行 53,248 次移动更新、战斗更新、2,048 次 AI 目标直接访问、
-12,288 次 lifetime 更新、128 次延迟 Stunned 移除与 128 次插入，以及
-128 个投射物的 despawn/替换。状态组件真实存活 8 帧，投射物真实存活
-64 帧，不存在同一帧 add/remove 抵消。场景不含矩阵求逆、人为 phase
-重复或其他掩盖 ECS 成本的重计算核。
-
-每个 adapter 都维护相同的逻辑槽位到 ECS entity handle 映射。合同测试
-运行完整 256 帧，并把实体/组件计数以及 position、health、lifetime、
-generation、AI lookup 的 canonical checksum 与独立于 ECS 的 reference
-model 对比。总帧计时与正确性测试复用同一实现。
-完整帧与 phase 测量都会在每个 256 帧 trace 后重建新 context；context 构造
-和 digest 验证不计入报告时长。
-
-`diagnostic_gameplay_phases/{iteration,ai_source_lookup,target_position_lookup,
-status_transition,projectile_recycle}` 仍执行同一个持续演化的五阶段状态机，
-但只累计目标 phase 的计时。Context 构造、其余四阶段、digest 检查和 trace
-重置均不计时。这些行用于诊断完整帧的可能贡献；因为存在计时窗口开销，
-不宣称五项与完整帧严格可加。所有 adapter 都在每帧读取 `TargetSlot`、生成
-目标实体列表，再由 Position phase 消费。Flecs 的 canonical 完整帧仍只有
-一次 FFI，五次调用形式仅用于诊断。
-
-Phase diagnostics 只注册在独立的 `gameplay_phases` bench target；canonical
-`comparison.rs` 与默认 publication workflow 不会执行它们。
-
-这条原始对比固定为串行；scheduler 和 parallel 路径属于独立 benchmark
-family，不混入结果。
-
-### 最快 API 选择
-
-API 实验与正式跨引擎比较严格分离。`crates/sky_ecs/benches` 保留 Sky 微基准，
-真实 canonical gameplay 选择放在 comparison crate 的 `api-experiments` 中。
-
-`tools/ecs-comparison/benches/comparison.rs` 只包含已经选定的路径，不保留
-候选枚举、环境变量切换或 selector；GitHub shared runner 永远不会决定生产
-API。必须结合外部引擎的实验才保留在手动启用的 `api_candidates` bench。
-当前 gameplay 正式路径的 AI tuple 使用 `PreparedEntityView`，目标 Position 使用
-`EntityAccessor`。旧证书因使用简化 fixture 和脏工作树而撤下。只能在干净工作树运行
-`SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs_comparison --bench api_candidates --features api-experiments -- sky`
-生成 canonical 证据。
-
-## 最近一次公开快照（workload 修订前）
-
-下方所有数值均来自公开的
-[GitHub Actions 运行 #29695552048](https://github.com/jz315/SkyECS/actions/runs/29695552048)，
-commit `e47f48163759f2e0438bcb89504908749999a416`。上传报告 artifact 的
-SHA-256 为 `db5ea692ad4b32eae2614261372e2f98d0e0f9dc55bdee1e8b1d7f844543c324`。
-
-该公开运行早于上述两项 canonical workload 修订。未受影响的
-microbenchmark 行仍可作为历史证据，但旧 bulk 行不能直接改名，已退役
-的 Mixed frame 也不再展示。新的 native bulk 与 Gameplay frame 数字只会
-在更新后的 workflow 完成公开四轮运行后加入。
-
-加粗表示支持该 workload 的 adapter 中的最低中位数。
-
-### 通用 workloads
+## 通用 workloads
 
 | Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
@@ -139,7 +36,7 @@ microbenchmark 行仍可作为历史证据，但旧 bulk 行不能直接改名�
 | Spawn/随机 despawn 1 千 | **45.370 µs** | 46.338 µs | 103.052 µs | 67.469 µs | 112.407 µs | 107.419 µs |
 | 随机 add/remove component 1 千 | 92.425 µs | 111.459 µs | 173.031 µs | 134.730 µs | 212.391 µs | **51.553 µs** |
 
-### 随机碎片 workloads
+## 随机碎片 workloads
 
 测试矩阵来自 [Sander Mertens benchmark](https://gist.github.com/SanderMertens/b98ea829a1477f9b8620dd5878f707a3#file-bevy_bench-rs-L1273)。FreeCS 3.13.0 注册新 table 的成本会随已有 table 数量增长，因此它的六个 16 组件单元格记为 `N/A`；其准备阶段无法在实用的 benchmark 时间内完成。
 

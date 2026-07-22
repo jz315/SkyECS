@@ -17,130 +17,7 @@ cargo compare-ecs-publish
 
 `cargo compare-ecs-publish` defaults to four cyclic engine-order rotations and writes raw Criterion data, environment metadata, confidence intervals, and cross-run medians to `target/comparison-reports/`. The bounded four-run protocol avoids workflow timeouts but does not cover all six possible engine positions.
 
-Formal publication requires a clean Git working tree before contracts or
-Criterion start. `--allow-dirty` is available only for local diagnostics; its
-JSON metadata is non-reproducible and its Markdown title is marked
-`NON-PUBLICATION / DIRTY WORKTREE`.
-
-## Canonical workload contracts
-
-### Best native bulk insert scenario
-
-`scenario_native_bulk_construction/insert_10k` starts with an empty,
-schema-prepared World and a fully prepared engine-native batch. Input creation,
-World creation, registration, and destruction are outside the timer. The timer
-contains the public bulk admission API and any iterator finalization needed to
-complete insertion of exactly 10,000 four-component entities.
-
-| Adapter | Selected public API | Prepared native input |
-|---|---|---|
-| Sky | `World::spawn_columns` | four component `Vec`s |
-| hecs | `World::spawn_column_batch` | completed `ColumnBatch` |
-| Bevy ECS | `World::spawn_batch` | `Vec<SuiteBundle>` |
-| Flecs C | `ecs_bulk_init` | four C++ vectors with sorted ID/pointer pairs |
-| FreeCS | `World::spawn_batch` | four component columns consumed by the initializer |
-| Shipyard | `World::bulk_add_entity` | `Vec<SuiteBundle>` |
-
-This is not the same workload as the retired `bulk_insert_10k`, which supplied
-row bundles to every adapter. Historical values for that workload are labeled
-as legacy and must not be compared directly with native-bulk results. Because
-the prepared inputs are engine-specific, this row is a Scenario and does not
-participate in comparable win counts or order-bias analysis.
-
-### Entity IDs and fixed sequences
-
-`entity_id_random_access/{hot_10k,warm_100k}` is Comparable: every timed lookup
-starts from an Entity ID and uses the fastest certified public ID lookup for
-that engine. No adapter may substitute a direct-address plan.
-
-`scenario_fixed_sequence_access` answers a different question for stable,
-repeated entity sequences. It reports plan construction, steady traversal, and
-build plus 1/4/16/64 traversals for 10k and 100k entities. The report includes
-the plan's pointer payload and the amortized time per traversal. These plans
-borrow a structurally frozen World and are classified as Scenario results.
-
-### Real gameplay frame
-
-`scenario_gameplay_frame/frame` runs one frame from a deterministic 256-frame
-arena/action trace. It contains 65,536 live logical slots distributed across
-32 stable archetypes:
-
-| Population | Entities | Main components/role |
-|---|---:|---|
-| Ordinary movers | 20,480 | Position + Velocity |
-| Combat actors | 16,384 | enemy damage or ally regeneration; transient Stunned |
-| AI actors | 8,192 | health, target slot, cooldown |
-| Projectiles | 8,192 | velocity, damage, owner, 64-frame lifetime |
-| Static world | 8,192 | position only |
-| Effects | 4,096 | position + lifetime |
-
-Every measured frame performs 53,248 movement updates, combat updates, 2,048
-AI target lookups, 12,288 lifetime updates, 128 delayed Stunned removals plus
-128 insertions, and 128 projectile despawn/replacements. Status components live
-for eight frames and projectiles live for 64 frames; no structural operation is
-added and removed in the same frame. There are no matrix inversions, artificial
-phase repetitions, or other compute kernels that hide ECS costs.
-
-Every adapter maintains the same logical-slot-to-entity map. Contract tests run
-all 256 frames and compare entity/component counts plus canonical position,
-health, lifetime, generation, and AI-lookup checksums against an ECS-independent
-reference model. Total-frame timing and correctness use the same implementation.
-Both full-frame and phase measurements reset to a fresh context after each
-256-frame trace; context construction and digest validation are outside the
-reported duration.
-
-`diagnostic_gameplay_phases/{iteration,ai_source_lookup,target_position_lookup,
-status_transition,projectile_recycle}` executes the same evolving five-phase
-state machine but accumulates time only around one phase. Context construction,
-the other four phases, digest checks, and trace resets are excluded. These rows
-diagnose likely frame contributions; timer-window overhead means they are not
-claimed to add exactly to the full-frame row. Every adapter reads `TargetSlot`
-each frame, builds the target-entity list, then consumes it in the Position
-phase. Flecs keeps one FFI call for the canonical full frame and exposes the
-five-call form only for diagnostics.
-
-Phase diagnostics are registered only in the separate `gameplay_phases` bench
-target. The canonical `comparison.rs` target and default publication workflow
-do not execute them.
-
-The raw comparison is serial. Scheduler and parallel execution belong in
-separate benchmark families.
-
-### Fast API selection
-
-API experiments and the formal cross-engine comparison are intentionally
-separate. Sky microbench candidates live in `crates/sky_ecs/benches`;
-`random_access`, `entity_view`, and `chunk_cost` isolate the supporting APIs.
-Canonical gameplay selection lives behind `api-experiments` in the comparison crate.
-Run those benches locally on the target machine, use alternating AB/BA order,
-and record the controlled certification before changing a winner.
-
-`tools/ecs-comparison/benches/comparison.rs` contains only the selected paths.
-It has no candidate enum, environment switch, or API selector, and GitHub
-shared runners never choose a production API. External-engine experiments that
-cannot live in Sky's crate remain in the manually enabled `api_candidates`
-bench. Dense 10k/100k/1m iteration uses the selected plain-function chunk API;
-gameplay currently uses `PreparedEntityView` for the AI tuple and `EntityAccessor` for
-target Position lookups. The previous certificate was withdrawn because it used a
-simplified dirty-tree fixture. Regenerate evidence only from a clean tree with
-`SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs_comparison --bench api_candidates --features api-experiments -- sky`.
-
-## Last public snapshot (before the workload revision)
-
-All values below come from public
-[GitHub Actions run #29695552048](https://github.com/jz315/SkyECS/actions/runs/29695552048),
-commit `e47f48163759f2e0438bcb89504908749999a416`. The uploaded report artifact has
-SHA-256 `db5ea692ad4b32eae2614261372e2f98d0e0f9dc55bdee1e8b1d7f844543c324`.
-
-This public run predates both canonical workload changes above. Its unaffected
-microbenchmark rows remain useful historical evidence, but the legacy bulk row
-must not be relabeled and the retired Mixed frame is intentionally omitted.
-New native-bulk and gameplay-frame numbers will be added only after the updated
-workflow completes a public four-rotation run.
-
-bold marks the lowest median among supported adapters.
-
-### General workloads
+## General workloads
 
 | Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
@@ -156,7 +33,7 @@ bold marks the lowest median among supported adapters.
 | Spawn/random despawn 1k | **45.370 µs** | 46.338 µs | 103.052 µs | 67.469 µs | 112.407 µs | 107.419 µs |
 | Random add/remove component 1k | 92.425 µs | 111.459 µs | 173.031 µs | 134.730 µs | 212.391 µs | **51.553 µs** |
 
-### Random-fragmentation workloads
+## Random-fragmentation workloads
 
 The suite follows the complete random-fragmentation matrix from
 [Sander Mertens' benchmark](https://gist.github.com/SanderMertens/b98ea829a1477f9b8620dd5878f707a3#file-bevy_bench-rs-L1273). FreeCS 3.13.0 registers new tables with work proportional to the existing table count, so its six 16-component cells are `N/A`; their setup does not finish on a practical benchmark timescale.
