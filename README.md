@@ -25,8 +25,6 @@ shared workloads and public APIs.
 - Extreme performance: an Archetype architecture and deep core optimizations
   provide exceptionally fast execution.
 - Native parallelism: built-in multithreading makes full use of multi-core CPUs.
-- Prepared entity access: validate a fixed entity sequence once, then read or
-  update components through a compact direct-address plan.
 - Elegant and easy to use: intuitive APIs let developers focus on application
   and game logic.
 - Dynamic extensibility: alongside the typed API, a complete dynamic API supports
@@ -68,10 +66,6 @@ fn main() {
 
 For larger workloads, replace serial iteration with `par_for_each` or
 `par_for_each_chunk` to take advantage of multiple CPU cores.
-
-Typed bundle, query, and filter tuples support up to 16 entries. A single
-archetype can contain up to 32 distinct component types; this is a per-archetype
-storage limit, not a limit on the component types available to a `World`.
 
 ## Documentation
 
