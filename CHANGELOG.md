@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Allow distinct Rust `TypeId` values to share a registered type name, expose
+  all ambiguous matches, and keep opaque dynamic names unique.
+- Validate Compare-ECS gameplay after each phase and checksum Velocity,
+  Damage, Regen, and Cooldown values in addition to component presence.
 - Keep prepared-query hot match lists limited to currently active archetype
   storages while retaining incremental signature matching.
 - Return explicit errors for over-wide dynamic bundles and queries, and store

@@ -122,7 +122,7 @@ thread_local! {
 }
 
 struct CoreTypeRegistry {
-    name_to_type: FxHashMap<String, Type>,
+    name_to_types: FxHashMap<String, Vec<Type>>,
     rust_type_to_type: FxHashMap<TypeId, Type>,
 }
 
@@ -141,7 +141,7 @@ fn registry_write() -> RwLockWriteGuard<'static, CoreTypeRegistry> {
 impl CoreTypeRegistry {
     fn new() -> Self {
         Self {
-            name_to_type: FxHashMap::default(),
+            name_to_types: FxHashMap::default(),
             rust_type_to_type: FxHashMap::default(),
         }
     }
@@ -161,7 +161,13 @@ impl CoreTypeRegistry {
     fn register_layout(&mut self, name: &str, size: usize, align: usize) -> Type {
         Self::validate_layout(name, size, align);
 
-        if let Some(ty) = self.name_to_type.get(name) {
+        if let Some(types) = self.name_to_types.get(name) {
+            assert_eq!(
+                types.len(),
+                1,
+                "type `{name}` is already registered by multiple Rust types and cannot be re-registered as an opaque dynamic type"
+            );
+            let ty = types[0];
             assert_eq!(
                 ty.size, size,
                 "type `{name}` was already registered with size {}, not {size}",
@@ -176,30 +182,32 @@ impl CoreTypeRegistry {
                 ty.rust_type_id.is_none() && ty.drop_fn.is_none(),
                 "type `{name}` is already registered as a Rust type and cannot be re-registered as an opaque dynamic type"
             );
-            return *ty;
+            return ty;
         }
 
         let info = Box::leak(Box::new(TypeInfo::new(name, size, align, None, None)));
         let ty = Type::new(info);
-        self.name_to_type.insert(name.to_string(), ty);
+        self.name_to_types.insert(name.to_string(), vec![ty]);
         ty
     }
 
     fn register_rust<T: 'static>(&mut self) -> Type {
+        self.register_rust_with_name::<T>(type_name::<T>())
+    }
+
+    fn register_rust_with_name<T: 'static>(&mut self, name: &str) -> Type {
         let rust_type_id = TypeId::of::<T>();
         if let Some(ty) = self.rust_type_to_type.get(&rust_type_id) {
             return *ty;
         }
 
-        let name = type_name::<T>();
-        if let Some(ty) = self.name_to_type.get(name).copied() {
-            if ty.rust_type_id == Some(rust_type_id) {
-                self.rust_type_to_type.insert(rust_type_id, ty);
-                return ty;
-            }
-
+        if self
+            .name_to_types
+            .get(name)
+            .is_some_and(|types| types.iter().any(|ty| ty.rust_type_id.is_none()))
+        {
             panic!(
-                "type name `{name}` is already registered for a different or opaque layout; Rust type registration would lose layout/drop guarantees"
+                "type name `{name}` is already registered for an opaque layout; Rust type registration would lose layout/drop guarantees"
             );
         }
 
@@ -216,13 +224,23 @@ impl CoreTypeRegistry {
             Some(rust_type_id),
         )));
         let ty = Type::new(info);
-        self.name_to_type.insert(name.to_string(), ty);
+        self.name_to_types
+            .entry(name.to_string())
+            .or_default()
+            .push(ty);
         self.rust_type_to_type.insert(rust_type_id, ty);
         ty
     }
 
     fn query_by_name(&self, name: &str) -> Option<Type> {
-        self.name_to_type.get(name).copied()
+        match self.name_to_types.get(name)?.as_slice() {
+            [ty] => Some(*ty),
+            _ => None,
+        }
+    }
+
+    fn query_all_by_name(&self, name: &str) -> Vec<Type> {
+        self.name_to_types.get(name).cloned().unwrap_or_default()
     }
 
     fn query_by_rust_type<T: 'static>(&self) -> Option<Type> {
@@ -277,6 +295,15 @@ pub fn query_by_name(name: &str) -> Option<Type> {
     registry.query_by_name(name)
 }
 
+/// Queries every foundational type registered under `name`.
+///
+/// Multiple results can occur when separate crate versions define Rust types
+/// with the same fully qualified name but different [`TypeId`] values.
+pub fn query_all_by_name(name: &str) -> Vec<Type> {
+    let registry = registry_read();
+    registry.query_all_by_name(name)
+}
+
 /// Queries a Rust type if it was already registered.
 pub fn query_by_rust_type<T: 'static>() -> Option<Type> {
     let rust_type_id = TypeId::of::<T>();
@@ -303,12 +330,16 @@ pub fn query_by_rust_type<T: 'static>() -> Option<Type> {
 /// Returns all currently registered foundational types.
 pub fn registered_types() -> Vec<Type> {
     let registry = registry_read();
-    registry.name_to_type.values().copied().collect()
+    registry
+        .name_to_types
+        .values()
+        .flat_map(|types| types.iter().copied())
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{register, type_of};
+    use super::{query_all_by_name, query_by_name, register, registry_write, type_of};
 
     #[test]
     fn repeated_dynamic_registration_requires_identical_layout() {
@@ -357,5 +388,39 @@ mod tests {
             std::mem::size_of::<RegisteredRust>(),
             std::mem::align_of::<RegisteredRust>(),
         );
+    }
+
+    #[test]
+    fn same_name_rust_types_are_registered_but_single_lookup_is_ambiguous() {
+        struct First;
+        struct Second;
+
+        let name = "sky_type::tests::versioned_dependency::Component";
+        let (first, second) = {
+            let mut registry = registry_write();
+            (
+                registry.register_rust_with_name::<First>(name),
+                registry.register_rust_with_name::<Second>(name),
+            )
+        };
+
+        assert_ne!(first, second);
+        assert_eq!(query_by_name(name), None);
+        assert_eq!(query_all_by_name(name), vec![first, second]);
+    }
+
+    #[test]
+    #[should_panic(expected = "multiple Rust types")]
+    fn dynamic_registration_rejects_ambiguous_rust_type_name() {
+        struct First;
+        struct Second;
+
+        let name = "sky_type::tests::ambiguous_dynamic_collision";
+        {
+            let mut registry = registry_write();
+            registry.register_rust_with_name::<First>(name);
+            registry.register_rust_with_name::<Second>(name);
+        }
+        register(name, 0, 1);
     }
 }

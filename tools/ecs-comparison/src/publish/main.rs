@@ -10,7 +10,9 @@ use metadata::write_metadata;
 use model::RunEstimate;
 use options::options;
 use report::{reanalyze_report, write_report};
-use runner::{clear_results, rotated_order, run_bench, run_contracts, workspace_root};
+use runner::{
+    clear_results, ensure_clean_worktree, rotated_order, run_bench, run_contracts, workspace_root,
+};
 use std::collections::BTreeMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -21,6 +23,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return reanalyze_report(&report_dir);
     }
     let root = workspace_root()?;
+    if !options.allow_dirty {
+        ensure_clean_worktree(&root)?;
+    }
     let benchmark_target = root.join("target/comparison-publish-target");
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let report_dir = root
@@ -52,7 +57,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let summaries = summarize(estimates);
     validate_results(&summaries, options.runs, options.filter.is_none())?;
-    write_report(&report_dir, options.runs, &summaries, &contracts)?;
+    write_report(
+        &report_dir,
+        options.runs,
+        &summaries,
+        &contracts,
+        options.allow_dirty,
+    )?;
     println!("publication report: {}", report_dir.display());
     Ok(())
 }

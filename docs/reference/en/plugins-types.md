@@ -56,9 +56,15 @@ pub type ComponentTypeInfo = sky_type::TypeInfo;
 pub fn component_type<T: 'static>() -> ComponentType;
 pub fn register_component_type(name: &str, size: usize, align: usize) -> ComponentType;
 pub fn component_type_by_name(name: &str) -> Option<ComponentType>;
+pub fn component_types_by_name(name: &str) -> Vec<ComponentType>;
 pub fn component_type_by_rust_type<T: 'static>() -> Option<ComponentType>;
 pub fn registered_component_types() -> Vec<ComponentType>;
 ```
+
+Different crate versions may register Rust types with the same fully qualified
+name but distinct `TypeId` values. In that case `component_type_by_name`
+returns `None` because the name is ambiguous; use `component_types_by_name`
+to inspect every matching handle. Opaque dynamic type names remain unique.
 
 `ComponentType` is a copyable process-interned handle. It dereferences to:
 

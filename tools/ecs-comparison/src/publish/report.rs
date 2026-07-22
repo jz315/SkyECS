@@ -12,9 +12,12 @@ pub(super) fn write_report(
     run_count: usize,
     summaries: &[Summary],
     contracts: &ContractVerification,
+    allow_dirty: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let order_bias = analyze_order_bias(summaries);
     let report = PublicationReport {
+        reproducible: !allow_dirty,
+        working_tree_dirty: allow_dirty,
         contracts,
         criterion_estimator: "median",
         run_count,
@@ -25,7 +28,14 @@ pub(super) fn write_report(
         report_dir.join("summary.json"),
         serde_json::to_vec_pretty(&report)?,
     )?;
-    write_markdown(report_dir, run_count, summaries, &order_bias, contracts)?;
+    write_markdown(
+        report_dir,
+        run_count,
+        summaries,
+        &order_bias,
+        contracts,
+        allow_dirty,
+    )?;
     Ok(())
 }
 
@@ -46,6 +56,7 @@ pub(super) fn reanalyze_report(report_dir: &Path) -> Result<(), Box<dyn std::err
         stored.run_count,
         &stored.benchmarks,
         &stored.contracts,
+        stored.working_tree_dirty,
     )?;
     println!("reanalyzed publication report: {}", report_dir.display());
     Ok(())
@@ -57,9 +68,19 @@ fn write_markdown(
     summaries: &[Summary],
     order_bias: &OrderBias,
     contracts: &ContractVerification,
+    allow_dirty: bool,
 ) -> io::Result<()> {
     let mut output = File::create(report_dir.join("summary.md"))?;
-    writeln!(output, "# Compare-ECS publication report\n")?;
+    if allow_dirty {
+        writeln!(output, "# NON-PUBLICATION / DIRTY WORKTREE\n")?;
+    } else {
+        writeln!(output, "# Compare-ECS publication report\n")?;
+    }
+    writeln!(
+        output,
+        "Reproducible: **{}**; working tree marked dirty: **{}**.\n",
+        !allow_dirty, allow_dirty
+    )?;
     writeln!(
         output,
         "Contracts: **{}** (`{}`, profile `{}`, log `{}`).\n",

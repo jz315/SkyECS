@@ -66,6 +66,8 @@ pub(super) struct OrderBias {
 
 #[derive(Serialize)]
 pub(super) struct PublicationReport<'a> {
+    pub(super) reproducible: bool,
+    pub(super) working_tree_dirty: bool,
     pub(super) contracts: &'a ContractVerification,
     pub(super) criterion_estimator: &'static str,
     pub(super) run_count: usize,
@@ -77,6 +79,8 @@ pub(super) struct PublicationReport<'a> {
 pub(super) struct StoredPublicationReport {
     #[serde(default)]
     pub(super) contracts: ContractVerification,
+    #[serde(default)]
+    pub(super) working_tree_dirty: bool,
     pub(super) run_count: usize,
     pub(super) benchmarks: Vec<Summary>,
 }

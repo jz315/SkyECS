@@ -51,9 +51,10 @@ pub use entity::EntityId;
 pub use query::{Any, PreparedQuery, Query, QueryFilter, QueryMut, With, Without};
 pub use sky_ecs_derive::{QueryData, StageLabel};
 pub use sky_type::{
-    query_by_name as component_type_by_name, query_by_rust_type as component_type_by_rust_type,
-    register as register_component_type, registered_types as registered_component_types,
-    type_of as component_type, Type as ComponentType, TypeInfo as ComponentTypeInfo,
+    query_all_by_name as component_types_by_name, query_by_name as component_type_by_name,
+    query_by_rust_type as component_type_by_rust_type, register as register_component_type,
+    registered_types as registered_component_types, type_of as component_type,
+    Type as ComponentType, TypeInfo as ComponentTypeInfo,
 };
 pub use system::{
     CommandDiagnostics, EntityView, ExclusiveSystem, First, FixedOverflow, FixedStageDiagnostics,

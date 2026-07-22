@@ -17,6 +17,10 @@ cargo compare-ecs-publish
 
 `cargo compare-ecs-publish` 默认执行四轮循环引擎顺序轮换，并将 Criterion 原始数据、环境信息、置信区间和跨运行中位数写入 `target/comparison-reports/`。四轮有界协议用于避免 workflow 超时，但不会覆盖六个引擎的全部顺序位置。
 
+正式发布在 contracts 或 Criterion 启动前要求 Git 工作树干净。
+`--allow-dirty` 仅供本地诊断；对应 JSON 会标记为不可复现，Markdown 标题会标记
+`NON-PUBLICATION / DIRTY WORKTREE`。
+
 ## Canonical workload 合同
 
 ### 最佳原生批量插入场景

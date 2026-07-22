@@ -55,9 +55,14 @@ pub type ComponentTypeInfo = sky_type::TypeInfo;
 pub fn component_type<T: 'static>() -> ComponentType;
 pub fn register_component_type(name: &str, size: usize, align: usize) -> ComponentType;
 pub fn component_type_by_name(name: &str) -> Option<ComponentType>;
+pub fn component_types_by_name(name: &str) -> Vec<ComponentType>;
 pub fn component_type_by_rust_type<T: 'static>() -> Option<ComponentType>;
 pub fn registered_component_types() -> Vec<ComponentType>;
 ```
+
+不同 crate 版本可能注册完全限定名相同、但 `TypeId` 不同的 Rust 类型。此时名称
+存在歧义，`component_type_by_name` 返回 `None`；可用
+`component_types_by_name` 查看全部匹配 handle。动态 opaque 类型名仍保持唯一。
 
 `ComponentType` 是可复制的进程 interned handle，并 deref 到：
 

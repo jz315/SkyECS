@@ -21,6 +21,25 @@ pub(super) fn workspace_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
         .to_path_buf())
 }
 
+pub(super) fn ensure_clean_worktree(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(["status", "--porcelain=v1"])
+        .output()?;
+    if !output.status.success() {
+        return Err("git status failed".into());
+    }
+    if !output.stdout.is_empty() {
+        let status = String::from_utf8_lossy(&output.stdout);
+        return Err(format!(
+            "formal publication requires a clean working tree:\n{status}\n\
+             use --allow-dirty only for local diagnostics"
+        )
+        .into());
+    }
+    Ok(())
+}
+
 fn cargo() -> String {
     env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned())
 }

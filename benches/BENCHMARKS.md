@@ -17,6 +17,11 @@ cargo compare-ecs-publish
 
 `cargo compare-ecs-publish` defaults to four cyclic engine-order rotations and writes raw Criterion data, environment metadata, confidence intervals, and cross-run medians to `target/comparison-reports/`. The bounded four-run protocol avoids workflow timeouts but does not cover all six possible engine positions.
 
+Formal publication requires a clean Git working tree before contracts or
+Criterion start. `--allow-dirty` is available only for local diagnostics; its
+JSON metadata is non-reproducible and its Markdown title is marked
+`NON-PUBLICATION / DIRTY WORKTREE`.
+
 ## Canonical workload contracts
 
 ### Best native bulk insert scenario
