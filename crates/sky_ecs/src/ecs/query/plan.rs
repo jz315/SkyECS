@@ -660,9 +660,13 @@ fn append_posting_matches<Flt: QueryFilter>(
 #[derive(Default)]
 pub(crate) struct PreparedCache {
     cached_world: Option<Arc<()>>,
-    cached_epoch: Option<usize>,
+    cached_archetype_epoch: Option<usize>,
+    cached_active_storage_epoch: Option<u64>,
     scanned_data_len: usize,
+    signature_matches: Vec<CachedArchetype>,
     pub archetypes: Arc<Vec<CachedArchetype>>,
+    #[cfg(test)]
+    active_refresh_count: u64,
 }
 
 impl PreparedCache {
@@ -673,61 +677,77 @@ impl PreparedCache {
             .as_ref()
             .is_some_and(|cached| Arc::ptr_eq(cached, world.cache_token()));
         let current_epoch = world.archetype_epoch();
-        if same_world && self.cached_epoch == Some(current_epoch) {
-            return;
+        let active_storage_epoch = world.active_storage_epoch();
+        let signatures_changed = !same_world || self.cached_archetype_epoch != Some(current_epoch);
+
+        if signatures_changed {
+            let data_len = world.data.len();
+            let filter_plan = (!Flt::IS_TRIVIAL && Flt::IS_CONJUNCTIVE)
+                .then(|| FilterPlan::compile::<Flt>(descriptor));
+            // A new archetype increments the epoch and appends exactly one
+            // storage. Matching deltas permit an incremental suffix scan;
+            // clear or world replacement forces a complete signature rebuild.
+            let scan_start = match self.cached_archetype_epoch {
+                Some(cached_epoch)
+                    if same_world
+                        && data_len >= self.scanned_data_len
+                        && current_epoch.wrapping_sub(cached_epoch)
+                            == data_len - self.scanned_data_len =>
+                {
+                    self.scanned_data_len
+                }
+                _ => 0,
+            };
+
+            if scan_start == 0 {
+                self.signature_matches.clear();
+            }
+
+            if !append_posting_matches::<Flt>(
+                world,
+                descriptor,
+                filter_plan.as_ref(),
+                scan_start,
+                &mut self.signature_matches,
+            ) {
+                for (data_index, data) in world.data.iter().enumerate().skip(scan_start) {
+                    let archetype = data.archetype;
+                    if !filter_matches::<Flt>(filter_plan.as_ref(), &archetype) {
+                        continue;
+                    }
+
+                    if let Some(component_indices) = descriptor.component_indices(&archetype) {
+                        self.signature_matches.push(CachedArchetype {
+                            data_index,
+                            component_indices,
+                        });
+                    }
+                }
+            }
+
+            self.scanned_data_len = data_len;
+            self.cached_archetype_epoch = Some(current_epoch);
         }
 
-        let data_len = world.data.len();
-        let filter_plan = (!Flt::IS_TRIVIAL && Flt::IS_CONJUNCTIVE)
-            .then(|| FilterPlan::compile::<Flt>(descriptor));
-        // A new archetype increments the epoch and appends exactly one archetype storage.
-        // If both deltas agree, only the appended suffix can be new. `clear`
-        // increments the epoch without preserving that relation, forcing a
-        // full rebuild even if the world is repopulated to the same length.
-        let scan_start = match self.cached_epoch {
-            Some(cached_epoch)
-                if same_world
-                    && data_len >= self.scanned_data_len
-                    && current_epoch.wrapping_sub(cached_epoch)
-                        == data_len - self.scanned_data_len =>
+        if signatures_changed || self.cached_active_storage_epoch != Some(active_storage_epoch) {
+            let active = Arc::make_mut(&mut self.archetypes);
+            active.clear();
+            active.extend(
+                self.signature_matches
+                    .iter()
+                    .filter(|cached| !world.data[cached.data_index].chunks.is_empty())
+                    .cloned(),
+            );
+            self.cached_active_storage_epoch = Some(active_storage_epoch);
+            #[cfg(test)]
             {
-                self.scanned_data_len
-            }
-            _ => 0,
-        };
-
-        let archetypes = Arc::make_mut(&mut self.archetypes);
-        if scan_start == 0 {
-            archetypes.clear();
-        }
-
-        if !append_posting_matches::<Flt>(
-            world,
-            descriptor,
-            filter_plan.as_ref(),
-            scan_start,
-            archetypes,
-        ) {
-            for (data_index, data) in world.data.iter().enumerate().skip(scan_start) {
-                let archetype = data.archetype;
-                if !filter_matches::<Flt>(filter_plan.as_ref(), &archetype) {
-                    continue;
-                }
-
-                if let Some(component_indices) = descriptor.component_indices(&archetype) {
-                    archetypes.push(CachedArchetype {
-                        data_index,
-                        component_indices,
-                    });
-                }
+                self.active_refresh_count = self.active_refresh_count.saturating_add(1);
             }
         }
 
-        self.scanned_data_len = data_len;
         if !same_world {
             self.cached_world = Some(Arc::clone(world.cache_token()));
         }
-        self.cached_epoch = Some(current_epoch);
     }
 
     #[inline(always)]
@@ -747,6 +767,11 @@ impl PreparedCache {
 
     pub fn cached_archetype_count(&self) -> usize {
         self.archetypes.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_refresh_count(&self) -> u64 {
+        self.active_refresh_count
     }
 }
 

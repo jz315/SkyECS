@@ -416,6 +416,7 @@ impl World {
         self.bump_row_layout_epoch();
         self.bump_chunk_set_epoch();
         self.bump_column_base_epoch();
+        self.bump_active_storage_epoch();
         self.bump_archetype_epoch();
         let mut drop_panic = None;
 

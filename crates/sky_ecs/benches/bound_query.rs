@@ -15,6 +15,9 @@ struct Active;
 #[derive(Clone, Copy)]
 struct Selected;
 
+#[derive(Clone, Copy)]
+struct HistoricalTag<const N: usize>;
+
 #[derive(QueryData)]
 struct Movement<'w> {
     position: &'w mut Position2D,
@@ -43,6 +46,26 @@ fn populated_world() -> World {
             Selected,
         )
     }));
+    world
+}
+
+fn churn_historical_storage<const N: usize>(world: &mut World) {
+    let entity = world.spawn((Position2D { x: 0.0, y: 0.0 }, HistoricalTag::<N>));
+    assert!(world.despawn(entity));
+}
+
+fn world_after_historical_schema_churn() -> World {
+    let mut world = World::new();
+    macro_rules! churn {
+        ($($index:literal),+ $(,)?) => {
+            $(churn_historical_storage::<$index>(&mut world);)+
+        };
+    }
+    churn!(
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        25, 26, 27, 28, 29, 30, 31,
+    );
+    world.spawn((Position2D { x: 1.0, y: 2.0 },));
     world
 }
 
@@ -99,6 +122,31 @@ fn bench_bound_query(c: &mut Criterion) {
             prepared.for_each(&mut prepared_world, |(position, velocity)| {
                 update(position, velocity);
             });
+        });
+    });
+
+    let clean_world = {
+        let mut world = World::new();
+        world.spawn((Position2D { x: 1.0, y: 2.0 },));
+        world
+    };
+    let historical_world = world_after_historical_schema_churn();
+    let mut clean_query = PreparedQuery::<&Position2D>::new();
+    let mut historical_query = PreparedQuery::<&Position2D>::new();
+    assert_eq!(clean_query.cached_archetype_count(), 0);
+    assert_eq!(historical_query.cached_archetype_count(), 0);
+    group.bench_function("one_active_clean_schema", |b| {
+        b.iter(|| {
+            clean_query.for_each(&clean_world, |position| {
+                black_box(position);
+            })
+        });
+    });
+    group.bench_function("one_active_after_32_empty_storages", |b| {
+        b.iter(|| {
+            historical_query.for_each(&historical_world, |position| {
+                black_box(position);
+            })
         });
     });
 

@@ -964,6 +964,59 @@ mod tests {
     }
 
     #[test]
+    fn prepared_query_drops_empty_matching_storages_from_hot_list() {
+        let mut world = World::new();
+        let first = world.spawn((Position::default(), Velocity::default()));
+        let second = world.spawn((Position::default(), Extra::default()));
+        let mut query = PreparedQuery::<&Position>::new();
+
+        assert_eq!(query.count(&world), 2);
+        assert_eq!(query.cached_archetype_count(), 2);
+        assert!(world.despawn(second));
+        assert_eq!(query.count(&world), 1);
+        assert_eq!(query.cached_archetype_count(), 1);
+        assert!(world.despawn(first));
+        assert_eq!(query.count(&world), 0);
+        assert_eq!(query.cached_archetype_count(), 0);
+    }
+
+    #[test]
+    fn active_match_list_ignores_row_churn_and_restores_reactivated_storage() {
+        let mut world = World::new();
+        let first = world.spawn((Position::default(),));
+        let second = world.spawn((Position::default(),));
+        let mut query = PreparedQuery::<&Position>::new();
+
+        assert_eq!(query.count(&world), 2);
+        assert_eq!(query.prepared.active_refresh_count(), 1);
+        assert!(world.despawn(second));
+        assert_eq!(query.count(&world), 1);
+        assert_eq!(query.prepared.active_refresh_count(), 1);
+
+        assert!(world.despawn(first));
+        assert_eq!(query.count(&world), 0);
+        assert_eq!(query.prepared.active_refresh_count(), 2);
+
+        world.spawn((Position::default(),));
+        assert_eq!(query.count(&world), 1);
+        assert_eq!(query.cached_archetype_count(), 1);
+        assert_eq!(query.prepared.active_refresh_count(), 3);
+    }
+
+    #[test]
+    fn optional_only_query_does_not_retain_historical_empty_storage() {
+        let mut world = World::new();
+        let entity = world.spawn((Velocity::default(),));
+        let mut query = PreparedQuery::<Option<&Position>>::new();
+
+        assert_eq!(query.count(&world), 1);
+        assert_eq!(query.cached_archetype_count(), 1);
+        assert!(world.despawn(entity));
+        assert_eq!(query.count(&world), 0);
+        assert_eq!(query.cached_archetype_count(), 0);
+    }
+
+    #[test]
     fn prepared_query_rebuilds_when_used_with_another_world_at_the_same_epoch() {
         let mut positions = World::new();
         positions.spawn((Position { x: 1.0, y: 2.0 },));
