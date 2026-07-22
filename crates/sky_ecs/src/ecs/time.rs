@@ -27,11 +27,11 @@ pub struct Time {
 
     /// Total elapsed time since the first tick, affected by
     /// [`time_scale`](Self::time_scale).
-    pub elapsed: f32,
+    pub elapsed: f64,
 
     /// Real elapsed time since the first tick, unaffected by
     /// [`time_scale`](Self::time_scale).
-    pub raw_elapsed: f32,
+    pub raw_elapsed: f64,
 
     /// Number of ticks since the schedule started.
     pub frame_count: u64,
@@ -74,12 +74,12 @@ impl Time {
     }
 
     #[inline]
-    pub fn elapsed(&self) -> f32 {
+    pub fn elapsed(&self) -> f64 {
         self.elapsed
     }
 
     #[inline]
-    pub fn raw_elapsed(&self) -> f32 {
+    pub fn raw_elapsed(&self) -> f64 {
         self.raw_elapsed
     }
 

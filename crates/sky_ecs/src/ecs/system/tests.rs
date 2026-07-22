@@ -1092,6 +1092,18 @@ fn non_finite_tick_inputs_do_not_poison_time_or_fixed_accumulators() {
     assert!(world.time.elapsed.is_finite());
 }
 
+#[test]
+fn elapsed_continues_advancing_beyond_f32_precision_limit() {
+    let mut world = World::new();
+    world.time.elapsed = 524_288.0;
+    world.time.raw_elapsed = 524_288.0;
+
+    world.tick_with_delta(1.0 / 60.0).unwrap();
+
+    assert!(world.time.elapsed > 524_288.0);
+    assert!(world.time.raw_elapsed > 524_288.0);
+}
+
 fn invalid_resource_access(_write: ResMut<Trace>, _read: Res<Trace>) {}
 
 fn invalid_component_access(_write: View<&mut Position>, _read: View<&Position>) {}

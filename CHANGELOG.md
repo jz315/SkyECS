@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Return explicit errors for over-wide dynamic bundles and queries, and store
+  long-running elapsed time totals as `f64`.
 - Make schedule panic recovery and shutdown attempt every command/state
   cleanup, preserve the first panic, and guarantee teardown at-most-once.
 - Reuse prepared entity-view route tables across pure row churn via a dedicated

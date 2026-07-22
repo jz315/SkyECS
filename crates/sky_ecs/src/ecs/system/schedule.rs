@@ -546,8 +546,8 @@ impl Schedule {
         }
 
         world.time.delta = world.time.frame_delta;
-        world.time.elapsed += scaled_delta;
-        world.time.raw_elapsed += raw_delta;
+        world.time.elapsed += f64::from(scaled_delta);
+        world.time.raw_elapsed += f64::from(raw_delta);
         Ok(report)
     }
 

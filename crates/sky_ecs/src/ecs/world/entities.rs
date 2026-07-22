@@ -225,15 +225,7 @@ impl World {
         &mut self,
         values: &mut [crate::ecs::dynamic::ErasedComponentValue],
     ) -> Result<EntityId, crate::ecs::dynamic::DynamicSpawnError> {
-        for (index, value) in values.iter().enumerate() {
-            for other in &values[(index + 1)..] {
-                if value.component.id() == other.component.id() {
-                    return Err(crate::ecs::dynamic::DynamicSpawnError::DuplicateComponent {
-                        component: value.component,
-                    });
-                }
-            }
-        }
+        crate::ecs::dynamic::validate_dynamic_values(values)?;
 
         let mut builder = create_archetype();
         for value in values.iter() {

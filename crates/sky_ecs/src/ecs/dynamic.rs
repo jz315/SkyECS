@@ -12,6 +12,12 @@ use core::marker::PhantomData;
 use core::slice;
 use smallvec::SmallVec;
 
+/// Maximum number of slots accepted by a runtime-built query.
+pub const MAX_DYNAMIC_QUERY_SLOTS: usize = super::query::MAX_QUERY_COMPONENTS;
+
+/// Maximum number of components accepted by a runtime-built bundle.
+pub const MAX_DYNAMIC_BUNDLE_COMPONENTS: usize = super::archetype::MAX_COMPONENTS;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DynamicAccess {
     Read,
@@ -20,6 +26,10 @@ pub enum DynamicAccess {
 
 #[derive(Debug)]
 pub enum DynamicQueryError {
+    TooManySlots {
+        count: usize,
+        max: usize,
+    },
     DuplicateComponent {
         component: ComponentType,
     },
@@ -48,6 +58,10 @@ pub enum DynamicQueryError {
 impl fmt::Display for DynamicQueryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::TooManySlots { count, max } => write!(
+                f,
+                "dynamic query contains {count} slots, but at most {max} are supported"
+            ),
             Self::DuplicateComponent { component } => {
                 write!(
                     f,
@@ -90,12 +104,17 @@ impl std::error::Error for DynamicQueryError {}
 
 #[derive(Debug)]
 pub enum DynamicSpawnError {
+    TooManyComponents { count: usize, max: usize },
     DuplicateComponent { component: ComponentType },
 }
 
 impl fmt::Display for DynamicSpawnError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::TooManyComponents { count, max } => write!(
+                f,
+                "dynamic bundle contains {count} components, but at most {max} are supported"
+            ),
             Self::DuplicateComponent { component } => {
                 write!(
                     f,
@@ -144,9 +163,7 @@ impl DynamicBundle {
     }
 
     pub fn from_values(values: Vec<ErasedComponentValue>) -> Result<Self, DynamicSpawnError> {
-        validate_unique_components(values.iter().map(|value| value.component), |component| {
-            DynamicSpawnError::DuplicateComponent { component }
-        })?;
+        validate_dynamic_values(&values)?;
         Ok(Self { values })
     }
 
@@ -241,6 +258,12 @@ impl DynamicQueryBuilder {
     }
 
     pub fn build(self) -> Result<DynamicQuery, DynamicQueryError> {
+        if self.slots.len() > MAX_DYNAMIC_QUERY_SLOTS {
+            return Err(DynamicQueryError::TooManySlots {
+                count: self.slots.len(),
+                max: MAX_DYNAMIC_QUERY_SLOTS,
+            });
+        }
         validate_unique_components(self.slots.iter().map(|slot| slot.component), |component| {
             DynamicQueryError::DuplicateComponent { component }
         })?;
@@ -264,6 +287,21 @@ impl DynamicQueryBuilder {
             has_writes,
         })
     }
+}
+
+pub(crate) fn validate_dynamic_values(
+    values: &[ErasedComponentValue],
+) -> Result<(), DynamicSpawnError> {
+    if values.len() > MAX_DYNAMIC_BUNDLE_COMPONENTS {
+        return Err(DynamicSpawnError::TooManyComponents {
+            count: values.len(),
+            max: MAX_DYNAMIC_BUNDLE_COMPONENTS,
+        });
+    }
+
+    validate_unique_components(values.iter().map(|value| value.component), |component| {
+        DynamicSpawnError::DuplicateComponent { component }
+    })
 }
 
 pub struct DynamicQuery {
@@ -617,7 +655,11 @@ fn validate_unique_components<E>(
 
 #[cfg(test)]
 mod tests {
-    use super::{DynamicBundle, DynamicQuery, DynamicQueryError, WorldDynamicExt};
+    use super::{
+        DynamicBundle, DynamicQuery, DynamicQueryError, DynamicSpawnError, ErasedComponentValue,
+        WorldDynamicExt, MAX_DYNAMIC_BUNDLE_COMPONENTS, MAX_DYNAMIC_QUERY_SLOTS,
+    };
+    use crate::ecs::erased_value::InsertValue;
     use crate::ecs::World;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -646,6 +688,18 @@ mod tests {
         fn drop(&mut self) {
             self.drops.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    fn distinct_dynamic_values(count: usize) -> Vec<ErasedComponentValue> {
+        (0..count)
+            .map(|index| {
+                let name = format!("sky_ecs::dynamic::tests::wide_{index}");
+                ErasedComponentValue {
+                    component: sky_type::register(&name, 8, 8),
+                    value: InsertValue::from_value(index as u64),
+                }
+            })
+            .collect()
     }
 
     #[test]
@@ -725,6 +779,50 @@ mod tests {
             result,
             Err(DynamicQueryError::DuplicateComponent { .. })
         ));
+    }
+
+    #[test]
+    fn dynamic_query_width_limit_returns_error_instead_of_panicking() {
+        let values = distinct_dynamic_values(MAX_DYNAMIC_QUERY_SLOTS + 1);
+        let builder = values
+            .iter()
+            .fold(DynamicQuery::builder(), |builder, value| {
+                builder.read_component(value.component())
+            });
+
+        let result = builder.build();
+
+        assert!(matches!(
+            result,
+            Err(DynamicQueryError::TooManySlots { count, max })
+                if count == MAX_DYNAMIC_QUERY_SLOTS + 1 && max == MAX_DYNAMIC_QUERY_SLOTS
+        ));
+    }
+
+    #[test]
+    fn dynamic_bundle_width_limit_returns_error_before_archetype_build() {
+        let values = distinct_dynamic_values(MAX_DYNAMIC_BUNDLE_COMPONENTS + 1);
+        let result = DynamicBundle::from_values(values);
+
+        assert!(matches!(
+            result,
+            Err(DynamicSpawnError::TooManyComponents { count, max })
+                if count == MAX_DYNAMIC_BUNDLE_COMPONENTS + 1
+                    && max == MAX_DYNAMIC_BUNDLE_COMPONENTS
+        ));
+    }
+
+    #[test]
+    fn spawn_revalidates_dynamic_bundle_width() {
+        let values = distinct_dynamic_values(MAX_DYNAMIC_BUNDLE_COMPONENTS + 1);
+        let mut world = World::new();
+        let result = world.spawn_dynamic(DynamicBundle { values });
+
+        assert!(matches!(
+            result,
+            Err(DynamicSpawnError::TooManyComponents { .. })
+        ));
+        assert_eq!(world.entity_count(), 0);
     }
 
     #[test]

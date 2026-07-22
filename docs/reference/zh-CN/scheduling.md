@@ -90,8 +90,8 @@ pub struct Time {
     pub delta: f32,
     pub frame_delta: f32,
     pub raw_delta: f32,
-    pub elapsed: f32,
-    pub raw_elapsed: f32,
+    pub elapsed: f64,
+    pub raw_elapsed: f64,
     pub frame_count: u64,
     pub fixed_alpha: f32,
     pub time_scale: f32,
@@ -104,6 +104,7 @@ pub struct Time {
 - `delta` 是当前 stage delta：fixed stage 内为固定步长，其余为 `frame_delta`；
 - `frame_delta` 与 `elapsed` 受 `time_scale` 影响；
 - `raw_delta` 与 `raw_elapsed` 不受影响；
+- elapsed 累计值使用 `f64`，长时间运行后仍能持续累加较小的帧 delta；
 - `fixed_alpha` 是内置 `FixedUpdate` 的已累计步长比例；
 - `Time::default()` 将计数/delta 置零，`time_scale` 置 1。
 

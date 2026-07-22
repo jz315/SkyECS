@@ -22,9 +22,14 @@ pub trait WorldDynamicExt {
 
 #[derive(Debug)]
 pub enum DynamicSpawnError {
+    TooManyComponents { count: usize, max: usize },
     DuplicateComponent { component: ComponentType },
 }
 ```
+
+The public limits are `MAX_DYNAMIC_BUNDLE_COMPONENTS` (32) and
+`MAX_DYNAMIC_QUERY_SLOTS` (16). Inputs beyond either limit return an error
+before archetype or query-plan construction.
 
 | Type | Members |
 |---|---|
@@ -58,7 +63,7 @@ pub struct DynamicQuery { /* private fields */ }
 | `write_component(self, ComponentType) -> Self` | Runtime-typed required write. |
 | `optional_read_component(self, ComponentType) -> Self` | Runtime-typed optional read. |
 | `optional_write_component(self, ComponentType) -> Self` | Runtime-typed optional write. |
-| `build(self) -> Result<DynamicQuery, DynamicQueryError>` | Validates unique component identity and creates a cached query. |
+| `build(self) -> Result<DynamicQuery, DynamicQueryError>` | Validates width and unique component identity, then creates a cached query. |
 
 One component identity may occupy only one slot.
 
@@ -121,6 +126,7 @@ distinct slot indices; use them whenever multiple live slices are needed from on
 
 | Variant | Condition |
 |---|---|
+| `TooManySlots { count, max }` | Builder exceeds `MAX_DYNAMIC_QUERY_SLOTS`. |
 | `DuplicateComponent { component }` | Builder contains the same component identity twice. |
 | `InvalidSlot { slot, slot_count }` | Slot is outside the query. |
 | `ComponentMismatch { slot, expected, actual }` | Requested Rust type does not match slot metadata. |
@@ -132,7 +138,7 @@ distinct slot indices; use them whenever multiple live slices are needed from on
 ## Complexity and allocation
 
 - Building validates uniqueness in O(number of slots²); query widths are intended to remain
-  small.
+  small and are bounded by `MAX_DYNAMIC_QUERY_SLOTS`.
 - Initial/invalidated execution prepares matching archetypes; chunk callbacks then perform
   constant-time validated slot lookup plus slice construction.
 - Iteration allocates no per-entity objects and invokes the callback once per matching chunk.

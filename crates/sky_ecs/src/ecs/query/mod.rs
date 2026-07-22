@@ -40,7 +40,7 @@ pub(crate) use sequential::{
 pub trait QueryFilterSealed {}
 
 const INLINE_QUERY_COMPONENTS: usize = 8;
-const MAX_QUERY_COMPONENTS: usize = 16;
+pub(crate) const MAX_QUERY_COMPONENTS: usize = 16;
 const OPTIONAL_SENTINEL: u8 = u8::MAX;
 
 #[doc(hidden)]

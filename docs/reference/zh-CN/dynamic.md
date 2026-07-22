@@ -22,9 +22,13 @@ pub trait WorldDynamicExt {
 
 #[derive(Debug)]
 pub enum DynamicSpawnError {
+    TooManyComponents { count: usize, max: usize },
     DuplicateComponent { component: ComponentType },
 }
 ```
+
+公开上限为 `MAX_DYNAMIC_BUNDLE_COMPONENTS`（32）和
+`MAX_DYNAMIC_QUERY_SLOTS`（16）。超过任一上限会在构造 archetype 或 query plan 前返回错误。
 
 | 类型 | 成员 |
 |---|---|
@@ -57,7 +61,7 @@ pub struct DynamicQuery { /* 私有字段 */ }
 | `write_component(self, ComponentType) -> Self` | 运行时类型必需写。 |
 | `optional_read_component(self, ComponentType) -> Self` | 运行时类型可选读。 |
 | `optional_write_component(self, ComponentType) -> Self` | 运行时类型可选写。 |
-| `build(self) -> Result<DynamicQuery, DynamicQueryError>` | 验证组件 identity 唯一并创建缓存查询。 |
+| `build(self) -> Result<DynamicQuery, DynamicQueryError>` | 验证宽度和组件 identity 唯一性，再创建缓存查询。 |
 
 一个组件 identity 只能占据一个 slot。
 
@@ -120,6 +124,7 @@ Entity 与组件 slice 行对齐且长度都是 `len()`。多 slice 方法要求
 
 | Variant | 条件 |
 |---|---|
+| `TooManySlots { count, max }` | Builder 超过 `MAX_DYNAMIC_QUERY_SLOTS`。 |
 | `DuplicateComponent { component }` | Builder 重复同一组件 identity。 |
 | `InvalidSlot { slot, slot_count }` | Slot 超出查询范围。 |
 | `ComponentMismatch { slot, expected, actual }` | 请求的 Rust 类型与 slot 元数据不符。 |
@@ -130,7 +135,7 @@ Entity 与组件 slice 行对齐且长度都是 `len()`。多 slice 方法要求
 
 ## 复杂度与分配
 
-- Build 的唯一性验证为 O(slot 数²)，设计目标是较小查询宽度。
+- Build 的唯一性验证为 O(slot 数²)，且宽度受 `MAX_DYNAMIC_QUERY_SLOTS` 限制。
 - 首次/失效后的执行 prepare 匹配 archetype；chunk callback 内为常数次 slot 验证和 slice 构造。
 - 遍历不逐实体分配，每个匹配 chunk 调用一次 callback。
 

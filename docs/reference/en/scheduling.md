@@ -95,8 +95,8 @@ pub struct Time {
     pub delta: f32,
     pub frame_delta: f32,
     pub raw_delta: f32,
-    pub elapsed: f32,
-    pub raw_elapsed: f32,
+    pub elapsed: f64,
+    pub raw_elapsed: f64,
     pub frame_count: u64,
     pub fixed_alpha: f32,
     pub time_scale: f32,
@@ -110,6 +110,8 @@ Getter methods `delta()`, `frame_delta()`, `raw_delta()`, `elapsed()`,
   `frame_delta`.
 - `frame_delta` and `elapsed` are affected by `time_scale`.
 - `raw_delta` and `raw_elapsed` are not.
+- The elapsed totals use `f64` so small frame deltas continue accumulating
+  accurately during long-running sessions.
 - `fixed_alpha` is the accumulated fraction for the built-in `FixedUpdate` stage.
 - `Time::default()` initializes all counters/deltas to zero and `time_scale` to 1.
 
