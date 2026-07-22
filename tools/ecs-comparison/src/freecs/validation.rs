@@ -11,18 +11,19 @@ use super::random_fragmented_iteration::{
     random_fragmented_component_world, random_fragmented_tag_world,
 };
 use super::structural_changes::{
-    add_remove_health, despawn_entities, spawn_light_batch, spawn_light_one,
+    add_remove_health, despawn_entities, spawn_light_one, spawn_random_access_batch,
 };
 use crate::common::{
-    add_position_checksum, add_random_fragment_checksum, add_random_fragment_component_1_checksum,
+    add_random_fragment_checksum, add_random_fragment_component_1_checksum,
     add_random_fragment_component_8_checksum, assert_approx_eq, assert_suite_bundles_match,
     component_change_orders, deterministic_orders, distinct_suite_bundles, entity_deletion_order,
-    expected_random_fragment_checksum, generational_entity_key, position_checksum_value,
-    random_fragment_match_count, Health, CONTRACT_ENTITY_COUNT,
-    CONTRACT_RANDOM_FRAGMENT_ENTITY_COUNT, ENTITY_OP_COUNT, FRAGMENTED_ENTITIES_PER_VARIANT,
-    FRAGMENTED_VARIANT_COUNT, MIXED_FRAME_ALLIES, MIXED_FRAME_ENEMIES, MIXED_FRAME_HEAVY,
-    MIXED_FRAME_MOVERS, MIXED_FRAME_SPAWN_COUNT, RANDOM_FRAGMENT_WORKLOADS,
+    expected_random_fragment_checksum, generational_entity_key, random_fragment_match_count,
+    Health, CONTRACT_ENTITY_COUNT, CONTRACT_RANDOM_FRAGMENT_ENTITY_COUNT, ENTITY_OP_COUNT,
+    FRAGMENTED_ENTITIES_PER_VARIANT, FRAGMENTED_VARIANT_COUNT, MIXED_FRAME_ALLIES,
+    MIXED_FRAME_ENEMIES, MIXED_FRAME_HEAVY, MIXED_FRAME_MOVERS, MIXED_FRAME_SPAWN_COUNT,
+    RANDOM_FRAGMENT_WORKLOADS,
 };
+use crate::common::{assert_random_access_position, validate_random_access_order};
 use freecs::Entity;
 
 pub fn validate_contract() {
@@ -112,20 +113,13 @@ fn validate_entity_lifecycle() {
 
 fn validate_random_access() {
     let mut random_world = World::default();
-    let random_entities = spawn_light_batch(&mut random_world, CONTRACT_ENTITY_COUNT);
+    let random_entities = spawn_random_access_batch(&mut random_world, CONTRACT_ENTITY_COUNT);
     for order in deterministic_orders(&random_entities) {
-        let random_checksum = order.iter().fold(0_u64, |checksum, &entity| {
-            add_position_checksum(
-                checksum,
-                random_world
-                    .get_position(entity)
-                    .expect("contract entity must be readable through generated getter"),
-            )
+        validate_random_access_order(&random_entities, &order, |entity| {
+            *random_world
+                .get_position(entity)
+                .expect("contract entity must be readable through generated getter")
         });
-        assert_eq!(
-            random_checksum,
-            position_checksum_value(1.0, CONTRACT_ENTITY_COUNT)
-        );
 
         let fixed_plan: Vec<_> = order
             .iter()
@@ -135,11 +129,13 @@ fn validate_random_access() {
                     .expect("contract entity must be readable through generated getter")
             })
             .collect();
-        let fixed_checksum = fixed_plan.into_iter().fold(0_u64, add_position_checksum);
-        assert_eq!(
-            fixed_checksum,
-            position_checksum_value(1.0, CONTRACT_ENTITY_COUNT)
-        );
+        for (&entity, position) in order.iter().zip(fixed_plan) {
+            let index = random_entities
+                .iter()
+                .position(|&candidate| candidate == entity)
+                .unwrap();
+            assert_random_access_position(position, index);
+        }
     }
 }
 

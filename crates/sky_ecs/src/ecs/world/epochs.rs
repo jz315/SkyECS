@@ -3,6 +3,7 @@ use super::*;
 #[derive(Default)]
 pub(super) struct StorageEpochs {
     chunk_set: u64,
+    column_base: u64,
     row_layout: u64,
 }
 
@@ -13,21 +14,30 @@ pub(super) struct ChunkSetEpochGuard<'a> {
     storage: &'a mut ArchetypeStorage,
     epochs: &'a mut StorageEpochs,
     initial_version: u64,
+    initial_column_base_version: u64,
     next_chunk_set_epoch: u64,
+    next_column_base_epoch: u64,
 }
 
 impl<'a> ChunkSetEpochGuard<'a> {
     pub(super) fn new(storage: &'a mut ArchetypeStorage, epochs: &'a mut StorageEpochs) -> Self {
         let initial_version = storage.chunk_set_version();
+        let initial_column_base_version = storage.column_base_version();
         let next_chunk_set_epoch = epochs
             .chunk_set
             .checked_add(1)
             .expect("world chunk-set epoch exhausted");
+        let next_column_base_epoch = epochs
+            .column_base
+            .checked_add(1)
+            .expect("world column-base epoch exhausted");
         Self {
             storage,
             epochs,
             initial_version,
+            initial_column_base_version,
             next_chunk_set_epoch,
+            next_column_base_epoch,
         }
     }
 
@@ -41,6 +51,9 @@ impl Drop for ChunkSetEpochGuard<'_> {
     fn drop(&mut self) {
         if self.storage.chunk_set_version() != self.initial_version {
             self.epochs.chunk_set = self.next_chunk_set_epoch;
+        }
+        if self.storage.column_base_version() != self.initial_column_base_version {
+            self.epochs.column_base = self.next_column_base_epoch;
         }
     }
 }
@@ -65,6 +78,15 @@ impl World {
     }
 
     #[inline(always)]
+    pub(super) fn bump_column_base_epoch(&mut self) {
+        self.storage_epochs.column_base = self
+            .storage_epochs
+            .column_base
+            .checked_add(1)
+            .expect("world column-base epoch exhausted");
+    }
+
+    #[inline(always)]
     pub(crate) fn chunk_set_epoch(&self) -> u64 {
         self.storage_epochs.chunk_set
     }
@@ -72,6 +94,11 @@ impl World {
     #[inline(always)]
     pub(crate) fn row_layout_epoch(&self) -> u64 {
         self.storage_epochs.row_layout
+    }
+
+    #[inline(always)]
+    pub(crate) fn column_base_epoch(&self) -> u64 {
+        self.storage_epochs.column_base
     }
 }
 
@@ -102,6 +129,23 @@ mod tests {
 
         world.clear();
         assert_eq!(world.chunk_set_epoch(), 3);
+    }
+
+    #[test]
+    fn column_base_epoch_ignores_rows_but_tracks_backing_changes() {
+        let mut world = World::new();
+        assert_eq!(world.column_base_epoch(), 0);
+        let first = world.spawn((Position,));
+        let after_first = world.column_base_epoch();
+        assert_eq!(after_first, 1);
+        let second = world.spawn((Position,));
+        assert_eq!(world.column_base_epoch(), after_first);
+        assert!(world.despawn(second));
+        assert_eq!(world.column_base_epoch(), after_first);
+        assert!(world.despawn(first));
+        assert_eq!(world.column_base_epoch(), after_first + 1);
+        world.clear();
+        assert_eq!(world.column_base_epoch(), after_first + 2);
     }
 
     #[test]

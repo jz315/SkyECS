@@ -4,6 +4,18 @@ use crate::ecs::{
 };
 use core::marker::PhantomData;
 use core::ptr::{self, NonNull};
+use std::sync::Arc;
+
+/// Diagnostic counters for a prepared entity-view route cache.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EntityViewCacheStats {
+    /// Number of times the route cache has been rebuilt.
+    pub rebuild_count: u64,
+    /// Number of chunk-route slots represented by the cache.
+    pub route_slots: usize,
+    /// Number of component-base pointer slots represented by the cache.
+    pub pointer_slots: usize,
+}
 
 pub(crate) struct EntityViewCache<Q> {
     descriptor: QueryDescriptor,
@@ -11,6 +23,9 @@ pub(crate) struct EntityViewCache<Q> {
     matched_routes: Vec<u8>,
     component_ptrs: Vec<*mut u8>,
     query_width: usize,
+    cached_world: Option<Arc<()>>,
+    cached_column_base_epoch: Option<u64>,
+    rebuild_count: u64,
     marker: PhantomData<fn() -> Q>,
 }
 
@@ -24,6 +39,9 @@ impl<Q: QuerySpec> Default for EntityViewCache<Q> {
             matched_routes: Vec::new(),
             component_ptrs: Vec::new(),
             query_width,
+            cached_world: None,
+            cached_column_base_epoch: None,
+            rebuild_count: 0,
             marker: PhantomData,
         }
     }
@@ -32,6 +50,13 @@ impl<Q: QuerySpec> Default for EntityViewCache<Q> {
 impl<Q: QuerySpec> EntityViewCache<Q> {
     #[inline]
     pub(crate) fn prepare(&mut self, world: &World) {
+        let same_world = self
+            .cached_world
+            .as_ref()
+            .is_some_and(|cached| Arc::ptr_eq(cached, world.cache_token()));
+        if same_world && self.cached_column_base_epoch == Some(world.column_base_epoch()) {
+            return;
+        }
         self.prepared.prepare::<()>(world, &self.descriptor);
 
         let route_slots = world.chunk_route_slot_count();
@@ -60,6 +85,20 @@ impl<Q: QuerySpec> EntityViewCache<Q> {
                 // overwritten, including null optional-component sentinels.
                 self.matched_routes[route_index] = 1;
             }
+        }
+        self.cached_world = Some(Arc::clone(world.cache_token()));
+        self.cached_column_base_epoch = Some(world.column_base_epoch());
+        self.rebuild_count = self
+            .rebuild_count
+            .checked_add(1)
+            .expect("entity-view rebuild counter exhausted");
+    }
+
+    pub(crate) fn stats(&self) -> EntityViewCacheStats {
+        EntityViewCacheStats {
+            rebuild_count: self.rebuild_count,
+            route_slots: self.matched_routes.len(),
+            pointer_slots: self.component_ptrs.len(),
         }
     }
 
@@ -118,10 +157,15 @@ impl<Q: QuerySpec> PreparedEntityView<Q> {
         Self::default()
     }
 
+    /// Returns route-cache diagnostics without binding the view.
+    pub fn cache_stats(&self) -> EntityViewCacheStats {
+        self.cache.stats()
+    }
+
     /// Binds this plan exclusively to `world`.
     ///
-    /// Every bind refreshes component bases. This is required because a chunk
-    /// may retain its stable ID while promotion replaces its backing block.
+    /// Binding refreshes component bases after the World reports a column-base
+    /// change; otherwise the existing route table is reused.
     ///
     /// ```compile_fail
     /// use sky_ecs::{PreparedEntityView, World};
@@ -261,10 +305,46 @@ mod tests {
         let component_capacity = prepared.cache.component_ptrs.capacity();
 
         assert_eq!(prepared.bind(&world).get(entity).unwrap().1 .0, 2);
+        assert_eq!(prepared.cache_stats().rebuild_count, 1);
         assert_eq!(prepared.cache.matched_routes.as_ptr(), matched_ptr);
         assert_eq!(prepared.cache.matched_routes.capacity(), matched_capacity);
         assert_eq!(prepared.cache.component_ptrs.as_ptr(), component_ptr);
         assert_eq!(prepared.cache.component_ptrs.capacity(), component_capacity);
+    }
+
+    #[test]
+    fn row_churn_does_not_rebuild_column_routes() {
+        let mut world = World::new();
+        let first = world.spawn((Position(1),));
+        let mut prepared = PreparedEntityView::<&Position>::new();
+        assert_eq!(prepared.bind(&world).get(first), Some(&Position(1)));
+        assert_eq!(prepared.cache_stats().rebuild_count, 1);
+
+        let second = world.spawn((Position(2),));
+        assert!(world.despawn(first));
+        assert_eq!(prepared.bind(&world).get(second), Some(&Position(2)));
+        assert_eq!(prepared.cache_stats().rebuild_count, 1);
+    }
+
+    #[test]
+    fn explicit_route_shrink_rebuilds_to_the_shorter_table() {
+        let mut world = World::new();
+        let survivor = world.spawn((Position(1),));
+        let temporary: Vec<_> = (0..160)
+            .map(|value| world.spawn((Position(value), Large([value as u8; 4 * 1024]))))
+            .collect();
+        let mut prepared = PreparedEntityView::<&Position>::new();
+        assert_eq!(prepared.bind(&world).get(survivor), Some(&Position(1)));
+        let peak = world.route_table_stats();
+        for entity in temporary {
+            assert!(world.despawn(entity));
+        }
+        assert!(world.route_table_stats().vacant_route_slots > 0);
+        let shrunk = world.shrink_route_tables();
+        assert!(shrunk.route_slots < peak.route_slots);
+        assert_eq!(prepared.bind(&world).get(survivor), Some(&Position(1)));
+        assert_eq!(prepared.cache_stats().route_slots, shrunk.route_slots);
+        assert_eq!(prepared.cache_stats().rebuild_count, 2);
     }
 
     #[test]
@@ -332,6 +412,7 @@ mod tests {
         let bound = prepared.bind(&world);
         assert_eq!(bound.get(first), Some(&Position(1)));
         assert_eq!(bound.get(newest), Some(&Position(2)));
+        assert_eq!(prepared.cache_stats().rebuild_count, 2);
     }
 
     #[test]

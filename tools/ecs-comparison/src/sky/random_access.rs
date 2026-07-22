@@ -4,7 +4,7 @@ use sky_ecs::{EntityAccessor, PreparedEntityAccess};
 pub(super) fn random_world_and_orders(entity_count: usize) -> (World, Vec<Vec<EntityId>>) {
     let mut world = World::new();
     let entities: Vec<_> = (0..entity_count)
-        .map(|_| world.spawn(light_bundle()))
+        .map(|index| world.spawn(random_access_bundle(index)))
         .collect();
     let orders = deterministic_orders(&entities);
     (world, orders)

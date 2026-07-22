@@ -54,12 +54,18 @@ let (target, cooldown) = view.get_mut(entity)?;
 ```
 
 `bind` 接受只读 `QuerySpec`；`bind_mut` 支持共享、可变、tuple 和 optional 参数。
-每次 bind 都刷新组件列基址，同时复用 route table 分配。每次 `get`/`get_mut` 只验证一次
+World 的 column-base epoch 未变化时，bind 直接复用组件列基址；chunk 创建/退休、route
+复用、tiny promotion、clear 或显式收缩 route table 后才重建，普通 row churn 不会重建。
+`cache_stats()` 可查看重建次数和 route slot。每次 `get`/`get_mut` 只验证一次
 generation/route，然后从同一 route 构造完整查询项。此 API 暂不支持 filter。
 
 仅含 optional 参数的查询会区分“活实体缺少组件”和“无效实体”：
 `PreparedEntityView<Option<&A>>::get` 对前者返回 `Some(None)`，对后者返回 `None`。
 可变结果绑定到 bound view 当前的可变借用。
+
+`World::route_table_stats()` 返回 live、已分配和 vacant chunk-route slot 数量。
+`World::shrink_route_tables()` 只删除尾部连续 vacant slot，不会重编号 live chunk；
+内部空洞仍保留给后续复用。
 
 ## `EntityAccessor`
 
@@ -126,7 +132,7 @@ pub fn get_mut(&mut self, entity: EntityId) -> Option<&mut T>;
 | `prepare_access_mut` | 期望 O(R + 匹配 chunk 数 + N)，另有用于重复检测的临时 hash table。 |
 | Prepared `get*` | O(1)，不分配。 |
 | Prepared `iter*` | O(N)，遍历期间不分配，也不逐项检查 entity/route/component。 |
-| `PreparedEntityView::bind*` | O(R + 匹配 chunk 数 × 查询宽度)，复用保留的 route table。 |
+| `PreparedEntityView::bind*` | column-base epoch 不变时 O(1)，否则 O(R + 匹配 chunk 数 × 查询宽度)。 |
 | Bound entity-view `get*` | O(查询宽度)，不分配，只验证一次实体 route。 |
 
 ## 最小示例

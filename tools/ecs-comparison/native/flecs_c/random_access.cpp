@@ -57,6 +57,7 @@ struct Context {
     ecs_entity_t position = 0;
     std::array<std::vector<ecs_entity_t>, ORDER_COUNT> access_orders;
     std::array<std::vector<const Position*>, ORDER_COUNT> fixed_orders;
+    std::array<std::vector<std::size_t>, ORDER_COUNT> expected_indices;
     std::size_t next_order = 0;
     std::size_t next_fixed_order = 0;
 
@@ -74,9 +75,13 @@ Context* create_context(std::size_t entity_count) {
     const ecs_entity_t velocity =
         define_component<Velocity>(context->world, "Velocity");
 
-    const Position position_value{1.0f, 0.0f, 0.0f};
     const Velocity velocity_value{1.0f, 0.0f, 0.0f};
-    std::vector<Position> positions(entity_count, position_value);
+    std::vector<Position> positions;
+    positions.reserve(entity_count);
+    for (std::size_t index = 0; index < entity_count; ++index) {
+        const float value = static_cast<float>(index) + 1.0f;
+        positions.push_back({value, value * 0.5f, value * 0.25f});
+    }
     std::vector<Velocity> velocities(entity_count, velocity_value);
 
     std::array<std::pair<ecs_id_t, void*>, 2> columns{{
@@ -110,6 +115,7 @@ Context* create_context(std::size_t entity_count) {
             0xDEADBEEFCAFEBABEULL ^
                 (order * 0x9E3779B97F4A7C15ULL));
         auto& entity_order = context->access_orders[order];
+        context->expected_indices[order] = shuffled;
         entity_order.reserve(entity_count);
         for (std::size_t index : shuffled) {
             entity_order.push_back(entities[index]);
@@ -127,6 +133,23 @@ Context* create_context(std::size_t entity_count) {
         }
     }
     return context;
+}
+
+bool validate_identity(const Context& context, std::size_t order) {
+    const auto& entities = context.access_orders[order];
+    const auto& fixed = context.fixed_orders[order];
+    const auto& expected = context.expected_indices[order];
+    for (std::size_t row = 0; row < expected.size(); ++row) {
+        const auto* dynamic = static_cast<const Position*>(ecs_get_id(
+            context.world, entities[row], context.position));
+        if (!dynamic || !fixed[row]) return false;
+        const float value = static_cast<float>(expected[row]) + 1.0f;
+        if (dynamic->x != value || dynamic->y != value * 0.5f ||
+            dynamic->z != value * 0.25f) return false;
+        if (fixed[row]->x != dynamic->x || fixed[row]->y != dynamic->y ||
+            fixed[row]->z != dynamic->z) return false;
+    }
+    return true;
 }
 
 std::uint64_t read_fixed_positions(Context& context) {
@@ -193,10 +216,16 @@ bool validate_count(std::size_t entity_count) {
     if (!context) {
         return false;
     }
-    const std::uint64_t expected =
-        static_cast<std::uint64_t>(entity_count) * 0x3F800000ULL;
+    std::uint64_t expected = 0;
+    for (std::size_t index = 0; index < entity_count; ++index) {
+        const float value = static_cast<float>(index) + 1.0f;
+        std::uint32_t value_bits = 0;
+        std::memcpy(&value_bits, &value, sizeof(value_bits));
+        expected += value_bits;
+    }
     bool valid = true;
     for (std::size_t order = 0; order < ORDER_COUNT; ++order) {
+        valid = valid && validate_identity(*context, order);
         valid = valid && read_positions(*context) == expected;
     }
     for (std::size_t order = 0; order < ORDER_COUNT; ++order) {

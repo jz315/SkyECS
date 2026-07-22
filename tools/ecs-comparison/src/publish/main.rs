@@ -10,7 +10,7 @@ use metadata::write_metadata;
 use model::RunEstimate;
 use options::options;
 use report::{reanalyze_report, write_report};
-use runner::{clear_results, rotated_order, run_bench, workspace_root};
+use runner::{clear_results, rotated_order, run_bench, run_contracts, workspace_root};
 use std::collections::BTreeMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -27,6 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join("target/comparison-reports")
         .join(stamp.to_string());
     fs::create_dir_all(&report_dir)?;
+    let contracts = run_contracts(&root, &report_dir)?;
     write_metadata(&root, &report_dir)?;
 
     let mut estimates: BTreeMap<String, Vec<RunEstimate>> = BTreeMap::new();
@@ -51,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let summaries = summarize(estimates);
     validate_results(&summaries, options.runs, options.filter.is_none())?;
-    write_report(&report_dir, options.runs, &summaries)?;
+    write_report(&report_dir, options.runs, &summaries, &contracts)?;
     println!("publication report: {}", report_dir.display());
     Ok(())
 }

@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Reuse prepared entity-view route tables across pure row churn via a dedicated
+  column-base epoch, with explicit route-table shrink and diagnostics.
+- Strengthen Compare-ECS gameplay and random-access contracts with entity
+  identity, full component-shape, checkpoint, and observable AI-state checks.
+- Require release contract validation before publication benchmark runs.
+
 ## [0.2.0] - 2026-07-22
 
 - Renamed the bound random-access types to `EntityAccessor` and

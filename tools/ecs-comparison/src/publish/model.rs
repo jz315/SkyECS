@@ -1,6 +1,25 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize)]
+pub(super) struct ContractVerification {
+    pub(super) status: String,
+    pub(super) profile: String,
+    pub(super) commit: String,
+    pub(super) log: String,
+}
+
+impl Default for ContractVerification {
+    fn default() -> Self {
+        Self {
+            status: "not-recorded".to_owned(),
+            profile: "unknown".to_owned(),
+            commit: "unknown".to_owned(),
+            log: "unknown".to_owned(),
+        }
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
 pub(super) struct RunEstimate {
     pub(super) run: usize,
     pub(super) order: String,
@@ -47,6 +66,7 @@ pub(super) struct OrderBias {
 
 #[derive(Serialize)]
 pub(super) struct PublicationReport<'a> {
+    pub(super) contracts: &'a ContractVerification,
     pub(super) criterion_estimator: &'static str,
     pub(super) run_count: usize,
     pub(super) order_bias: &'a OrderBias,
@@ -55,6 +75,8 @@ pub(super) struct PublicationReport<'a> {
 
 #[derive(Deserialize)]
 pub(super) struct StoredPublicationReport {
+    #[serde(default)]
+    pub(super) contracts: ContractVerification,
     pub(super) run_count: usize,
     pub(super) benchmarks: Vec<Summary>,
 }

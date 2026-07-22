@@ -1,3 +1,4 @@
+use super::model::ContractVerification;
 use sky_ecs_comparison::common::is_canonical_group;
 use sky_ecs_comparison::Engine;
 use std::env;
@@ -22,6 +23,50 @@ pub(super) fn workspace_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
 
 fn cargo() -> String {
     env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned())
+}
+
+pub(super) fn run_contracts(
+    root: &Path,
+    report_dir: &Path,
+) -> Result<ContractVerification, Box<dyn std::error::Error>> {
+    let log_path = report_dir.join("contracts.log");
+    let log = File::create(&log_path)?;
+    let error_log = log.try_clone()?;
+    let status = Command::new(cargo())
+        .current_dir(root)
+        .args([
+            "test",
+            "--release",
+            "-p",
+            "sky_ecs_comparison",
+            "--test",
+            "contracts",
+            "--",
+            "--test-threads=1",
+        ])
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(error_log))
+        .status()?;
+    if !status.success() {
+        return Err(format!(
+            "release comparison contracts failed; inspect {}",
+            log_path.display()
+        )
+        .into());
+    }
+    let commit = Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "HEAD"])
+        .output()?;
+    if !commit.status.success() {
+        return Err("git rev-parse HEAD failed after contracts".into());
+    }
+    Ok(ContractVerification {
+        status: "passed".to_owned(),
+        profile: "release".to_owned(),
+        commit: String::from_utf8(commit.stdout)?.trim().to_owned(),
+        log: "contracts.log".to_owned(),
+    })
 }
 
 pub(super) fn rotated_order(offset: usize) -> String {

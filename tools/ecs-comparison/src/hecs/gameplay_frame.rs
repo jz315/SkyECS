@@ -1,12 +1,14 @@
 use crate::common::*;
 use criterion::{measurement::WallTime, BenchmarkGroup};
 use hecs::{Entity, EntityBuilder, PreparedQuery, World};
+use std::collections::HashSet;
 
 pub(super) struct HecsGameplayWorld {
     world: World,
     entities: Vec<Entity>,
     generations: Vec<u32>,
     target_entities: Vec<Entity>,
+    target_slots: Vec<usize>,
     movement: PreparedQuery<(&'static mut PositionComponent, &'static VelocityComponent)>,
     enemies: PreparedQuery<(&'static mut Health, &'static Damage)>,
     allies: PreparedQuery<(&'static mut Health, &'static Regen)>,
@@ -14,6 +16,7 @@ pub(super) struct HecsGameplayWorld {
     ai: PreparedQuery<(&'static TargetSlot, &'static mut Cooldown)>,
     positions: PreparedQuery<&'static PositionComponent>,
     ai_lookup_checksum: u64,
+    cooldown_trace_checksum: u64,
 }
 
 impl HecsGameplayWorld {
@@ -36,6 +39,7 @@ impl HecsGameplayWorld {
             entities,
             generations: vec![0; GAMEPLAY_ENTITY_COUNT],
             target_entities: Vec::with_capacity(GAMEPLAY_AI_LOOKUPS_PER_FRAME),
+            target_slots: Vec::with_capacity(GAMEPLAY_AI_LOOKUPS_PER_FRAME),
             movement: PreparedQuery::default(),
             enemies: PreparedQuery::default(),
             allies: PreparedQuery::default(),
@@ -43,6 +47,7 @@ impl HecsGameplayWorld {
             ai: PreparedQuery::default(),
             positions: PreparedQuery::default(),
             ai_lookup_checksum: 0,
+            cooldown_trace_checksum: 0,
         }
     }
 
@@ -74,14 +79,24 @@ impl HecsGameplayWorld {
 
     fn run_ai_source_phase(&mut self, frame: &GameplayFrame) {
         self.target_entities.clear();
+        self.target_slots.clear();
         {
             let mut ai = self.ai.view_mut(&mut self.world);
             for &slot in frame.ai_slots.iter() {
                 let (target, cooldown) = ai
                     .get_mut(self.entities[slot])
                     .expect("AI entity must have target and cooldown");
-                self.target_entities.push(self.entities[target.0 as usize]);
+                let target_slot = target.0 as usize;
+                self.target_entities.push(self.entities[target_slot]);
+                self.target_slots.push(target_slot);
                 cooldown.0 = cooldown.0.saturating_sub(1);
+                self.cooldown_trace_checksum = gameplay_ai_trace_checksum(
+                    self.cooldown_trace_checksum,
+                    frame.index,
+                    slot,
+                    target_slot,
+                    cooldown.0,
+                );
             }
         }
     }
@@ -89,14 +104,20 @@ impl HecsGameplayWorld {
     fn run_target_position_phase(&mut self, frame: &GameplayFrame) {
         {
             let positions = self.positions.view_mut(&mut self.world);
-            for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
+            for ((&slot, &target), &target_slot) in frame
+                .ai_slots
+                .iter()
+                .zip(&self.target_entities)
+                .zip(&self.target_slots)
+            {
                 let position = positions
                     .get(target)
                     .expect("AI target must have PositionComponent");
-                self.ai_lookup_checksum = gameplay_mix_checksum(
+                self.ai_lookup_checksum = gameplay_ai_lookup_checksum(
                     self.ai_lookup_checksum,
-                    slot as u64,
-                    position.0.x.to_bits() as u64,
+                    slot,
+                    target_slot,
+                    position,
                 );
             }
         }
@@ -136,12 +157,83 @@ impl HecsGameplayWorld {
         let mut health_checksum = 0;
         let mut lifetime_checksum = 0;
         let mut generation_checksum = 0;
+        let mut component_mask_checksum = 0;
+        let mut target_slot_checksum = 0;
+        let mut owner_slot_checksum = 0;
 
         for (slot, &entity) in self.entities.iter().enumerate() {
             moving_count += usize::from(self.world.get::<&VelocityComponent>(entity).is_ok());
             health_count += usize::from(self.world.get::<&Health>(entity).is_ok());
             lifetime_count += usize::from(self.world.get::<&Lifetime>(entity).is_ok());
             stunned_count += usize::from(self.world.get::<&Stunned>(entity).is_ok());
+            let mask = GAMEPLAY_MASK_POSITION
+                | if self.world.get::<&VelocityComponent>(entity).is_ok() {
+                    GAMEPLAY_MASK_VELOCITY
+                } else {
+                    0
+                }
+                | if self.world.get::<&Health>(entity).is_ok() {
+                    GAMEPLAY_MASK_HEALTH
+                } else {
+                    0
+                }
+                | if self.world.get::<&Damage>(entity).is_ok() {
+                    GAMEPLAY_MASK_DAMAGE
+                } else {
+                    0
+                }
+                | if self.world.get::<&Regen>(entity).is_ok() {
+                    GAMEPLAY_MASK_REGEN
+                } else {
+                    0
+                }
+                | if self.world.get::<&IsEnemy>(entity).is_ok() {
+                    GAMEPLAY_MASK_ENEMY
+                } else {
+                    0
+                }
+                | if self.world.get::<&IsAlly>(entity).is_ok() {
+                    GAMEPLAY_MASK_ALLY
+                } else {
+                    0
+                }
+                | if self.world.get::<&Lifetime>(entity).is_ok() {
+                    GAMEPLAY_MASK_LIFETIME
+                } else {
+                    0
+                }
+                | if self.world.get::<&TargetSlot>(entity).is_ok() {
+                    GAMEPLAY_MASK_TARGET
+                } else {
+                    0
+                }
+                | if self.world.get::<&Cooldown>(entity).is_ok() {
+                    GAMEPLAY_MASK_COOLDOWN
+                } else {
+                    0
+                }
+                | if self.world.get::<&OwnerSlot>(entity).is_ok() {
+                    GAMEPLAY_MASK_OWNER
+                } else {
+                    0
+                }
+                | if self.world.get::<&Stunned>(entity).is_ok() {
+                    GAMEPLAY_MASK_STUNNED
+                } else {
+                    0
+                }
+                | if self.world.get::<&TagA>(entity).is_ok() {
+                    GAMEPLAY_MASK_TAG_A
+                } else {
+                    0
+                }
+                | if self.world.get::<&TagB>(entity).is_ok() {
+                    GAMEPLAY_MASK_TAG_B
+                } else {
+                    0
+                };
+            component_mask_checksum =
+                gameplay_mix_checksum(component_mask_checksum, slot as u64, mask as u64);
 
             let position = self
                 .world
@@ -162,6 +254,14 @@ impl HecsGameplayWorld {
                 lifetime_checksum =
                     gameplay_mix_checksum(lifetime_checksum, slot as u64, lifetime.0 as u64);
             }
+            if let Ok(target) = self.world.get::<&TargetSlot>(entity) {
+                target_slot_checksum =
+                    gameplay_mix_checksum(target_slot_checksum, slot as u64, target.0 as u64);
+            }
+            if let Ok(owner) = self.world.get::<&OwnerSlot>(entity) {
+                owner_slot_checksum =
+                    gameplay_mix_checksum(owner_slot_checksum, slot as u64, owner.0 as u64);
+            }
             generation_checksum = gameplay_mix_checksum(
                 generation_checksum,
                 slot as u64,
@@ -170,14 +270,19 @@ impl HecsGameplayWorld {
         }
 
         GameplayDigest {
-            entity_count: self.world.len() as usize,
+            actual_entity_count: self.world.len() as usize,
+            unique_mapped_entity_count: self.entities.iter().copied().collect::<HashSet<_>>().len(),
             moving_count,
             health_count,
             lifetime_count,
             stunned_count,
+            component_mask_checksum,
             position_checksum,
             health_checksum,
             lifetime_checksum,
+            target_slot_checksum,
+            owner_slot_checksum,
+            cooldown_trace_checksum: self.cooldown_trace_checksum,
             generation_checksum,
             ai_lookup_checksum: self.ai_lookup_checksum,
         }
@@ -267,12 +372,7 @@ fn spawn_projectile(world: &mut World, slot: usize, generation: u32) -> Entity {
 }
 
 pub fn validate_gameplay_contract() {
-    let trace = GameplayTrace::standard();
-    let mut gameplay = HecsGameplayWorld::new(&trace);
-    for frame in trace.frames() {
-        gameplay.run_frame(frame);
-    }
-    assert_eq!(gameplay.digest(), GAMEPLAY_CANONICAL_DIGEST);
+    validate_gameplay_adapter(HecsGameplayWorld::new);
 }
 
 pub fn bench_gameplay_frame(group: &mut BenchmarkGroup<'_, WallTime>) {

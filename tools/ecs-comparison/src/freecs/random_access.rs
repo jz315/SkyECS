@@ -1,4 +1,4 @@
-use super::structural_changes::spawn_light_batch;
+use super::structural_changes::spawn_random_access_batch;
 use super::*;
 
 fn reference_checksum(positions: &[&PositionComponent]) -> u64 {
@@ -12,7 +12,7 @@ pub fn bench_entity_id_random_access(group: &mut BenchmarkGroup<'_, WallTime>) {
     ] {
         group.bench_function(format!("{name}/freecs"), |b| {
             let mut world = World::default();
-            let entities = spawn_light_batch(&mut world, count);
+            let entities = spawn_random_access_batch(&mut world, count);
             let orders = deterministic_orders(&entities);
             let mut order = 0;
             b.iter(|| {
@@ -38,7 +38,7 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
     ] {
         group.bench_function(format!("build_{label}/freecs"), |bencher| {
             let mut world = World::default();
-            let entities = spawn_light_batch(&mut world, count);
+            let entities = spawn_random_access_batch(&mut world, count);
             let orders = deterministic_orders(&entities);
             let mut order = 0;
             bencher.iter(|| {
@@ -53,7 +53,7 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
 
         group.bench_function(format!("steady_{label}/freecs"), |bencher| {
             let mut world = World::default();
-            let entities = spawn_light_batch(&mut world, count);
+            let entities = spawn_random_access_batch(&mut world, count);
             let orders = deterministic_orders(&entities);
             let plans: Vec<Vec<_>> = orders
                 .iter()
@@ -75,7 +75,7 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
         for repeats in [1_usize, 4, 16, 64] {
             group.bench_function(format!("amortized_{label}_x{repeats}/freecs"), |bencher| {
                 let mut world = World::default();
-                let entities = spawn_light_batch(&mut world, count);
+                let entities = spawn_random_access_batch(&mut world, count);
                 let orders = deterministic_orders(&entities);
                 let mut order = 0;
                 bencher.iter(|| {

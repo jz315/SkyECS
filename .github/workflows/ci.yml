@@ -80,6 +80,7 @@ jobs:
           MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --test prepared_entity_view mutable_and_derived_queries_fetch_one_row_directly -- --exact
           MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --lib ecs::access::entity_view::tests::refreshes_recycled_routes_in_both_match_directions -- --exact
           cargo miri test -p sky_ecs --test prepared_entity_access mutable_plan_handles_distinct_zero_sized_and_over_aligned_components -- --exact
+          MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --test prepared_entity_access mutable_plan_handles_distinct_zero_sized_and_over_aligned_components -- --exact
           MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --test prepared_entity_access mutable_plan_updates_non_copy_components_without_changing_ownership -- --exact
           cargo miri test -p sky_ecs --lib ecs::chunk::tests::panicking_component_drop_releases_storage_before_resuming -- --exact
           cargo miri test -p sky_ecs --lib ecs::chunk::tests::thread_exit_storage_drop_survives_pool_tls_destruction -- --exact
@@ -102,7 +103,10 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install --yes clang lld
-      - run: cargo check -p sky_ecs -p sky_ecs_derive -p sky_type
+      - run: cargo check -p sky_type
+      - run: cargo check -p sky_ecs --all-targets
+      - run: cargo test -p sky_ecs --lib
+      - run: cargo test -p sky_ecs_derive
 
   targets:
     name: Bench and package targets

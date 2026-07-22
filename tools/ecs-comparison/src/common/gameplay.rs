@@ -33,6 +33,22 @@ pub const GAMEPLAY_STATUS_DURATION_FRAMES: usize = 8;
 pub const GAMEPLAY_PROJECTILE_LIFETIME_FRAMES: usize = 64;
 pub const GAMEPLAY_STUNNED_COUNT: usize =
     GAMEPLAY_STATUS_CHANGES_PER_FRAME * GAMEPLAY_STATUS_DURATION_FRAMES;
+pub const GAMEPLAY_CONTRACT_CHECKPOINTS: [usize; 10] = [0, 1, 7, 8, 15, 16, 63, 64, 127, 255];
+
+pub const GAMEPLAY_MASK_POSITION: u16 = 1 << 0;
+pub const GAMEPLAY_MASK_VELOCITY: u16 = 1 << 1;
+pub const GAMEPLAY_MASK_HEALTH: u16 = 1 << 2;
+pub const GAMEPLAY_MASK_DAMAGE: u16 = 1 << 3;
+pub const GAMEPLAY_MASK_REGEN: u16 = 1 << 4;
+pub const GAMEPLAY_MASK_ENEMY: u16 = 1 << 5;
+pub const GAMEPLAY_MASK_ALLY: u16 = 1 << 6;
+pub const GAMEPLAY_MASK_LIFETIME: u16 = 1 << 7;
+pub const GAMEPLAY_MASK_TARGET: u16 = 1 << 8;
+pub const GAMEPLAY_MASK_COOLDOWN: u16 = 1 << 9;
+pub const GAMEPLAY_MASK_OWNER: u16 = 1 << 10;
+pub const GAMEPLAY_MASK_STUNNED: u16 = 1 << 11;
+pub const GAMEPLAY_MASK_TAG_A: u16 = 1 << 12;
+pub const GAMEPLAY_MASK_TAG_B: u16 = 1 << 13;
 
 const GAMEPLAY_VARIANT_COUNT: usize = 4;
 const GAMEPLAY_STATUS_COHORT_COUNT: usize = GAMEPLAY_STATUS_DURATION_FRAMES * 2;
@@ -299,14 +315,19 @@ fn projectile_cohort(cohort: usize) -> impl Iterator<Item = usize> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GameplayDigest {
-    pub entity_count: usize,
+    pub actual_entity_count: usize,
+    pub unique_mapped_entity_count: usize,
     pub moving_count: usize,
     pub health_count: usize,
     pub lifetime_count: usize,
     pub stunned_count: usize,
+    pub component_mask_checksum: u64,
     pub position_checksum: u64,
     pub health_checksum: u64,
     pub lifetime_checksum: u64,
+    pub target_slot_checksum: u64,
+    pub owner_slot_checksum: u64,
+    pub cooldown_trace_checksum: u64,
     pub generation_checksum: u64,
     pub ai_lookup_checksum: u64,
 }
@@ -315,16 +336,21 @@ pub struct GameplayDigest {
 /// frames. Adapter validation compares against this value, not against another
 /// ECS implementation.
 pub const GAMEPLAY_CANONICAL_DIGEST: GameplayDigest = GameplayDigest {
-    entity_count: 65_536,
+    actual_entity_count: 65_536,
+    unique_mapped_entity_count: 65_536,
     moving_count: 53_248,
     health_count: 24_576,
     lifetime_count: 12_288,
     stunned_count: 1_024,
+    component_mask_checksum: 13_341_931_166_528_947_233,
     position_checksum: 10_560_141_441_565_265_326,
     health_checksum: 9_148_023_443_901_091_336,
     lifetime_checksum: 8_703_545_528_283_948_197,
+    target_slot_checksum: 9_422_107_194_792_689_560,
+    owner_slot_checksum: 722_449_847_523_312_062,
+    cooldown_trace_checksum: 8_983_881_960_368_478_124,
     generation_checksum: 9_000_274_208_603_740_793,
-    ai_lookup_checksum: 14_462_208_485_980_245_948,
+    ai_lookup_checksum: 6_326_298_520_588_265_962,
 };
 
 #[derive(Clone)]
@@ -334,10 +360,15 @@ struct ReferenceEntity {
     health: Option<Health>,
     damage: Option<Damage>,
     regen: Option<Regen>,
+    enemy: bool,
+    ally: bool,
     lifetime: Option<Lifetime>,
     target: Option<TargetSlot>,
     cooldown: Option<Cooldown>,
+    owner: Option<OwnerSlot>,
     stunned: bool,
+    tag_a: bool,
+    tag_b: bool,
     generation: u32,
 }
 
@@ -346,6 +377,7 @@ struct ReferenceEntity {
 pub struct GameplayReference {
     entities: Vec<ReferenceEntity>,
     ai_lookup_checksum: u64,
+    cooldown_trace_checksum: u64,
 }
 
 impl GameplayReference {
@@ -363,10 +395,15 @@ impl GameplayReference {
                     health: values.health,
                     damage: values.damage,
                     regen: values.regen,
+                    enemy: values.enemy.is_some(),
+                    ally: values.ally.is_some(),
                     lifetime: values.lifetime,
                     target: values.target,
                     cooldown: values.cooldown,
+                    owner: values.owner,
                     stunned: values.stunned.is_some(),
+                    tag_a: matches!(gameplay_slot_spec(slot).variant, 1 | 3),
+                    tag_b: matches!(gameplay_slot_spec(slot).variant, 2 | 3),
                     generation: 0,
                 }
             })
@@ -374,6 +411,7 @@ impl GameplayReference {
         Self {
             entities,
             ai_lookup_checksum: 0,
+            cooldown_trace_checksum: 0,
         }
     }
 
@@ -401,15 +439,21 @@ impl GameplayReference {
         for &slot in frame.ai_slots.iter() {
             let entity = &mut self.entities[slot];
             let target = entity.target.expect("AI entity must have TargetSlot").0 as usize;
-            if let Some(cooldown) = &mut entity.cooldown {
-                cooldown.0 = cooldown.0.saturating_sub(1);
-            }
-            let position = self.entities[target].position;
-            self.ai_lookup_checksum = gameplay_mix_checksum(
-                self.ai_lookup_checksum,
-                slot as u64,
-                position.0.x.to_bits() as u64,
+            let cooldown = entity
+                .cooldown
+                .as_mut()
+                .expect("AI entity must have Cooldown");
+            cooldown.0 = cooldown.0.saturating_sub(1);
+            self.cooldown_trace_checksum = gameplay_ai_trace_checksum(
+                self.cooldown_trace_checksum,
+                frame.index,
+                slot,
+                target,
+                cooldown.0,
             );
+            let position = self.entities[target].position;
+            self.ai_lookup_checksum =
+                gameplay_ai_lookup_checksum(self.ai_lookup_checksum, slot, target, &position);
         }
 
         for entity in &mut self.entities {
@@ -446,10 +490,15 @@ impl GameplayReference {
                 health: values.health,
                 damage: values.damage,
                 regen: values.regen,
+                enemy: values.enemy.is_some(),
+                ally: values.ally.is_some(),
                 lifetime: values.lifetime,
                 target: values.target,
                 cooldown: values.cooldown,
+                owner: values.owner,
                 stunned: false,
+                tag_a: matches!(gameplay_slot_spec(slot).variant, 1 | 3),
+                tag_b: matches!(gameplay_slot_spec(slot).variant, 2 | 3),
                 generation,
             };
         }
@@ -464,12 +513,18 @@ impl GameplayReference {
         let mut health_checksum = 0;
         let mut lifetime_checksum = 0;
         let mut generation_checksum = 0;
+        let mut component_mask_checksum = 0;
+        let mut target_slot_checksum = 0;
+        let mut owner_slot_checksum = 0;
 
         for (slot, entity) in self.entities.iter().enumerate() {
             moving_count += usize::from(entity.velocity.is_some());
             health_count += usize::from(entity.health.is_some());
             lifetime_count += usize::from(entity.lifetime.is_some());
             stunned_count += usize::from(entity.stunned);
+            let mask = reference_component_mask(entity);
+            component_mask_checksum =
+                gameplay_mix_checksum(component_mask_checksum, slot as u64, mask as u64);
             position_checksum = gameplay_mix_checksum(
                 position_checksum,
                 slot as u64,
@@ -485,23 +540,120 @@ impl GameplayReference {
                 lifetime_checksum =
                     gameplay_mix_checksum(lifetime_checksum, slot as u64, lifetime.0 as u64);
             }
+            if let Some(target) = entity.target {
+                target_slot_checksum =
+                    gameplay_mix_checksum(target_slot_checksum, slot as u64, target.0 as u64);
+            }
+            if let Some(owner) = entity.owner {
+                owner_slot_checksum =
+                    gameplay_mix_checksum(owner_slot_checksum, slot as u64, owner.0 as u64);
+            }
             generation_checksum =
                 gameplay_mix_checksum(generation_checksum, slot as u64, entity.generation as u64);
         }
 
         GameplayDigest {
-            entity_count: self.entities.len(),
+            actual_entity_count: self.entities.len(),
+            unique_mapped_entity_count: self.entities.len(),
             moving_count,
             health_count,
             lifetime_count,
             stunned_count,
+            component_mask_checksum,
             position_checksum,
             health_checksum,
             lifetime_checksum,
+            target_slot_checksum,
+            owner_slot_checksum,
+            cooldown_trace_checksum: self.cooldown_trace_checksum,
             generation_checksum,
             ai_lookup_checksum: self.ai_lookup_checksum,
         }
     }
+}
+
+fn reference_component_mask(entity: &ReferenceEntity) -> u16 {
+    GAMEPLAY_MASK_POSITION
+        | if entity.velocity.is_some() {
+            GAMEPLAY_MASK_VELOCITY
+        } else {
+            0
+        }
+        | if entity.health.is_some() {
+            GAMEPLAY_MASK_HEALTH
+        } else {
+            0
+        }
+        | if entity.damage.is_some() {
+            GAMEPLAY_MASK_DAMAGE
+        } else {
+            0
+        }
+        | if entity.regen.is_some() {
+            GAMEPLAY_MASK_REGEN
+        } else {
+            0
+        }
+        | if entity.enemy { GAMEPLAY_MASK_ENEMY } else { 0 }
+        | if entity.ally { GAMEPLAY_MASK_ALLY } else { 0 }
+        | if entity.lifetime.is_some() {
+            GAMEPLAY_MASK_LIFETIME
+        } else {
+            0
+        }
+        | if entity.target.is_some() {
+            GAMEPLAY_MASK_TARGET
+        } else {
+            0
+        }
+        | if entity.cooldown.is_some() {
+            GAMEPLAY_MASK_COOLDOWN
+        } else {
+            0
+        }
+        | if entity.owner.is_some() {
+            GAMEPLAY_MASK_OWNER
+        } else {
+            0
+        }
+        | if entity.stunned {
+            GAMEPLAY_MASK_STUNNED
+        } else {
+            0
+        }
+        | if entity.tag_a { GAMEPLAY_MASK_TAG_A } else { 0 }
+        | if entity.tag_b { GAMEPLAY_MASK_TAG_B } else { 0 }
+}
+
+#[inline]
+pub fn gameplay_position_bits(position: &PositionComponent) -> u64 {
+    (position.0.x.to_bits() as u64)
+        ^ (position.0.y.to_bits() as u64).rotate_left(21)
+        ^ (position.0.z.to_bits() as u64).rotate_left(42)
+}
+
+#[inline]
+pub fn gameplay_ai_trace_checksum(
+    checksum: u64,
+    frame: usize,
+    slot: usize,
+    target: usize,
+    cooldown_after: u32,
+) -> u64 {
+    let checksum = gameplay_mix_checksum(checksum, frame as u64, slot as u64);
+    let checksum = gameplay_mix_checksum(checksum, slot as u64, target as u64);
+    gameplay_mix_checksum(checksum, target as u64, cooldown_after as u64)
+}
+
+#[inline]
+pub fn gameplay_ai_lookup_checksum(
+    checksum: u64,
+    slot: usize,
+    target: usize,
+    position: &PositionComponent,
+) -> u64 {
+    let checksum = gameplay_mix_checksum(checksum, slot as u64, target as u64);
+    gameplay_mix_checksum(checksum, target as u64, gameplay_position_bits(position))
 }
 
 #[inline]
@@ -550,7 +702,8 @@ mod tests {
         reference.run_trace(&trace);
         let digest = reference.digest();
         assert_eq!(digest, GAMEPLAY_CANONICAL_DIGEST);
-        assert_eq!(digest.entity_count, GAMEPLAY_ENTITY_COUNT);
+        assert_eq!(digest.actual_entity_count, GAMEPLAY_ENTITY_COUNT);
+        assert_eq!(digest.unique_mapped_entity_count, GAMEPLAY_ENTITY_COUNT);
         assert_eq!(digest.moving_count, GAMEPLAY_MOVING_COUNT);
         assert_eq!(digest.health_count, GAMEPLAY_HEALTH_COUNT);
         assert_eq!(digest.lifetime_count, GAMEPLAY_LIFETIME_COUNT);
@@ -578,5 +731,53 @@ mod tests {
                 .recycle_projectiles
                 .as_ref()
         );
+    }
+
+    #[test]
+    fn gameplay_digest_rejects_omitted_or_misdirected_work() {
+        let trace = GameplayTrace::standard();
+        let mut canonical = GameplayReference::new(&trace);
+        canonical.run_frame(&trace.frames()[0]);
+        let expected = canonical.digest();
+
+        let mut no_tags = GameplayReference::new(&trace);
+        no_tags.entities[1].tag_a = false;
+        no_tags.run_frame(&trace.frames()[0]);
+        assert_ne!(no_tags.digest(), expected);
+
+        let mut no_owner = GameplayReference::new(&trace);
+        no_owner.entities[GAMEPLAY_PROJECTILE_START + 1].owner = None;
+        no_owner.run_frame(&trace.frames()[0]);
+        assert_ne!(no_owner.digest(), expected);
+
+        let mut wrong_target = GameplayReference::new(&trace);
+        let ai = trace.frames()[0].ai_slots[0];
+        wrong_target.entities[ai].target = Some(TargetSlot(
+            (wrong_target.entities[ai].target.unwrap().0 + 256) % GAMEPLAY_PROJECTILE_START as u32,
+        ));
+        wrong_target.run_frame(&trace.frames()[0]);
+        assert_ne!(wrong_target.digest(), expected);
+
+        let mut wrong_stunned = GameplayReference::new(&trace);
+        let left = trace.frames()[0].remove_stunned[0];
+        let right = trace.frames()[0].add_stunned[0];
+        wrong_stunned.entities[left].stunned = false;
+        wrong_stunned.entities[right].stunned = true;
+        assert_ne!(
+            wrong_stunned.digest(),
+            GameplayReference::new(&trace).digest()
+        );
+
+        let mut skipped_cooldown = expected;
+        skipped_cooldown.cooldown_trace_checksum = 0;
+        assert_ne!(skipped_cooldown, expected);
+
+        let mut leaked_projectile = expected;
+        leaked_projectile.actual_entity_count += 1;
+        assert_ne!(leaked_projectile, expected);
+
+        let mut duplicated_mapping = expected;
+        duplicated_mapping.unique_mapped_entity_count -= 1;
+        assert_ne!(duplicated_mapping, expected);
     }
 }

@@ -1,6 +1,6 @@
 use super::*;
 use criterion::{measurement::WallTime, BenchmarkGroup};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 const GAMEPLAY_MOVE_MASK: u64 = POSITION_MASK | VELOCITY_MASK;
 const GAMEPLAY_ENEMY_MASK: u64 = HEALTH_MASK | DAMAGE_MASK | IS_ENEMY_MASK;
@@ -11,7 +11,9 @@ pub(super) struct FreecsGameplayWorld {
     entities: Vec<Entity>,
     generations: Vec<u32>,
     target_entities: Vec<Entity>,
+    target_slots: Vec<usize>,
     ai_lookup_checksum: u64,
+    cooldown_trace_checksum: u64,
 }
 
 impl FreecsGameplayWorld {
@@ -67,7 +69,9 @@ impl FreecsGameplayWorld {
                 .collect(),
             generations: vec![0; GAMEPLAY_ENTITY_COUNT],
             target_entities: Vec::with_capacity(GAMEPLAY_AI_LOOKUPS_PER_FRAME),
+            target_slots: Vec::with_capacity(GAMEPLAY_AI_LOOKUPS_PER_FRAME),
             ai_lookup_checksum: 0,
+            cooldown_trace_checksum: 0,
         }
     }
 
@@ -103,6 +107,7 @@ impl FreecsGameplayWorld {
 
     fn run_ai_source_phase(&mut self, frame: &GameplayFrame) {
         self.target_entities.clear();
+        self.target_slots.clear();
         for &slot in frame.ai_slots.iter() {
             let ai = self.entities[slot];
             let target = self
@@ -116,20 +121,30 @@ impl FreecsGameplayWorld {
                 .expect("AI entity must have Cooldown");
             cooldown.0 = cooldown.0.saturating_sub(1);
             self.target_entities.push(self.entities[target]);
+            self.target_slots.push(target);
+            self.cooldown_trace_checksum = gameplay_ai_trace_checksum(
+                self.cooldown_trace_checksum,
+                frame.index,
+                slot,
+                target,
+                cooldown.0,
+            );
         }
     }
 
     fn run_target_position_phase(&mut self, frame: &GameplayFrame) {
-        for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
+        for ((&slot, &target), &target_slot) in frame
+            .ai_slots
+            .iter()
+            .zip(&self.target_entities)
+            .zip(&self.target_slots)
+        {
             let position = self
                 .world
                 .get_position(target)
                 .expect("AI target must have PositionComponent");
-            self.ai_lookup_checksum = gameplay_mix_checksum(
-                self.ai_lookup_checksum,
-                slot as u64,
-                position.0.x.to_bits() as u64,
-            );
+            self.ai_lookup_checksum =
+                gameplay_ai_lookup_checksum(self.ai_lookup_checksum, slot, target_slot, position);
         }
     }
 
@@ -169,12 +184,83 @@ impl FreecsGameplayWorld {
         let mut health_checksum = 0;
         let mut lifetime_checksum = 0;
         let mut generation_checksum = 0;
+        let mut component_mask_checksum = 0;
+        let mut target_slot_checksum = 0;
+        let mut owner_slot_checksum = 0;
 
         for (slot, &entity) in self.entities.iter().enumerate() {
             moving_count += usize::from(self.world.get_velocity(entity).is_some());
             health_count += usize::from(self.world.get_health(entity).is_some());
             lifetime_count += usize::from(self.world.get_lifetime(entity).is_some());
             stunned_count += usize::from(self.world.get_stunned(entity).is_some());
+            let mask = GAMEPLAY_MASK_POSITION
+                | if self.world.get_velocity(entity).is_some() {
+                    GAMEPLAY_MASK_VELOCITY
+                } else {
+                    0
+                }
+                | if self.world.get_health(entity).is_some() {
+                    GAMEPLAY_MASK_HEALTH
+                } else {
+                    0
+                }
+                | if self.world.get_damage(entity).is_some() {
+                    GAMEPLAY_MASK_DAMAGE
+                } else {
+                    0
+                }
+                | if self.world.get_regen(entity).is_some() {
+                    GAMEPLAY_MASK_REGEN
+                } else {
+                    0
+                }
+                | if self.world.get_is_enemy(entity).is_some() {
+                    GAMEPLAY_MASK_ENEMY
+                } else {
+                    0
+                }
+                | if self.world.get_is_ally(entity).is_some() {
+                    GAMEPLAY_MASK_ALLY
+                } else {
+                    0
+                }
+                | if self.world.get_lifetime(entity).is_some() {
+                    GAMEPLAY_MASK_LIFETIME
+                } else {
+                    0
+                }
+                | if self.world.get_target_slot(entity).is_some() {
+                    GAMEPLAY_MASK_TARGET
+                } else {
+                    0
+                }
+                | if self.world.get_cooldown(entity).is_some() {
+                    GAMEPLAY_MASK_COOLDOWN
+                } else {
+                    0
+                }
+                | if self.world.get_owner_slot(entity).is_some() {
+                    GAMEPLAY_MASK_OWNER
+                } else {
+                    0
+                }
+                | if self.world.get_stunned(entity).is_some() {
+                    GAMEPLAY_MASK_STUNNED
+                } else {
+                    0
+                }
+                | if self.world.get_tag_a(entity).is_some() {
+                    GAMEPLAY_MASK_TAG_A
+                } else {
+                    0
+                }
+                | if self.world.get_tag_b(entity).is_some() {
+                    GAMEPLAY_MASK_TAG_B
+                } else {
+                    0
+                };
+            component_mask_checksum =
+                gameplay_mix_checksum(component_mask_checksum, slot as u64, mask as u64);
             let position = self
                 .world
                 .get_position(entity)
@@ -194,6 +280,14 @@ impl FreecsGameplayWorld {
                 lifetime_checksum =
                     gameplay_mix_checksum(lifetime_checksum, slot as u64, lifetime.0 as u64);
             }
+            if let Some(target) = self.world.get_target_slot(entity) {
+                target_slot_checksum =
+                    gameplay_mix_checksum(target_slot_checksum, slot as u64, target.0 as u64);
+            }
+            if let Some(owner) = self.world.get_owner_slot(entity) {
+                owner_slot_checksum =
+                    gameplay_mix_checksum(owner_slot_checksum, slot as u64, owner.0 as u64);
+            }
             generation_checksum = gameplay_mix_checksum(
                 generation_checksum,
                 slot as u64,
@@ -202,14 +296,19 @@ impl FreecsGameplayWorld {
         }
 
         GameplayDigest {
-            entity_count: self.entities.len(),
+            actual_entity_count: self.world.entity_count(),
+            unique_mapped_entity_count: self.entities.iter().copied().collect::<HashSet<_>>().len(),
             moving_count,
             health_count,
             lifetime_count,
             stunned_count,
+            component_mask_checksum,
             position_checksum,
             health_checksum,
             lifetime_checksum,
+            target_slot_checksum,
+            owner_slot_checksum,
+            cooldown_trace_checksum: self.cooldown_trace_checksum,
             generation_checksum,
             ai_lookup_checksum: self.ai_lookup_checksum,
         }
@@ -340,12 +439,7 @@ fn spawn_projectile(world: &mut World, slot: usize, generation: u32) -> Entity {
 }
 
 pub fn validate_gameplay_contract() {
-    let trace = GameplayTrace::standard();
-    let mut gameplay = FreecsGameplayWorld::new(&trace);
-    for frame in trace.frames() {
-        gameplay.run_frame(frame);
-    }
-    assert_eq!(gameplay.digest(), GAMEPLAY_CANONICAL_DIGEST);
+    validate_gameplay_adapter(FreecsGameplayWorld::new);
 }
 
 pub fn bench_gameplay_frame(group: &mut BenchmarkGroup<'_, WallTime>) {

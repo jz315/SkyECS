@@ -1,6 +1,3 @@
-#[path = "gameplay_api/certification.rs"]
-mod certification;
-
 use criterion::Criterion;
 use sky_ecs::{EntityId, PreparedEntityView, PreparedQuery, World};
 use std::hint::black_box;
@@ -128,10 +125,6 @@ impl GameplayFixture {
             self.checksum = self.checksum.wrapping_add(position.0.to_bits() as u64);
         }
     }
-
-    pub(crate) fn checksum(&self) -> u64 {
-        self.checksum
-    }
 }
 
 #[inline(never)]
@@ -226,25 +219,16 @@ fn bench_frame(criterion: &mut Criterion) {
     for (name, run) in [
         (
             "world_get_baseline",
-            certification::FrameSelection::world_get_baseline(),
+            frame_world_get as fn(&mut GameplayFixture),
         ),
-        (
-            "split_accessor_path",
-            certification::FrameSelection::split_accessor_path(),
-        ),
-        (
-            "all_prepared_views",
-            certification::FrameSelection::all_prepared_views(),
-        ),
-        (
-            "selected_production_path",
-            certification::FrameSelection::production(),
-        ),
+        ("split_accessor_path", frame_split_accessors),
+        ("all_prepared_views", frame_prepared_views),
+        ("selected_production_path", frame_production),
     ] {
         group.bench_function(name, move |bencher| {
             let mut fixture = GameplayFixture::new();
             bencher.iter(|| {
-                run.run(&mut fixture);
+                run(&mut fixture);
                 black_box(&fixture);
             });
         });
@@ -253,15 +237,34 @@ fn bench_frame(criterion: &mut Criterion) {
 }
 
 fn main() {
-    if std::env::var_os("SKY_ECS_CERTIFY_GAMEPLAY_API").is_some() {
-        certification::run();
-        return;
-    }
-
     let mut criterion = Criterion::default().configure_from_args();
     bench_iteration(&mut criterion);
     bench_ai(&mut criterion);
     bench_positions(&mut criterion);
     bench_frame(&mut criterion);
     criterion.final_summary();
+}
+
+fn frame_world_get(fixture: &mut GameplayFixture) {
+    fixture.iteration_closure();
+    fixture.ai_world_get_pair();
+    fixture.positions_world_get();
+}
+
+fn frame_split_accessors(fixture: &mut GameplayFixture) {
+    fixture.iteration_closure();
+    fixture.ai_split_accessors();
+    fixture.positions_accessor();
+}
+
+fn frame_prepared_views(fixture: &mut GameplayFixture) {
+    fixture.iteration_closure();
+    fixture.ai_prepared_entity_view();
+    fixture.positions_prepared_entity_view();
+}
+
+fn frame_production(fixture: &mut GameplayFixture) {
+    fixture.iteration_closure();
+    fixture.ai_prepared_entity_view();
+    fixture.positions_accessor();
 }

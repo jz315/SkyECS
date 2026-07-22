@@ -39,10 +39,11 @@ pub(crate) mod time;
 mod world;
 
 pub use access::{
-    BoundEntityView, BoundEntityViewMut, EntityAccessor, EntityAccessorMut, PrepareAccessError,
-    PreparedEntityAccess, PreparedEntityAccessMut, PreparedEntityView,
+    BoundEntityView, BoundEntityViewMut, EntityAccessor, EntityAccessorMut, EntityViewCacheStats,
+    PrepareAccessError, PreparedEntityAccess, PreparedEntityAccessMut, PreparedEntityView,
 };
 pub use bundle::Bundle;
+pub use chunk_route::RouteTableStats;
 pub use column_bundle::{ColumnBundle, ColumnLengthMismatch};
 pub use commands::{CommandBuffer, Commands};
 pub use entity::EntityId;

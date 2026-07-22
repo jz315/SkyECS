@@ -59,24 +59,25 @@ unsafe extern "C" {
         context: *mut c_void,
         digest: *mut NativeGameplayDigest,
     ) -> bool;
-    pub(super) fn sky_flecs_c_gameplay_run_trace(
-        context: *mut c_void,
-        digest: *mut NativeGameplayDigest,
-    ) -> bool;
     pub(super) fn sky_flecs_c_validate() -> bool;
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct NativeGameplayDigest {
-    pub entity_count: u64,
+    pub actual_entity_count: u64,
+    pub unique_mapped_entity_count: u64,
     pub moving_count: u64,
     pub health_count: u64,
     pub lifetime_count: u64,
     pub stunned_count: u64,
+    pub component_mask_checksum: u64,
     pub position_checksum: u64,
     pub health_checksum: u64,
     pub lifetime_checksum: u64,
+    pub target_slot_checksum: u64,
+    pub owner_slot_checksum: u64,
+    pub cooldown_trace_checksum: u64,
     pub generation_checksum: u64,
     pub ai_lookup_checksum: u64,
 }

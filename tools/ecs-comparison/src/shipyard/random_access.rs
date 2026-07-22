@@ -12,7 +12,7 @@ pub fn bench_entity_id_random_access(group: &mut BenchmarkGroup<'_, WallTime>) {
         group.bench_function(format!("{name}/shipyard"), |b| {
             let mut world = World::new();
             let entities: Vec<_> = (0..count)
-                .map(|_| world.add_entity(light_bundle()))
+                .map(|index| world.add_entity(random_access_bundle(index)))
                 .collect();
             let orders = deterministic_orders(&entities);
             let positions = world.borrow::<View<PositionComponent>>().unwrap();
@@ -41,7 +41,7 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
         group.bench_function(format!("build_{label}/shipyard"), |bencher| {
             let mut world = World::new();
             let entities: Vec<_> = (0..count)
-                .map(|_| world.add_entity(light_bundle()))
+                .map(|index| world.add_entity(random_access_bundle(index)))
                 .collect();
             let orders = deterministic_orders(&entities);
             let positions = world.borrow::<View<PositionComponent>>().unwrap();
@@ -59,7 +59,7 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
         group.bench_function(format!("steady_{label}/shipyard"), |bencher| {
             let mut world = World::new();
             let entities: Vec<_> = (0..count)
-                .map(|_| world.add_entity(light_bundle()))
+                .map(|index| world.add_entity(random_access_bundle(index)))
                 .collect();
             let orders = deterministic_orders(&entities);
             let positions = world.borrow::<View<PositionComponent>>().unwrap();
@@ -86,7 +86,7 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
                 |bencher| {
                     let mut world = World::new();
                     let entities: Vec<_> = (0..count)
-                        .map(|_| world.add_entity(light_bundle()))
+                        .map(|index| world.add_entity(random_access_bundle(index)))
                         .collect();
                     let orders = deterministic_orders(&entities);
                     let positions = world.borrow::<View<PositionComponent>>().unwrap();

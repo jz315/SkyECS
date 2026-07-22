@@ -49,6 +49,10 @@ struct OwnerSlot { std::uint32_t value; };
 static_assert(sizeof(Position) == 12 && alignof(Position) == 4);
 static_assert(sizeof(Velocity) == 12 && alignof(Velocity) == 4);
 
+std::uint64_t rotate_left(std::uint64_t value, unsigned shift) {
+    return (value << shift) | (value >> (64U - shift));
+}
+
 template<typename Component>
 ecs_entity_t define_component(ecs_world_t* world, const char* name) {
     ecs_entity_desc_t entity{};
@@ -167,14 +171,19 @@ ecs_query_t* prepare_query(
 }
 
 struct Digest {
-    std::uint64_t entity_count = 0;
+    std::uint64_t actual_entity_count = 0;
+    std::uint64_t unique_mapped_entity_count = 0;
     std::uint64_t moving_count = 0;
     std::uint64_t health_count = 0;
     std::uint64_t lifetime_count = 0;
     std::uint64_t stunned_count = 0;
+    std::uint64_t component_mask_checksum = 0;
     std::uint64_t position_checksum = 0;
     std::uint64_t health_checksum = 0;
     std::uint64_t lifetime_checksum = 0;
+    std::uint64_t target_slot_checksum = 0;
+    std::uint64_t owner_slot_checksum = 0;
+    std::uint64_t cooldown_trace_checksum = 0;
     std::uint64_t generation_checksum = 0;
     std::uint64_t ai_lookup_checksum = 0;
 };
@@ -190,8 +199,10 @@ struct Context {
     std::vector<ecs_entity_t> entities;
     std::vector<std::uint32_t> generations;
     std::vector<ecs_entity_t> target_entities;
+    std::vector<std::size_t> target_slots;
     std::size_t frame_index = 0;
     std::uint64_t ai_lookup_checksum = 0;
+    std::uint64_t cooldown_trace_checksum = 0;
 
     ~Context() {
         if (movement) ecs_query_fini(movement);
@@ -344,6 +355,7 @@ Context* create_context() {
     }
 
     context->target_entities.reserve(AI_LOOKUPS);
+    context->target_slots.reserve(AI_LOOKUPS);
     return context;
 }
 
@@ -411,6 +423,7 @@ void run_iteration(Context& context) {
 void run_ai_source(Context& context) {
     const std::size_t frame = context.frame_index;
     context.target_entities.clear();
+    context.target_slots.clear();
     const std::size_t ai_cohort = frame % AI_COHORTS;
     for (std::size_t index = 0; index < AI_LOOKUPS; ++index) {
         const std::size_t slot = AI_START + ai_cohort + index * AI_COHORTS;
@@ -423,7 +436,15 @@ void run_ai_source(Context& context) {
             context.entities[slot],
             context.components.cooldown));
         context.target_entities.push_back(context.entities[target->value]);
+        context.target_slots.push_back(target->value);
         cooldown->value = cooldown->value == 0 ? 0 : cooldown->value - 1;
+        context.cooldown_trace_checksum = mix_checksum(
+            mix_checksum(
+                mix_checksum(context.cooldown_trace_checksum, frame, slot),
+                slot,
+                target->value),
+            target->value,
+            cooldown->value);
     }
 }
 
@@ -436,10 +457,15 @@ void run_target_positions(Context& context) {
             context.world,
             context.target_entities[index],
             context.components.position));
+        const std::size_t target_slot = context.target_slots[index];
+        const std::uint64_t position_bits =
+            static_cast<std::uint64_t>(bits(position->x)) ^
+            rotate_left(static_cast<std::uint64_t>(bits(position->y)), 21) ^
+            rotate_left(static_cast<std::uint64_t>(bits(position->z)), 42);
         context.ai_lookup_checksum = mix_checksum(
-            context.ai_lookup_checksum,
-            slot,
-            bits(position->x));
+            mix_checksum(context.ai_lookup_checksum, slot, target_slot),
+            target_slot,
+            position_bits);
     }
 }
 
@@ -481,7 +507,12 @@ std::uint64_t run_frame(Context& context) {
 
 Digest digest(const Context& context) {
     Digest result{};
-    result.entity_count = context.entities.size();
+    result.actual_entity_count = static_cast<std::uint64_t>(
+        ecs_count_id(context.world, context.components.position));
+    auto unique_entities = context.entities;
+    std::sort(unique_entities.begin(), unique_entities.end());
+    result.unique_mapped_entity_count = static_cast<std::uint64_t>(
+        std::unique(unique_entities.begin(), unique_entities.end()) - unique_entities.begin());
     for (std::size_t slot = 0; slot < context.entities.size(); ++slot) {
         const ecs_entity_t entity = context.entities[slot];
         const auto* position = static_cast<const Position*>(ecs_get_id(
@@ -495,6 +526,21 @@ Digest digest(const Context& context) {
             context.world, entity, context.components.lifetime);
         result.stunned_count += ecs_has_id(
             context.world, entity, context.components.stunned);
+        std::uint16_t mask = 1U << 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.velocity) ? 1U << 1U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.health) ? 1U << 2U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.damage) ? 1U << 3U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.regen) ? 1U << 4U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.enemy) ? 1U << 5U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.ally) ? 1U << 6U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.lifetime) ? 1U << 7U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.target_slot) ? 1U << 8U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.cooldown) ? 1U << 9U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.owner_slot) ? 1U << 10U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.stunned) ? 1U << 11U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.tag_a) ? 1U << 12U : 0U;
+        mask |= ecs_has_id(context.world, entity, context.components.tag_b) ? 1U << 13U : 0U;
+        result.component_mask_checksum = mix_checksum(result.component_mask_checksum, slot, mask);
         result.position_checksum = mix_checksum(
             result.position_checksum,
             slot,
@@ -511,10 +557,21 @@ Digest digest(const Context& context) {
             result.lifetime_checksum = mix_checksum(
                 result.lifetime_checksum, slot, lifetime->value);
         }
+        if (const auto* target = static_cast<const TargetSlot*>(ecs_get_id(
+                context.world, entity, context.components.target_slot))) {
+            result.target_slot_checksum = mix_checksum(
+                result.target_slot_checksum, slot, target->value);
+        }
+        if (const auto* owner = static_cast<const OwnerSlot*>(ecs_get_id(
+                context.world, entity, context.components.owner_slot))) {
+            result.owner_slot_checksum = mix_checksum(
+                result.owner_slot_checksum, slot, owner->value);
+        }
         result.generation_checksum = mix_checksum(
             result.generation_checksum, slot, context.generations[slot]);
     }
     result.ai_lookup_checksum = context.ai_lookup_checksum;
+    result.cooldown_trace_checksum = context.cooldown_trace_checksum;
     return result;
 }
 
@@ -572,18 +629,6 @@ bool sky_flecs_c_gameplay_digest(void* context, GameplayDigest* digest) {
     if (!context || !digest) return false;
     *digest = sky_ecs_bench::flecs_c::gameplay_frame::digest(
         *static_cast<GameplayContext*>(context));
-    return true;
-}
-
-bool sky_flecs_c_gameplay_run_trace(void* context, GameplayDigest* digest) {
-    if (!context || !digest) return false;
-    auto& gameplay = *static_cast<GameplayContext*>(context);
-    for (std::size_t frame = 0;
-         frame < sky_ecs_bench::flecs_c::gameplay_frame::FRAME_COUNT;
-         ++frame) {
-        sky_ecs_bench::flecs_c::gameplay_frame::run_frame(gameplay);
-    }
-    *digest = sky_ecs_bench::flecs_c::gameplay_frame::digest(gameplay);
     return true;
 }
 

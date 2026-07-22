@@ -11,7 +11,9 @@ pub fn bench_entity_id_random_access(group: &mut BenchmarkGroup<'_, WallTime>) {
     ] {
         group.bench_function(format!("{name}/hecs"), |b| {
             let mut world = World::new();
-            let entities: Vec<_> = (0..count).map(|_| world.spawn(light_bundle())).collect();
+            let entities: Vec<_> = (0..count)
+                .map(|index| world.spawn(random_access_bundle(index)))
+                .collect();
             let orders = deterministic_orders(&entities);
             let mut query = PreparedQuery::<&PositionComponent>::default();
             let view = query.view_mut(&mut world);
@@ -39,7 +41,9 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
     ] {
         group.bench_function(format!("build_{label}/hecs"), |bencher| {
             let mut world = World::new();
-            let entities: Vec<_> = (0..count).map(|_| world.spawn(light_bundle())).collect();
+            let entities: Vec<_> = (0..count)
+                .map(|index| world.spawn(random_access_bundle(index)))
+                .collect();
             let orders = deterministic_orders(&entities);
             let mut query = PreparedQuery::<&PositionComponent>::default();
             let view = query.view_mut(&mut world);
@@ -56,7 +60,9 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
 
         group.bench_function(format!("steady_{label}/hecs"), |bencher| {
             let mut world = World::new();
-            let entities: Vec<_> = (0..count).map(|_| world.spawn(light_bundle())).collect();
+            let entities: Vec<_> = (0..count)
+                .map(|index| world.spawn(random_access_bundle(index)))
+                .collect();
             let orders = deterministic_orders(&entities);
             let mut query = PreparedQuery::<&PositionComponent>::default();
             let view = query.view_mut(&mut world);
@@ -80,7 +86,9 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
         for repeats in [1_usize, 4, 16, 64] {
             group.bench_function(format!("amortized_{label}_x{repeats}/hecs"), |bencher| {
                 let mut world = World::new();
-                let entities: Vec<_> = (0..count).map(|_| world.spawn(light_bundle())).collect();
+                let entities: Vec<_> = (0..count)
+                    .map(|index| world.spawn(random_access_bundle(index)))
+                    .collect();
                 let orders = deterministic_orders(&entities);
                 let mut query = PreparedQuery::<&PositionComponent>::default();
                 let view = query.view_mut(&mut world);

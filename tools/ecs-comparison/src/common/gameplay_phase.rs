@@ -1,4 +1,7 @@
-use super::{GameplayDigest, GameplayFrame, GameplayTrace, GAMEPLAY_CANONICAL_DIGEST};
+use super::{
+    GameplayDigest, GameplayFrame, GameplayReference, GameplayTrace, GAMEPLAY_CANONICAL_DIGEST,
+    GAMEPLAY_CONTRACT_CHECKPOINTS,
+};
 use criterion::{measurement::WallTime, BenchmarkGroup};
 use std::hint::black_box;
 use std::time::{Duration, Instant};
@@ -44,6 +47,44 @@ pub trait GameplayPhaseAdapter {
             self.run_phase(phase, frame);
         }
     }
+}
+
+pub fn validate_gameplay_runner<Adapter, Factory, Run, Digest>(
+    factory: Factory,
+    run_frame: Run,
+    digest: Digest,
+) where
+    Factory: FnOnce(&GameplayTrace) -> Adapter,
+    Run: Fn(&mut Adapter, &GameplayFrame),
+    Digest: Fn(&Adapter) -> GameplayDigest,
+{
+    let trace = GameplayTrace::standard();
+    let mut expected = GameplayReference::new(&trace);
+    let mut actual = factory(&trace);
+    for frame in trace.frames() {
+        expected.run_frame(frame);
+        run_frame(&mut actual, frame);
+        if GAMEPLAY_CONTRACT_CHECKPOINTS.contains(&frame.index) {
+            assert_eq!(
+                digest(&actual),
+                expected.digest(),
+                "gameplay contract diverged after frame {}",
+                frame.index
+            );
+        }
+    }
+    assert_eq!(expected.digest(), GAMEPLAY_CANONICAL_DIGEST);
+    assert_eq!(digest(&actual), GAMEPLAY_CANONICAL_DIGEST);
+}
+
+pub fn validate_gameplay_adapter<Adapter, Factory>(factory: Factory)
+where
+    Adapter: GameplayPhaseAdapter,
+    Factory: FnOnce(&GameplayTrace) -> Adapter,
+{
+    validate_gameplay_runner(factory, GameplayPhaseAdapter::run_frame, |adapter| {
+        adapter.digest()
+    });
 }
 
 /// Benchmarks one phase while still executing the complete evolving frame.

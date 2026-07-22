@@ -11,6 +11,7 @@ pub(crate) struct ArchetypeStorage {
     pub chunks: Vec<Chunk>,
     pub(crate) chunk_ids: Vec<ChunkId>,
     chunk_set_version: u64,
+    column_base_version: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -78,12 +79,26 @@ impl ArchetypeStorage {
             chunks: Vec::new(),
             chunk_ids: Vec::new(),
             chunk_set_version: 0,
+            column_base_version: 0,
         }
     }
 
     #[inline(always)]
     pub(crate) fn chunk_set_version(&self) -> u64 {
         self.chunk_set_version
+    }
+
+    #[inline(always)]
+    pub(crate) fn column_base_version(&self) -> u64 {
+        self.column_base_version
+    }
+
+    #[inline(always)]
+    pub(super) fn mark_column_bases_changed(&mut self) {
+        self.column_base_version = self
+            .column_base_version
+            .checked_add(1)
+            .expect("archetype column-base version exhausted");
     }
 
     /// Marks a mutation that changes the set of physical chunks. This is
@@ -108,6 +123,7 @@ impl ArchetypeStorage {
         // Mark before allocation so an unwind can never leave a World cache
         // believing that its chunk route plan is still complete.
         self.mark_chunk_set_changed();
+        self.mark_column_bases_changed();
         if self.chunks.capacity() == 0 {
             // Incremental worlds commonly leave most archetypes with a single
             // chunk. Avoid Vec's default four-Chunk first allocation; known
@@ -331,6 +347,7 @@ impl ArchetypeStorage {
             GrowthAction::Promote(next_layout_index) => {
                 let layout = self.layouts[next_layout_index];
                 debug_assert_eq!(layout.chunk_size(), SMALL_CHUNK_SIZE);
+                self.mark_column_bases_changed();
                 self.chunks.last_mut().unwrap().promote_tiny(&layout);
             }
             GrowthAction::Append(layout_index) => self.add_chunk_with_layout(layout_index),
@@ -485,6 +502,7 @@ impl ArchetypeStorage {
             // Dropping the empty chunk returns its block to the bounded,
             // thread-local pool shared by every archetype on this thread.
             self.mark_chunk_set_changed();
+            self.mark_column_bases_changed();
             self.chunks.pop();
             self.chunk_ids
                 .pop()

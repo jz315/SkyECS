@@ -104,9 +104,9 @@ separate benchmark families.
 ### Fast API selection
 
 API experiments and the formal cross-engine comparison are intentionally
-separate. Sky candidates live in `crates/sky_ecs/benches`: `gameplay_api`
-compares iteration, AI tuple lookup, Position lookup, and complete-frame paths;
+separate. Sky microbench candidates live in `crates/sky_ecs/benches`;
 `random_access`, `entity_view`, and `chunk_cost` isolate the supporting APIs.
+Canonical gameplay selection lives behind `api-experiments` in the comparison crate.
 Run those benches locally on the target machine, use alternating AB/BA order,
 and record the controlled certification before changing a winner.
 
@@ -115,11 +115,10 @@ It has no candidate enum, environment switch, or API selector, and GitHub
 shared runners never choose a production API. External-engine experiments that
 cannot live in Sky's crate remain in the manually enabled `api_candidates`
 bench. Dense 10k/100k/1m iteration uses the selected plain-function chunk API;
-gameplay uses `PreparedEntityView` for the AI tuple and `EntityAccessor` for
-target Position lookups. The latest local raw AB/BA record is
-[`certifications/sky-gameplay-api.windows-x86_64.2026-07-22.json`](certifications/sky-gameplay-api.windows-x86_64.2026-07-22.json): the AI and Position
-winners match production; the iteration function's sub-2% median fallback did
-not clear the full-frame gate, so production retains the closure.
+gameplay currently uses `PreparedEntityView` for the AI tuple and `EntityAccessor` for
+target Position lookups. The previous certificate was withdrawn because it used a
+simplified dirty-tree fixture. Regenerate evidence only from a clean tree with
+`SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs_comparison --bench api_candidates --features api-experiments -- sky`.
 
 ## Last public snapshot (before the workload revision)
 

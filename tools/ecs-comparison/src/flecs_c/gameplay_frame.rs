@@ -68,37 +68,31 @@ impl GameplayPhaseAdapter for FlecsGameplayWorld {
 
 fn native_digest(native: NativeGameplayDigest) -> GameplayDigest {
     GameplayDigest {
-        entity_count: native.entity_count as usize,
+        actual_entity_count: native.actual_entity_count as usize,
+        unique_mapped_entity_count: native.unique_mapped_entity_count as usize,
         moving_count: native.moving_count as usize,
         health_count: native.health_count as usize,
         lifetime_count: native.lifetime_count as usize,
         stunned_count: native.stunned_count as usize,
+        component_mask_checksum: native.component_mask_checksum,
         position_checksum: native.position_checksum,
         health_checksum: native.health_checksum,
         lifetime_checksum: native.lifetime_checksum,
+        target_slot_checksum: native.target_slot_checksum,
+        owner_slot_checksum: native.owner_slot_checksum,
+        cooldown_trace_checksum: native.cooldown_trace_checksum,
         generation_checksum: native.generation_checksum,
         ai_lookup_checksum: native.ai_lookup_checksum,
     }
 }
 
 pub fn validate_gameplay_contract() {
-    let context = gameplay_context();
-    let mut native = NativeGameplayDigest::default();
-    // SAFETY: `context` and `native` remain alive for the call, and the native
-    // adapter writes exactly one repr(C) digest value.
-    assert!(unsafe { sky_flecs_c_gameplay_run_trace(context.pointer(), &mut native) });
-    let digest = native_digest(native);
-    assert_eq!(digest, GAMEPLAY_CANONICAL_DIGEST);
-
-    let trace = GameplayTrace::standard();
-    let mut phased = FlecsGameplayWorld::new(&trace);
-    for frame in trace.frames() {
-        GameplayPhaseAdapter::run_frame(&mut phased, frame);
-    }
-    assert_eq!(
-        GameplayPhaseAdapter::digest(&phased),
-        GAMEPLAY_CANONICAL_DIGEST
+    validate_gameplay_runner(
+        FlecsGameplayWorld::new,
+        FlecsGameplayWorld::run_native_frame,
+        FlecsGameplayWorld::digest,
     );
+    validate_gameplay_adapter(FlecsGameplayWorld::new);
 }
 
 pub fn bench_gameplay_phases(group: &mut BenchmarkGroup<'_, WallTime>) {

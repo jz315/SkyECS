@@ -171,6 +171,36 @@ pub fn light_bundle() -> (PositionComponent, VelocityComponent) {
     (suite_position(), suite_velocity())
 }
 
+pub fn random_access_bundle(index: usize) -> (PositionComponent, VelocityComponent) {
+    let value = index as f32 + 1.0;
+    (
+        PositionComponent(Vector3::new(value, value * 0.5, value * 0.25)),
+        suite_velocity(),
+    )
+}
+
+pub fn assert_random_access_position(position: &PositionComponent, index: usize) {
+    let expected = random_access_bundle(index).0;
+    assert_eq!(position.0.x.to_bits(), expected.0.x.to_bits());
+    assert_eq!(position.0.y.to_bits(), expected.0.y.to_bits());
+    assert_eq!(position.0.z.to_bits(), expected.0.z.to_bits());
+}
+
+pub fn validate_random_access_order<T: Copy + Eq>(
+    source_entities: &[T],
+    order: &[T],
+    mut lookup: impl FnMut(T) -> PositionComponent,
+) {
+    assert_eq!(source_entities.len(), order.len());
+    for &entity in order {
+        let index = source_entities
+            .iter()
+            .position(|&candidate| candidate == entity)
+            .expect("random-access order contains an unknown entity");
+        assert_random_access_position(&lookup(entity), index);
+    }
+}
+
 pub fn heavy_bundle() -> SuiteBundle {
     (
         TransformComponent(heavy_matrix()),
@@ -228,4 +258,16 @@ pub fn mixed_heavy_bundle() -> (TransformComponent, PositionComponent, VelocityC
         PositionComponent(Vector3::new(1.0, 2.0, 3.0)),
         VelocityComponent(Vector3::new(0.5, 0.0, 0.5)),
     )
+}
+
+#[cfg(test)]
+mod random_access_tests {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn repeated_first_entity_fails_identity_validation() {
+        let entities = [0_usize, 1, 2, 3];
+        validate_random_access_order(&entities, &entities, |_| random_access_bundle(0).0);
+    }
 }

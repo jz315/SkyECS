@@ -94,19 +94,16 @@ family，不混入结果。
 
 ### 最快 API 选择
 
-API 实验与正式跨引擎比较严格分离。Sky 候选都放在
-`crates/sky_ecs/benches`：`gameplay_api` 比较 iteration、AI tuple 查询、
-Position 查询和完整帧，`random_access`、`entity_view`、`chunk_cost` 负责隔离
-底层 API。它们只在目标机器本地运行，用 AB/BA 顺序和受控认证决定胜者。
+API 实验与正式跨引擎比较严格分离。`crates/sky_ecs/benches` 保留 Sky 微基准，
+真实 canonical gameplay 选择放在 comparison crate 的 `api-experiments` 中。
 
 `tools/ecs-comparison/benches/comparison.rs` 只包含已经选定的路径，不保留
 候选枚举、环境变量切换或 selector；GitHub shared runner 永远不会决定生产
 API。必须结合外部引擎的实验才保留在手动启用的 `api_candidates` bench。
-当前 gameplay 正式路径的 AI tuple 使用 `PreparedEntityView`，目标 Position
-使用 `EntityAccessor`。最新本地 AB/BA 原始记录见
-[`certifications/sky-gameplay-api.windows-x86_64.2026-07-22.json`](certifications/sky-gameplay-api.windows-x86_64.2026-07-22.json)：AI 与 Position
-胜者和正式路径一致；iteration function 只通过低于 2% 的中位数 fallback，
-组合后未通过完整帧 gate，因此正式路径继续使用 closure。
+当前 gameplay 正式路径的 AI tuple 使用 `PreparedEntityView`，目标 Position 使用
+`EntityAccessor`。旧证书因使用简化 fixture 和脏工作树而撤下。只能在干净工作树运行
+`SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs_comparison --bench api_candidates --features api-experiments -- sky`
+生成 canonical 证据。
 
 ## 最近一次公开快照（workload 修订前）
 

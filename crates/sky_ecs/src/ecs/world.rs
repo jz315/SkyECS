@@ -390,6 +390,23 @@ impl World {
         self.data.len()
     }
 
+    /// Returns diagnostic counts for the World-local chunk route table.
+    pub fn route_table_stats(&self) -> RouteTableStats {
+        self.chunk_directory.stats()
+    }
+
+    /// Releases trailing vacant route slots without renumbering live chunks.
+    ///
+    /// Internal holes remain available for reuse. This operation is useful
+    /// after a temporary loading peak whose chunks occupied the tail of the
+    /// route table.
+    pub fn shrink_route_tables(&mut self) -> RouteTableStats {
+        if self.chunk_directory.shrink_tail() {
+            self.bump_column_base_epoch();
+        }
+        self.chunk_directory.stats()
+    }
+
     /// Removes all entities and their components, but keeps resources.
     ///
     /// Component destructors are called for every live entity.
@@ -398,6 +415,7 @@ impl World {
     pub fn clear(&mut self) {
         self.bump_row_layout_epoch();
         self.bump_chunk_set_epoch();
+        self.bump_column_base_epoch();
         self.bump_archetype_epoch();
         let mut drop_panic = None;
 

@@ -8,6 +8,14 @@ pub(super) fn spawn_light_batch(world: &mut World, count: usize) -> Vec<Entity> 
     })
 }
 
+pub(super) fn spawn_random_access_batch(world: &mut World, count: usize) -> Vec<Entity> {
+    world.spawn_batch(LIGHT_MASK, count, |table, index| {
+        let (position, velocity) = random_access_bundle(index);
+        table.position[index] = position;
+        table.velocity[index] = velocity;
+    })
+}
+
 pub(super) fn spawn_light_one(world: &mut World) -> Entity {
     spawn_light_batch(world, 1)
         .pop()

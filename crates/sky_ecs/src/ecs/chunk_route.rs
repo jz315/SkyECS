@@ -1,3 +1,14 @@
+/// Diagnostic counts for the World-local chunk route table.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RouteTableStats {
+    /// Number of route slots currently assigned to live chunks.
+    pub live_chunk_routes: usize,
+    /// Total addressable route slots, including internal vacancies.
+    pub route_slots: usize,
+    /// Number of vacant slots retained for later chunk-ID reuse.
+    pub vacant_route_slots: usize,
+}
+
 /// Stable World-local identity for one physical chunk.
 ///
 /// Entity records use this key instead of storing both an archetype-storage
@@ -53,6 +64,28 @@ pub(crate) struct ChunkDirectory {
 }
 
 impl ChunkDirectory {
+    pub(crate) fn stats(&self) -> RouteTableStats {
+        RouteTableStats {
+            live_chunk_routes: self.entries.len() - self.free.len(),
+            route_slots: self.entries.len(),
+            vacant_route_slots: self.free.len(),
+        }
+    }
+
+    pub(crate) fn shrink_tail(&mut self) -> bool {
+        let old_len = self.entries.len();
+        while self.entries.last().is_some_and(|entry| entry.is_vacant()) {
+            self.entries.pop();
+        }
+        if self.entries.len() != old_len {
+            let new_len = self.entries.len();
+            self.free.retain(|&id| (id as usize) < new_len);
+        }
+        self.entries.shrink_to_fit();
+        self.free.shrink_to_fit();
+        self.entries.len() != old_len
+    }
+
     pub(crate) fn ensure(
         &mut self,
         id: &mut ChunkId,

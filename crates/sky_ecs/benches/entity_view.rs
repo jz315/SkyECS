@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use sky_ecs::{EntityId, EntityView, PreparedEntityView, Res, ResMut, Update, World};
 use std::hint::black_box;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const ENTITY_COUNT: usize = 10_000;
 
@@ -10,6 +10,9 @@ struct TargetSlot(u32);
 
 #[derive(Clone, Copy)]
 struct Cooldown(u32);
+
+#[allow(dead_code)]
+struct Wide([u8; 4 * 1024]);
 
 struct LookupOrder(Vec<EntityId>);
 
@@ -111,6 +114,53 @@ fn bench_entity_views(criterion: &mut Criterion) {
     });
 
     group.finish();
+
+    let mut prepare = criterion.benchmark_group("entity_view_route_prepare");
+    prepare.bench_function("stable_world", |bencher| {
+        let (world, order) = fixture();
+        let mut view = PreparedEntityView::<&TargetSlot>::new();
+        let _ = view.bind(&world);
+        bencher.iter(|| {
+            black_box(view.bind(&world).get(order[0]));
+        });
+    });
+    prepare.bench_function("row_churn_without_chunk_change", |bencher| {
+        let mut world = World::new();
+        let survivor = world.spawn((TargetSlot(1),));
+        let mut view = PreparedEntityView::<&TargetSlot>::new();
+        let _ = view.bind(&world);
+        bencher.iter_custom(|iterations| {
+            let mut elapsed = Duration::ZERO;
+            for _ in 0..iterations {
+                let temporary = world.spawn((TargetSlot(2),));
+                let start = Instant::now();
+                black_box(view.bind(&world).get(survivor));
+                elapsed += start.elapsed();
+                assert!(world.despawn(temporary));
+            }
+            elapsed
+        });
+    });
+    for (name, shrink) in [("route_peak", false), ("route_peak_then_shrink", true)] {
+        prepare.bench_function(format!("entity_accessor_construct/{name}"), |bencher| {
+            let mut world = World::new();
+            let survivor = world.spawn((TargetSlot(1),));
+            let temporary: Vec<_> = (0..160)
+                .map(|value| world.spawn((TargetSlot(value), Wide([value as u8; 4 * 1024]))))
+                .collect();
+            for entity in temporary {
+                assert!(world.despawn(entity));
+            }
+            if shrink {
+                world.shrink_route_tables();
+            }
+            bencher.iter(|| {
+                let accessor = world.accessor::<TargetSlot>();
+                black_box(accessor.get(survivor));
+            });
+        });
+    }
+    prepare.finish();
 }
 
 criterion_group!(benches, bench_entity_views);

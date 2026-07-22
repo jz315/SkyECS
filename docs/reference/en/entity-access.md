@@ -55,13 +55,19 @@ let (target, cooldown) = view.get_mut(entity)?;
 ```
 
 `bind` accepts a read-only `QuerySpec`; `bind_mut` accepts shared, mutable, tuple, and
-optional parameters. Binding refreshes all component base pointers while reusing the route
-table allocations. Each `get` or `get_mut` performs one generation/route lookup and builds
+optional parameters. Binding reuses component bases while the World's column-base epoch is
+unchanged. Chunk creation/retirement, route reuse, tiny promotion, clear, and explicit route
+shrink rebuild the cache; ordinary row churn does not. `cache_stats()` exposes rebuild and
+route-slot diagnostics. Each `get` or `get_mut` performs one generation/route lookup and builds
 the complete query item from that route. Filters are intentionally not part of this API.
 
 An optional-only query distinguishes a valid entity with missing components from an invalid
 entity: `PreparedEntityView<Option<&A>>::get` returns `Some(None)` for the former and `None`
 for the latter. Mutable items are tied to the current mutable borrow of the bound view.
+
+`World::route_table_stats()` reports live, allocated, and vacant chunk-route slots.
+`World::shrink_route_tables()` removes only trailing vacant slots and never renumbers a
+live chunk; internal holes remain reusable.
 
 ## `EntityAccessor`
 
@@ -132,7 +138,7 @@ Let `R` be the World chunk-route slot count and `N` the input length.
 | `prepare_access_mut` | Expected O(R + matching chunks + N), one pointer array plus a temporary hash table for duplicate detection. |
 | Prepared `get*` | O(1), no allocation. |
 | Prepared `iter*` | O(N), no allocation during iteration and no entity/route/component checks per item. |
-| `PreparedEntityView::bind*` | O(R + matching chunks × query width), reuses retained route tables. |
+| `PreparedEntityView::bind*` | O(1) while the column-base epoch is unchanged; otherwise O(R + matching chunks × query width). |
 | Bound entity-view `get*` | O(query width), no allocation and one entity-route validation. |
 
 ## Minimal example

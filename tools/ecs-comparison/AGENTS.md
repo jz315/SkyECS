@@ -80,7 +80,7 @@ published.
 
 | Adapter | Gameplay AI source | Gameplay target Position |
 |---|---|---|
-| Sky | `PreparedEntityView<(&TargetSlot, &mut Cooldown)>`; selected by the crate-local `gameplay_api` benchmark | `EntityAccessor<Position>::get`; selected by the same crate-local benchmark |
+| Sky | `PreparedEntityView<(&TargetSlot, &mut Cooldown)>` (canonical recertification pending) | `EntityAccessor<Position>::get` (canonical recertification pending) |
 | hecs | `PreparedQuery<(&TargetSlot, &mut Cooldown)>::view_mut().get_mut` (uncertified) | `PreparedQuery<&Position>::view_mut().get` (uncertified) |
 | Flecs C | per-frame `ecs_get_id(TargetSlot)` plus `ecs_get_mut_id(Cooldown)` (uncertified) | `ecs_get_id(Position)` over the generated target list (uncertified) |
 | Bevy ECS | reusable tuple `QueryState::get_mut` (uncertified) | reusable `QueryState::get_manual` (uncertified) |
@@ -90,8 +90,8 @@ published.
 The native-bulk scenario has contract tests and explicit native prepared inputs.
 Sky API experiments live in `crates/sky_ecs/benches`; the canonical comparison
 contains only the selected paths and never chooses an API on a shared runner.
-Re-run `SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs --bench
-gameplay_api` and the focused API benches on the publication target after
+Re-run `SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs_comparison --bench
+api_candidates --features api-experiments -- sky` on a clean publication target after
 relevant workload, toolchain, or storage changes. This command records raw
 AB/BA rounds and the full-frame gate; the ordinary command runs Criterion's
 candidate groups.

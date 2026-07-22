@@ -12,7 +12,7 @@ pub fn bench_entity_id_random_access(group: &mut BenchmarkGroup<'_, WallTime>) {
         group.bench_function(format!("{name}/bevy"), |b| {
             let mut world = World::new();
             let entities: Vec<_> = (0..count)
-                .map(|_| world.spawn(light_bundle()).id())
+                .map(|index| world.spawn(random_access_bundle(index)).id())
                 .collect();
             let orders = deterministic_orders(&entities);
             let query = world.query::<&PositionComponent>();
@@ -41,7 +41,7 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
         group.bench_function(format!("build_{label}/bevy"), |bencher| {
             let mut world = World::new();
             let entities: Vec<_> = (0..count)
-                .map(|_| world.spawn(light_bundle()).id())
+                .map(|index| world.spawn(random_access_bundle(index)).id())
                 .collect();
             let orders = deterministic_orders(&entities);
             let query = world.query::<&PositionComponent>();
@@ -59,7 +59,7 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
         group.bench_function(format!("steady_{label}/bevy"), |bencher| {
             let mut world = World::new();
             let entities: Vec<_> = (0..count)
-                .map(|_| world.spawn(light_bundle()).id())
+                .map(|index| world.spawn(random_access_bundle(index)).id())
                 .collect();
             let orders = deterministic_orders(&entities);
             let query = world.query::<&PositionComponent>();
@@ -84,7 +84,7 @@ pub fn bench_fixed_sequence_access(group: &mut BenchmarkGroup<'_, WallTime>) {
             group.bench_function(format!("amortized_{label}_x{repeats}/bevy"), |bencher| {
                 let mut world = World::new();
                 let entities: Vec<_> = (0..count)
-                    .map(|_| world.spawn(light_bundle()).id())
+                    .map(|index| world.spawn(random_access_bundle(index)).id())
                     .collect();
                 let orders = deterministic_orders(&entities);
                 let query = world.query::<&PositionComponent>();

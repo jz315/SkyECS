@@ -60,6 +60,7 @@ impl ArchetypeStorage {
             let layout_index = self.layout_index_after(TINY_CHUNK_SIZE);
             let layout = self.layouts[layout_index];
             debug_assert_eq!(layout.chunk_size(), SMALL_CHUNK_SIZE);
+            self.mark_column_bases_changed();
             self.chunks.last_mut().unwrap().promote_tiny(&layout);
         }
 

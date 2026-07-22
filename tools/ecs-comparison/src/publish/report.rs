@@ -1,5 +1,7 @@
 use super::analysis::{analyze_order_bias, validate_results};
-use super::model::{OrderBias, PublicationReport, StoredPublicationReport, Summary};
+use super::model::{
+    ContractVerification, OrderBias, PublicationReport, StoredPublicationReport, Summary,
+};
 use sky_ecs_comparison::common::{benchmark_class, BenchmarkClass};
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -9,9 +11,11 @@ pub(super) fn write_report(
     report_dir: &Path,
     run_count: usize,
     summaries: &[Summary],
+    contracts: &ContractVerification,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let order_bias = analyze_order_bias(summaries);
     let report = PublicationReport {
+        contracts,
         criterion_estimator: "median",
         run_count,
         order_bias: &order_bias,
@@ -21,7 +25,7 @@ pub(super) fn write_report(
         report_dir.join("summary.json"),
         serde_json::to_vec_pretty(&report)?,
     )?;
-    write_markdown(report_dir, run_count, summaries, &order_bias)?;
+    write_markdown(report_dir, run_count, summaries, &order_bias, contracts)?;
     Ok(())
 }
 
@@ -37,7 +41,12 @@ pub(super) fn reanalyze_report(report_dir: &Path) -> Result<(), Box<dyn std::err
         }
     }
     validate_results(&stored.benchmarks, stored.run_count, true)?;
-    write_report(report_dir, stored.run_count, &stored.benchmarks)?;
+    write_report(
+        report_dir,
+        stored.run_count,
+        &stored.benchmarks,
+        &stored.contracts,
+    )?;
     println!("reanalyzed publication report: {}", report_dir.display());
     Ok(())
 }
@@ -47,9 +56,15 @@ fn write_markdown(
     run_count: usize,
     summaries: &[Summary],
     order_bias: &OrderBias,
+    contracts: &ContractVerification,
 ) -> io::Result<()> {
     let mut output = File::create(report_dir.join("summary.md"))?;
     writeln!(output, "# Compare-ECS publication report\n")?;
+    writeln!(
+        output,
+        "Contracts: **{}** (`{}`, profile `{}`, log `{}`).\n",
+        contracts.status, contracts.commit, contracts.profile, contracts.log
+    )?;
     writeln!(
         output,
         "{run_count} engine-order rotation(s); values are medians of the per-run Criterion median estimates.\n"
