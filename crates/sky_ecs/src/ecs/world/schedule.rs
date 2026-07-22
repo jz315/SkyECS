@@ -1,14 +1,7 @@
 use super::*;
 
 fn discard_commands_after_panic(schedule: &mut Schedule) {
-    let discard = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        schedule.discard_commands();
-    }));
-    if let Err(payload) = discard {
-        // Never let a user payload's destructor replace the primary schedule
-        // panic or turn cleanup into a double-panic abort.
-        std::mem::forget(payload);
-    }
+    schedule.discard_commands_after_panic();
 }
 
 impl World {

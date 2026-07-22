@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Make schedule panic recovery and shutdown attempt every command/state
+  cleanup, preserve the first panic, and guarantee teardown at-most-once.
 - Reuse prepared entity-view route tables across pure row churn via a dedicated
   column-base epoch, with explicit route-table shrink and diagnostics.
 - Strengthen Compare-ECS gameplay and random-access contracts with entity

@@ -1,6 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use super::erased_value::InsertValue;
+use super::unwind::{dispose_panic_payload_without_unwinding, PanicAccumulator};
 use super::{Bundle, EntityId, World};
 use crate::ecs::{component_type, ComponentType};
 use rustc_hash::FxHashMap;
@@ -50,7 +51,12 @@ where
     }
 
     fn clear(&mut self) {
-        self.bundles.clear();
+        let mut panics = PanicAccumulator::default();
+        // Pop publishes the shorter initialized prefix before user Drop runs.
+        while let Some(bundle) = self.bundles.pop() {
+            panics.run(|| drop(bundle));
+        }
+        panics.resume_if_any();
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -151,7 +157,8 @@ impl PendingEntityCommands {
             .iter_mut()
             .find(|p| p.component.id() == component.id())
         {
-            pending.command = PendingComponentCommand::Insert(value);
+            let old = mem::replace(&mut pending.command, PendingComponentCommand::Insert(value));
+            drop(old);
             return;
         }
 
@@ -171,7 +178,8 @@ impl PendingEntityCommands {
             .iter_mut()
             .find(|p| p.component.id() == component.id())
         {
-            pending.command = PendingComponentCommand::Remove;
+            let old = mem::replace(&mut pending.command, PendingComponentCommand::Remove);
+            drop(old);
             return;
         }
 
@@ -183,7 +191,15 @@ impl PendingEntityCommands {
 
     fn queue_despawn(&mut self) {
         self.despawn = true;
-        self.components.clear();
+        self.discard_components();
+    }
+
+    fn discard_components(&mut self) {
+        let mut panics = PanicAccumulator::default();
+        while let Some(component) = self.components.pop() {
+            panics.run(|| drop(component));
+        }
+        panics.resume_if_any();
     }
 }
 
@@ -249,7 +265,11 @@ impl PendingEntityBuffer {
 
     fn clear(&mut self) {
         self.index.clear();
-        self.entries.clear();
+        let mut panics = PanicAccumulator::default();
+        while let Some((_entity, mut pending)) = self.entries.pop() {
+            panics.run(|| pending.discard_components());
+        }
+        panics.resume_if_any();
     }
 }
 
@@ -336,7 +356,7 @@ impl Drop for ActiveCommands<'_> {
                     // double-panic abort. Most panic payloads can still be
                     // released normally; only an adversarial payload whose
                     // own destructor panics has to be leaked as a last resort.
-                    drop_panic_payload_without_unwinding(payload);
+                    dispose_panic_payload_without_unwinding(payload);
                 } else {
                     first_cleanup_panic = Some(payload);
                 }
@@ -348,16 +368,6 @@ impl Drop for ActiveCommands<'_> {
             // slot, then propagate the first cleanup failure.
             std::panic::resume_unwind(payload);
         }
-    }
-}
-
-fn drop_panic_payload_without_unwinding(payload: Box<dyn Any + Send>) {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(payload)));
-    if let Err(nested_payload) = result {
-        // A panic payload is user-owned and may itself have a panicking Drop.
-        // Letting that unwind while another panic is active would abort the
-        // process, so this final adversarial payload is intentionally leaked.
-        mem::forget(nested_payload);
     }
 }
 
@@ -820,5 +830,99 @@ mod tests {
         assert!(commands.is_empty());
         assert_eq!(commands.active_commands, 0);
         assert!(world.is_poisoned());
+    }
+
+    #[test]
+    fn spawn_batch_clear_attempts_every_panicking_bundle_drop() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let mut commands = CommandBuffer::new();
+        commands.spawn((PanicOnDrop(Arc::clone(&drops)),));
+        commands.spawn((PanicOnDrop(Arc::clone(&drops)),));
+
+        let result = catch_unwind(AssertUnwindSafe(|| commands.clear()));
+
+        assert!(result.is_err());
+        assert_eq!(drops.load(Ordering::Relaxed), 2);
+        assert!(commands.is_empty());
+        assert_eq!(commands.active_commands, 0);
+    }
+
+    struct PanicComponentA(Arc<AtomicUsize>);
+    struct PanicComponentB(Arc<AtomicUsize>);
+
+    impl Drop for PanicComponentA {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            panic!("component A cleanup panic");
+        }
+    }
+
+    impl Drop for PanicComponentB {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            panic!("component B cleanup panic");
+        }
+    }
+
+    #[test]
+    fn queued_despawn_discards_every_pending_component_after_drop_panics() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let mut world = World::new();
+        let entity = world.spawn((Marker,));
+        let mut commands = CommandBuffer::new();
+        commands.insert(entity, PanicComponentA(Arc::clone(&drops)));
+        commands.insert(entity, PanicComponentB(Arc::clone(&drops)));
+
+        let result = catch_unwind(AssertUnwindSafe(|| commands.despawn(entity)));
+
+        assert!(result.is_err());
+        assert_eq!(drops.load(Ordering::Relaxed), 2);
+        commands.clear();
+        assert!(commands.is_empty());
+    }
+
+    struct ReplacementDrop {
+        drops: Arc<AtomicUsize>,
+        panic: bool,
+    }
+
+    impl Drop for ReplacementDrop {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::Relaxed);
+            if self.panic {
+                panic!("old replacement cleanup panic");
+            }
+        }
+    }
+
+    #[test]
+    fn replacement_is_published_before_the_old_component_drop_panics() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let mut world = World::new();
+        let entity = world.spawn((Marker,));
+        let mut commands = CommandBuffer::new();
+        commands.insert(
+            entity,
+            ReplacementDrop {
+                drops: Arc::clone(&drops),
+                panic: true,
+            },
+        );
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            commands.insert(
+                entity,
+                ReplacementDrop {
+                    drops: Arc::clone(&drops),
+                    panic: false,
+                },
+            );
+        }));
+        assert!(result.is_err());
+        assert_eq!(drops.load(Ordering::Relaxed), 1);
+
+        commands.clear();
+        assert_eq!(drops.load(Ordering::Relaxed), 2);
+        assert!(commands.is_empty());
     }
 }

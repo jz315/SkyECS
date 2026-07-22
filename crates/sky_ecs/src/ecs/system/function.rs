@@ -165,7 +165,11 @@ where
     }
 
     fn shutdown(&mut self) {
-        self.state = None;
+        if let Some(state) = self.state.take() {
+            // Remove state before user Drop code can unwind so a later
+            // shutdown attempt cannot destroy the same state twice.
+            Func::Params::shutdown(state);
+        }
     }
 }
 

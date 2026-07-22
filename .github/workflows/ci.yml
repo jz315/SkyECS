@@ -69,6 +69,9 @@ jobs:
       - name: Check focused storage and ownership paths
         shell: bash
         run: |
+          cargo miri test -p sky_ecs --lib ecs::system::tests::schedule_panic_clears_all_command_buffers_even_when_drops_panic -- --exact
+          cargo miri test -p sky_ecs --lib ecs::system::tests::shutdown_attempts_every_teardown_and_never_repeats_one -- --exact
+          cargo miri test -p sky_ecs --lib ecs::system::tests::typed_parameter_shutdown_attempts_every_state_and_is_at_most_once -- --exact
           cargo miri test -p sky_ecs --lib ecs::bundle::tests::sixteen_component_bundle_initializes_every_column -- --exact
           cargo miri test -p sky_ecs --lib ecs::query::sequential::tests::chunk_plan_survives_in_chunk_row_churn -- --exact
           MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --lib ecs::query::sequential::tests::chunk_plan_survives_in_chunk_row_churn -- --exact

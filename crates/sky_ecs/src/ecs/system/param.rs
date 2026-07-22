@@ -47,6 +47,10 @@ pub(crate) unsafe trait SystemParam {
     fn init(world: &mut World) -> Result<Self::State, ParamError>;
     fn prepare(state: &mut Self::State, world: &World) -> Result<(), ParamError>;
 
+    fn shutdown(state: Self::State) {
+        drop(state);
+    }
+
     unsafe fn get<'w>(
         world: UnsafeWorldCell<'w>,
         state: &'w mut Self::State,
@@ -836,6 +840,13 @@ macro_rules! impl_system_param_tuple {
                 let ($($state,)+) = state;
                 $($Param::prepare($state, world)?;)+
                 Ok(())
+            }
+
+            fn shutdown(state: Self::State) {
+                let ($($state,)+) = state;
+                let mut panics = crate::ecs::unwind::PanicAccumulator::default();
+                $(panics.run(|| $Param::shutdown($state));)+
+                panics.resume_if_any();
             }
 
             unsafe fn get<'w>(

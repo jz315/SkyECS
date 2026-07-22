@@ -3,7 +3,7 @@ use crate::ecs::{CommandBuffer, Commands, EntityId, QueryData, Time, World};
 use std::cell::RefCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -816,6 +816,50 @@ fn panicking_command_payload_cannot_abort_schedule_unwind_cleanup() {
     assert!(!world.contains_resource::<PanicOnDrop>());
 }
 
+struct CleanupPanicOnDrop(Arc<AtomicUsize>);
+
+impl Drop for CleanupPanicOnDrop {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        panic!("intentional cleanup panic");
+    }
+}
+
+#[test]
+fn schedule_panic_clears_all_command_buffers_even_when_drops_panic() {
+    let drops = Arc::new(AtomicUsize::new(0));
+    let first_drops = Arc::clone(&drops);
+    let second_drops = Arc::clone(&drops);
+    let mut world = World::new();
+
+    world
+        .stage(Update)
+        .parallel_wave_min_systems(usize::MAX)
+        .unwrap()
+        .add(move |mut commands: Commands<'_>| {
+            commands.insert_resource(CleanupPanicOnDrop(Arc::clone(&first_drops)));
+        })
+        .add(move |mut commands: Commands<'_>| {
+            commands.insert_resource(CleanupPanicOnDrop(Arc::clone(&second_drops)));
+        })
+        .add(|| panic!("primary system panic"));
+
+    let panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = world.tick_with_delta(0.016);
+    }));
+    let payload = panic.expect_err("the system panic must escape");
+
+    assert_eq!(
+        payload.downcast_ref::<&'static str>(),
+        Some(&"primary system panic")
+    );
+    assert!(world.is_poisoned());
+    assert_eq!(drops.load(Ordering::SeqCst), 2);
+
+    let drop_result = catch_unwind(AssertUnwindSafe(|| drop(world)));
+    assert!(drop_result.is_ok());
+}
+
 #[derive(Default)]
 struct FixedDeltas(Vec<f32>);
 
@@ -1193,6 +1237,94 @@ fn exclusive_lifecycle_allows_non_send_state_and_tears_down_in_reverse() {
             "teardown:a",
         ]
     );
+}
+
+struct TeardownProbe {
+    id: u8,
+    trace: Rc<RefCell<Vec<u8>>>,
+    panic_on_teardown: bool,
+}
+
+impl ExclusiveSystem for TeardownProbe {
+    fn run(&mut self, _world: &mut World) {}
+
+    fn teardown(&mut self, _world: &mut World) {
+        self.trace.borrow_mut().push(self.id);
+        if self.panic_on_teardown {
+            panic!("intentional teardown panic");
+        }
+    }
+}
+
+#[test]
+fn shutdown_attempts_every_teardown_and_never_repeats_one() {
+    let trace = Rc::new(RefCell::new(Vec::new()));
+    let mut world = World::new();
+
+    world
+        .stage(Update)
+        .add_exclusive(TeardownProbe {
+            id: 1,
+            trace: Rc::clone(&trace),
+            panic_on_teardown: false,
+        })
+        .add_exclusive(TeardownProbe {
+            id: 2,
+            trace: Rc::clone(&trace),
+            panic_on_teardown: true,
+        });
+    world.tick_with_delta(0.0).unwrap();
+
+    let first = catch_unwind(AssertUnwindSafe(|| world.shutdown()));
+    assert!(first.is_err());
+    assert_eq!(*trace.borrow(), vec![2, 1]);
+
+    let second = catch_unwind(AssertUnwindSafe(|| world.shutdown()));
+    assert!(second.is_ok());
+    assert_eq!(*trace.borrow(), vec![2, 1]);
+}
+
+static PANICKING_LOCAL_DROPS: AtomicUsize = AtomicUsize::new(0);
+static FOLLOWING_LOCAL_DROPS: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Default)]
+struct PanickingLocalState;
+
+impl Drop for PanickingLocalState {
+    fn drop(&mut self) {
+        PANICKING_LOCAL_DROPS.fetch_add(1, Ordering::SeqCst);
+        panic!("intentional local-state drop panic");
+    }
+}
+
+#[derive(Default)]
+struct FollowingLocalState;
+
+impl Drop for FollowingLocalState {
+    fn drop(&mut self) {
+        FOLLOWING_LOCAL_DROPS.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+fn local_shutdown_probe(_first: Local<PanickingLocalState>, _second: Local<FollowingLocalState>) {}
+
+#[test]
+fn typed_parameter_shutdown_attempts_every_state_and_is_at_most_once() {
+    PANICKING_LOCAL_DROPS.store(0, Ordering::SeqCst);
+    FOLLOWING_LOCAL_DROPS.store(0, Ordering::SeqCst);
+    let mut world = World::new();
+    world.stage(Update).add(local_shutdown_probe);
+    world.tick_with_delta(0.0).unwrap();
+
+    let first = catch_unwind(AssertUnwindSafe(|| world.shutdown()));
+    assert!(first.is_err());
+    assert_eq!(PANICKING_LOCAL_DROPS.load(Ordering::SeqCst), 1);
+    assert_eq!(FOLLOWING_LOCAL_DROPS.load(Ordering::SeqCst), 1);
+
+    let second = catch_unwind(AssertUnwindSafe(|| world.shutdown()));
+    assert!(second.is_ok());
+    assert_eq!(PANICKING_LOCAL_DROPS.load(Ordering::SeqCst), 1);
+    assert_eq!(FOLLOWING_LOCAL_DROPS.load(Ordering::SeqCst), 1);
 }
 
 #[test]

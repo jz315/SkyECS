@@ -8,6 +8,7 @@ use super::stage::{
     ScheduleError, StageDiagnostics, StageLabel, StagePolicy, StageSegmentDiagnostics,
     SystemDiagnostics, TickReport, Update,
 };
+use crate::ecs::unwind::{suppress_unwind, PanicAccumulator};
 use crate::ecs::{CommandBuffer, World};
 use rayon::prelude::*;
 use std::any::TypeId;
@@ -224,25 +225,31 @@ impl SystemStage {
         }
     }
 
-    fn discard_commands(&mut self) {
+    fn discard_commands_after_panic(&mut self) {
         for (commands, diagnostics) in self.commands.iter_mut().zip(&mut self.command_diagnostics) {
             let count = commands.len();
             if count != 0 {
                 diagnostics.record_discarded(count);
             }
-            commands.clear();
+            // One system's user-owned payload must not prevent later system
+            // buffers from being emptied during panic recovery.
+            suppress_unwind(|| commands.clear());
         }
     }
 
-    fn shutdown(&mut self, world: &mut World) {
+    fn shutdown(&mut self, world: &mut World, panics: &mut PanicAccumulator) {
         for node in self.nodes.iter().rev().copied() {
             match node {
-                StageNode::Ordinary(index) => self.ordinary[index].shutdown(),
+                StageNode::Ordinary(index) => {
+                    let system = &mut self.ordinary[index];
+                    panics.run(|| system.shutdown());
+                }
                 StageNode::Exclusive(index) => {
                     let exclusive = &mut self.exclusive[index];
-                    if exclusive.initialized {
-                        exclusive.system.teardown(world);
-                        exclusive.initialized = false;
+                    // Publish the uninitialized state before user teardown so
+                    // a panic can never cause this teardown to run twice.
+                    if std::mem::replace(&mut exclusive.initialized, false) {
+                        panics.run(|| exclusive.system.teardown(world));
                     }
                 }
             }
@@ -544,17 +551,21 @@ impl Schedule {
         Ok(report)
     }
 
-    pub(crate) fn discard_commands(&mut self) {
+    pub(crate) fn discard_commands_after_panic(&mut self) {
         for stage in &mut self.stages {
-            stage.discard_commands();
+            // Stage cleanup already isolates every buffer. Keep this outer
+            // boundary as defense against future stage-local cleanup work.
+            suppress_unwind(|| stage.discard_commands_after_panic());
         }
     }
 
     pub(crate) fn shutdown(&mut self, world: &mut World) {
         self.needs_initialization = true;
+        let mut panics = PanicAccumulator::default();
         for stage in self.stages.iter_mut().rev() {
-            stage.shutdown(world);
+            stage.shutdown(world, &mut panics);
         }
+        panics.resume_if_any();
     }
 }
 
