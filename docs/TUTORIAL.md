@@ -9,7 +9,7 @@ scheduled ECS application.
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.3"
+sky_ecs = "0.2.0"
 ```
 
 Create `src/main.rs` and import `World`:
@@ -151,12 +151,32 @@ Use `FixedUpdate` with `FixedStep::hz(...)` for fixed-rate simulation. Use
 `ParView<Q>` and `par_for_each` when a system has enough work to benefit from
 parallel execution.
 
+When a system already knows selected entity IDs, request `EntityView<Q>` so one
+prepared route lookup can return an entire tuple:
+
+```rust
+use sky_ecs::{EntityId, EntityView, Res};
+
+struct Selected(EntityId);
+
+fn slow_selected(
+    selected: Res<Selected>,
+    mut bodies: EntityView<(&Position, &mut Velocity)>,
+) {
+    if let Some((_position, velocity)) = bodies.get_mut(selected.0) {
+        velocity.x *= 0.5;
+        velocity.y *= 0.5;
+    }
+}
+```
+
 ## 8. Choose the right access pattern
 
 - Use `World::query` / `query_mut` for normal iteration.
 - Use chunk iteration when slices help batching or vectorization.
 - Use `PreparedQuery` only when code must explicitly own a reusable plan.
 - Use `get` / `get_mut` for occasional access by `EntityId`.
+- Use `EntityView<Q>` for repeated arbitrary-ID tuple access inside a system.
 - Batch or defer structural changes instead of interleaving them with queries.
 
 ## Run the repository examples

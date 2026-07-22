@@ -1,11 +1,32 @@
 use sky_ecs::ecs::__private::{Chunk, QueryDescriptor, QuerySpec, ReadOnlyQuerySpec};
 use sky_ecs::{EntityId, PreparedEntityView, QueryData, World};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Position(u32);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Velocity(u32);
+
+#[derive(Debug)]
+struct Marker;
+
+#[repr(align(64))]
+#[derive(Debug, PartialEq)]
+struct Aligned(u32);
+
+#[derive(Debug)]
+struct OwnedValue {
+    text: String,
+    drops: Arc<AtomicUsize>,
+}
+
+impl Drop for OwnedValue {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, Ordering::SeqCst);
+    }
+}
 
 #[derive(QueryData)]
 struct Movement<'w> {
@@ -166,4 +187,33 @@ fn prepared_view_refreshes_after_clear_and_when_switching_worlds() {
         prepared.bind(&second_world).get(second),
         Some(&Position(42))
     );
+}
+
+#[test]
+fn mutable_tuple_handles_zero_sized_over_aligned_and_non_copy_components() {
+    let drops = Arc::new(AtomicUsize::new(0));
+    let mut world = World::new();
+    let entity = world.spawn((
+        Marker,
+        Aligned(64),
+        OwnedValue {
+            text: String::from("owned"),
+            drops: drops.clone(),
+        },
+    ));
+    let mut prepared = PreparedEntityView::<(&Marker, &mut Aligned, &mut OwnedValue)>::new();
+
+    {
+        let mut bound = prepared.bind_mut(&mut world);
+        let (marker, aligned, owned) = bound.get_mut(entity).unwrap();
+        let _ = marker;
+        aligned.0 += 1;
+        owned.text.push_str(" value");
+    }
+
+    assert_eq!(world.get::<Aligned>(entity), Some(&Aligned(65)));
+    assert_eq!(world.get::<OwnedValue>(entity).unwrap().text, "owned value");
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    drop(world);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
 }

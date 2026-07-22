@@ -11,7 +11,7 @@ cargo compare-ecs -- prepared_iteration/simple_10k/sky --exact
 cargo compare-ecs -- prepared_iteration/simple_10k/flecs_c --exact
 cargo compare-ecs -- prepared_random_fragmented_iteration/random_16_tags_8_terms/flecs_c --exact
 cargo compare-ecs -- prepared_random_fragmented_iteration/random_16_components_4_terms/sky --exact
-cargo compare-ecs -- diagnostic_gameplay_phases/ai_source_lookup/sky --exact
+cargo bench -p sky_ecs_comparison --bench gameplay_phases -- ai_source_lookup/sky --exact
 cargo compare-ecs-publish
 ```
 
@@ -19,9 +19,9 @@ cargo compare-ecs-publish
 
 ## Canonical workload 合同
 
-### 最佳原生批量插入
+### 最佳原生批量插入场景
 
-`prepared_construction/native_bulk_insert_10k` 从空的、已完成 schema
+`scenario_native_bulk_construction/insert_10k` 从空的、已完成 schema
 准备的 World 和完全准备好的引擎原生 batch 开始。输入构造、World 构造、
 注册与析构都在计时外；计时内只包含公共 bulk admission API，以及完成
 1 万个四组件实体插入所必需的 iterator finalize。
@@ -37,7 +37,19 @@ cargo compare-ecs-publish
 
 它与已退役的 `bulk_insert_10k` 不同：旧 workload 强制所有 adapter 接收
 行式 bundle。旧数字会明确标记为历史 workload，不能与新的 native bulk
-数字直接比较。
+数字直接比较。由于准备输入是各引擎特有的，这一行属于 Scenario，不参与
+Comparable 胜负统计或顺序偏差计算。
+
+### Entity ID 与固定序列
+
+`entity_id_random_access/{hot_10k,warm_100k}` 属于 Comparable：计时区内每次
+访问都从 Entity ID 开始，并使用该引擎已经认证的最快公共 ID 查询 API，
+不得替换为直接地址计划。
+
+`scenario_fixed_sequence_access` 单独衡量稳定、重复实体序列。它报告 1 万和
+10 万实体的计划构建、稳定遍历，以及构建后执行 1/4/16/64 次遍历的总成本；
+报告同时给出指针 payload 与每次 traversal 的摊销时间。这类计划借用结构
+冻结的 World，因此归类为 Scenario。
 
 ### 真实游戏帧
 
@@ -74,23 +86,27 @@ status_transition,projectile_recycle}` 仍执行同一个持续演化的五阶�
 目标实体列表，再由 Position phase 消费。Flecs 的 canonical 完整帧仍只有
 一次 FFI，五次调用形式仅用于诊断。
 
+Phase diagnostics 只注册在独立的 `gameplay_phases` bench target；canonical
+`comparison.rs` 与默认 publication workflow 不会执行它们。
+
 这条原始对比固定为串行；scheduler 和 parallel 路径属于独立 benchmark
 family，不混入结果。
 
 ### 最快 API 选择
 
-所有 adapter 只使用稳定公共 API 与可复用 query/view/accessor 状态。Sky
-中存在歧义的实体访问 API 由独立 `api_selection` 程序做 4 轮 AB/BA
-认证。AI source 比较通用 get/get-mut、分离 accessor 与 tuple
-`PreparedEntityView`；目标 Position 比较 `World::get`、`EntityAccessor`
-与 `PreparedEntityView`。每对候选都执行两种顺序并使用 ±2% 判定带；phase
-路径必须成为 Condorcet winner，组合后还必须在完整帧击败现有生产路径。
-GitHub Actions 只生成并保存 report-only JSON，最终性能接受由受控机器判定。实体
-身份稳定的随机访问另由可复现的 `sky_random_access_api_selection` 做 4 轮
-认证，比较 `EntityAccessor::get` 与 `PreparedEntityAccess::iter`；只有
-workload 允许其他引擎在计时外建立等价缓存引用时，计划构建才放在计时
-外。纯密集 1 万/10 万/100 万遍历使用专用 plain-function chunk API；多短
-chunk 的 Gameplay 使用认证结果中的胜者。
+API 实验与正式跨引擎比较严格分离。Sky 候选都放在
+`crates/sky_ecs/benches`：`gameplay_api` 比较 iteration、AI tuple 查询、
+Position 查询和完整帧，`random_access`、`entity_view`、`chunk_cost` 负责隔离
+底层 API。它们只在目标机器本地运行，用 AB/BA 顺序和受控认证决定胜者。
+
+`tools/ecs-comparison/benches/comparison.rs` 只包含已经选定的路径，不保留
+候选枚举、环境变量切换或 selector；GitHub shared runner 永远不会决定生产
+API。必须结合外部引擎的实验才保留在手动启用的 `api_candidates` bench。
+当前 gameplay 正式路径的 AI tuple 使用 `PreparedEntityView`，目标 Position
+使用 `EntityAccessor`。最新本地 AB/BA 原始记录见
+[`certifications/sky-gameplay-api.windows-x86_64.2026-07-22.json`](certifications/sky-gameplay-api.windows-x86_64.2026-07-22.json)：AI 与 Position
+胜者和正式路径一致；iteration function 只通过低于 2% 的中位数 fallback，
+组合后未通过完整帧 gate，因此正式路径继续使用 closure。
 
 ## 最近一次公开快照（workload 修订前）
 
@@ -117,8 +133,8 @@ microbenchmark 行仍可作为历史证据，但旧 bulk 行不能直接改名�
 | Prepared 遍历 100 万 | 885.076 µs | 844.621 µs | 1011.443 µs | **830.301 µs** | 1232.218 µs | 1771.278 µs |
 | 碎片遍历 26 × 400 | 0.852 µs | 4.238 µs | 6.842 µs | 1.104 µs | 0.860 µs | **0.819 µs** |
 | heavy compute | 4118.068 µs | 3569.316 µs | 3664.288 µs | **3325.052 µs** | 3582.510 µs | 3446.964 µs |
-| Prepared 随机访问 1 万 | 21.552 µs | 16.028 µs | 44.423 µs | **9.338 µs** | 23.908 µs | 20.201 µs |
-| Prepared 随机访问 10 万 | 399.066 µs | 294.265 µs | 895.874 µs | **167.122 µs** | 447.005 µs | 450.412 µs |
+| 旧非对称随机访问 1 万（已退役） | 21.552 µs | 16.028 µs | 44.423 µs | **9.338 µs** | 23.908 µs | 20.201 µs |
+| 旧非对称随机访问 10 万（已退役） | 399.066 µs | 294.265 µs | 895.874 µs | **167.122 µs** | 447.005 µs | 450.412 µs |
 | Spawn/随机 despawn 1 千 | **45.370 µs** | 46.338 µs | 103.052 µs | 67.469 µs | 112.407 µs | 107.419 µs |
 | 随机 add/remove component 1 千 | 92.425 µs | 111.459 µs | 173.031 µs | 134.730 µs | 212.391 µs | **51.553 µs** |
 

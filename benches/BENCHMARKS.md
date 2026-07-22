@@ -11,7 +11,7 @@ cargo compare-ecs -- prepared_iteration/simple_10k/sky --exact
 cargo compare-ecs -- prepared_iteration/simple_10k/flecs_c --exact
 cargo compare-ecs -- prepared_random_fragmented_iteration/random_16_tags_8_terms/flecs_c --exact
 cargo compare-ecs -- prepared_random_fragmented_iteration/random_16_components_4_terms/sky --exact
-cargo compare-ecs -- diagnostic_gameplay_phases/ai_source_lookup/sky --exact
+cargo bench -p sky_ecs_comparison --bench gameplay_phases -- ai_source_lookup/sky --exact
 cargo compare-ecs-publish
 ```
 
@@ -19,9 +19,9 @@ cargo compare-ecs-publish
 
 ## Canonical workload contracts
 
-### Best native bulk insert
+### Best native bulk insert scenario
 
-`prepared_construction/native_bulk_insert_10k` starts with an empty,
+`scenario_native_bulk_construction/insert_10k` starts with an empty,
 schema-prepared World and a fully prepared engine-native batch. Input creation,
 World creation, registration, and destruction are outside the timer. The timer
 contains the public bulk admission API and any iterator finalization needed to
@@ -38,7 +38,21 @@ complete insertion of exactly 10,000 four-component entities.
 
 This is not the same workload as the retired `bulk_insert_10k`, which supplied
 row bundles to every adapter. Historical values for that workload are labeled
-as legacy and must not be compared directly with native-bulk results.
+as legacy and must not be compared directly with native-bulk results. Because
+the prepared inputs are engine-specific, this row is a Scenario and does not
+participate in comparable win counts or order-bias analysis.
+
+### Entity IDs and fixed sequences
+
+`entity_id_random_access/{hot_10k,warm_100k}` is Comparable: every timed lookup
+starts from an Entity ID and uses the fastest certified public ID lookup for
+that engine. No adapter may substitute a direct-address plan.
+
+`scenario_fixed_sequence_access` answers a different question for stable,
+repeated entity sequences. It reports plan construction, steady traversal, and
+build plus 1/4/16/64 traversals for 10k and 100k entities. The report includes
+the plan's pointer payload and the amortized time per traversal. These plans
+borrow a structurally frozen World and are classified as Scenario results.
 
 ### Real gameplay frame
 
@@ -80,27 +94,32 @@ each frame, builds the target-entity list, then consumes it in the Position
 phase. Flecs keeps one FFI call for the canonical full frame and exposes the
 five-call form only for diagnostics.
 
+Phase diagnostics are registered only in the separate `gameplay_phases` bench
+target. The canonical `comparison.rs` target and default publication workflow
+do not execute them.
+
 The raw comparison is serial. Scheduler and parallel execution belong in
 separate benchmark families.
 
 ### Fast API selection
 
-Each adapter uses stable public APIs and reusable query/view/accessor state.
-Sky's ambiguous entity-lookup choices have a separate four-round AB/BA
-certification executable (`api_selection`). AI source compares the generic
-get/get-mut pair, split accessors, and tuple `PreparedEntityView`; target
-Position compares `World::get`, `EntityAccessor`, and `PreparedEntityView`.
-Each pair uses both execution orders and a ±2% decision band. A phase path must
-be the Condorcet winner, and the combined phase winners must also beat the
-production full frame before the selector recommends a switch. GitHub Actions
-stores this report-only JSON output with the benchmark artifact; acceptance is
-made on a controlled machine. Stable-identity random
-access has a separate reproducible four-rotation selector
-(`sky_random_access_api_selection`) comparing `EntityAccessor::get` with
-`PreparedEntityAccess::iter`; plan construction stays outside the timed
-workload exactly when equivalent cached references are allowed. Dense
-10k/100k/1m iteration uses the dedicated plain-function chunk API; gameplay's
-many shorter chunks use the winner recorded by the certification.
+API experiments and the formal cross-engine comparison are intentionally
+separate. Sky candidates live in `crates/sky_ecs/benches`: `gameplay_api`
+compares iteration, AI tuple lookup, Position lookup, and complete-frame paths;
+`random_access`, `entity_view`, and `chunk_cost` isolate the supporting APIs.
+Run those benches locally on the target machine, use alternating AB/BA order,
+and record the controlled certification before changing a winner.
+
+`tools/ecs-comparison/benches/comparison.rs` contains only the selected paths.
+It has no candidate enum, environment switch, or API selector, and GitHub
+shared runners never choose a production API. External-engine experiments that
+cannot live in Sky's crate remain in the manually enabled `api_candidates`
+bench. Dense 10k/100k/1m iteration uses the selected plain-function chunk API;
+gameplay uses `PreparedEntityView` for the AI tuple and `EntityAccessor` for
+target Position lookups. The latest local raw AB/BA record is
+[`certifications/sky-gameplay-api.windows-x86_64.2026-07-22.json`](certifications/sky-gameplay-api.windows-x86_64.2026-07-22.json): the AI and Position
+winners match production; the iteration function's sub-2% median fallback did
+not clear the full-frame gate, so production retains the closure.
 
 ## Last public snapshot (before the workload revision)
 
@@ -128,8 +147,8 @@ bold marks the lowest median among supported adapters.
 | Prepared iteration 1m | 885.076 µs | 844.621 µs | 1011.443 µs | **830.301 µs** | 1232.218 µs | 1771.278 µs |
 | Fragmented iteration 26 × 400 | 0.852 µs | 4.238 µs | 6.842 µs | 1.104 µs | 0.860 µs | **0.819 µs** |
 | Diagnostic: heavy compute | 4118.068 µs | 3569.316 µs | 3664.288 µs | **3325.052 µs** | 3582.510 µs | 3446.964 µs |
-| Prepared random access 10k | 21.552 µs | 16.028 µs | 44.423 µs | **9.338 µs** | 23.908 µs | 20.201 µs |
-| Prepared random access 100k | 399.066 µs | 294.265 µs | 895.874 µs | **167.122 µs** | 447.005 µs | 450.412 µs |
+| Legacy asymmetric random access 10k (retired) | 21.552 µs | 16.028 µs | 44.423 µs | **9.338 µs** | 23.908 µs | 20.201 µs |
+| Legacy asymmetric random access 100k (retired) | 399.066 µs | 294.265 µs | 895.874 µs | **167.122 µs** | 447.005 µs | 450.412 µs |
 | Spawn/random despawn 1k | **45.370 µs** | 46.338 µs | 103.052 µs | 67.469 µs | 112.407 µs | 107.419 µs |
 | Random add/remove component 1k | 92.425 µs | 111.459 µs | 173.031 µs | 134.730 µs | 212.391 µs | **51.553 µs** |
 

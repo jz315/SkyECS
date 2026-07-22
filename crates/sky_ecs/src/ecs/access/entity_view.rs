@@ -5,13 +5,7 @@ use crate::ecs::{
 use core::marker::PhantomData;
 use core::ptr::{self, NonNull};
 
-/// A reusable tuple-capable component view for arbitrary entity IDs.
-///
-/// Binding refreshes the route table from the current world while retaining
-/// its allocations. Each lookup validates the entity generation and resolves
-/// all query components from one entity route.
-#[must_use = "prepared entity views do nothing until they are bound"]
-pub struct PreparedEntityView<Q> {
+pub(crate) struct EntityViewCache<Q> {
     descriptor: QueryDescriptor,
     prepared: PreparedCache,
     matched_routes: Vec<u8>,
@@ -20,7 +14,7 @@ pub struct PreparedEntityView<Q> {
     marker: PhantomData<fn() -> Q>,
 }
 
-impl<Q: QuerySpec> Default for PreparedEntityView<Q> {
+impl<Q: QuerySpec> Default for EntityViewCache<Q> {
     fn default() -> Self {
         let descriptor = Q::descriptor();
         let query_width = descriptor.components.len();
@@ -35,43 +29,9 @@ impl<Q: QuerySpec> Default for PreparedEntityView<Q> {
     }
 }
 
-impl<Q: QuerySpec> PreparedEntityView<Q> {
-    /// Creates an empty reusable entity view.
+impl<Q: QuerySpec> EntityViewCache<Q> {
     #[inline]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Binds this plan exclusively to `world`.
-    ///
-    /// Every bind refreshes component bases. This is required because a chunk
-    /// may retain its stable ID while promotion replaces its backing block.
-    ///
-    /// ```compile_fail
-    /// use sky_ecs::{PreparedEntityView, World};
-    ///
-    /// let mut world = World::new();
-    /// let entity = world.spawn((1_u32,));
-    /// let mut prepared = PreparedEntityView::<&mut u32>::new();
-    /// let mut bound = prepared.bind_mut(&mut world);
-    /// world.spawn((2_u32,));
-    /// let _ = bound.get_mut(entity);
-    /// ```
-    #[inline]
-    pub fn bind_mut<'s, 'w>(&'s mut self, world: &'w mut World) -> BoundEntityViewMut<'s, 'w, Q> {
-        self.refresh(world);
-        BoundEntityViewMut {
-            world: NonNull::from(world),
-            matched_routes: &self.matched_routes,
-            component_ptrs: &self.component_ptrs,
-            query_width: self.query_width,
-            world_marker: PhantomData,
-            query_marker: PhantomData,
-        }
-    }
-
-    #[inline]
-    fn refresh(&mut self, world: &World) {
+    pub(crate) fn prepare(&mut self, world: &World) {
         self.prepared.prepare::<()>(world, &self.descriptor);
 
         let route_slots = world.chunk_route_slot_count();
@@ -102,19 +62,96 @@ impl<Q: QuerySpec> PreparedEntityView<Q> {
             }
         }
     }
+
+    #[inline(always)]
+    pub(crate) fn row<'a>(
+        &'a self,
+        world: &World,
+        entity: EntityId,
+    ) -> Option<(&'a [*mut u8], usize)> {
+        let route = world.entity_route(entity)?;
+        let route_index = route.chunk_id.index();
+        if unsafe {
+            // SAFETY: prepare sizes matched_routes to this World's complete
+            // chunk-route slot count, and a live EntityRoute names one of
+            // those slots while structure remains frozen.
+            *self.matched_routes.get_unchecked(route_index)
+        } == 0
+        {
+            return None;
+        }
+
+        let offset = route_index * self.query_width;
+        let pointers = unsafe {
+            // SAFETY: component_ptrs is prepared as route_slots * query_width.
+            // The validated route index therefore owns this complete
+            // route-major query-width range.
+            self.component_ptrs
+                .get_unchecked(offset..offset + self.query_width)
+        };
+        Some((pointers, route.entity_index))
+    }
+}
+
+/// A reusable tuple-capable component view for arbitrary entity IDs.
+///
+/// Binding refreshes the route table from the current world while retaining
+/// its allocations. Each lookup validates the entity generation and resolves
+/// all query components from one entity route.
+#[must_use = "prepared entity views do nothing until they are bound"]
+pub struct PreparedEntityView<Q> {
+    cache: EntityViewCache<Q>,
+}
+
+impl<Q: QuerySpec> Default for PreparedEntityView<Q> {
+    fn default() -> Self {
+        Self {
+            cache: EntityViewCache::default(),
+        }
+    }
+}
+
+impl<Q: QuerySpec> PreparedEntityView<Q> {
+    /// Creates an empty reusable entity view.
+    #[inline]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Binds this plan exclusively to `world`.
+    ///
+    /// Every bind refreshes component bases. This is required because a chunk
+    /// may retain its stable ID while promotion replaces its backing block.
+    ///
+    /// ```compile_fail
+    /// use sky_ecs::{PreparedEntityView, World};
+    ///
+    /// let mut world = World::new();
+    /// let entity = world.spawn((1_u32,));
+    /// let mut prepared = PreparedEntityView::<&mut u32>::new();
+    /// let mut bound = prepared.bind_mut(&mut world);
+    /// world.spawn((2_u32,));
+    /// let _ = bound.get_mut(entity);
+    /// ```
+    #[inline]
+    pub fn bind_mut<'s, 'w>(&'s mut self, world: &'w mut World) -> BoundEntityViewMut<'s, 'w, Q> {
+        self.cache.prepare(world);
+        BoundEntityViewMut {
+            world: NonNull::from(world),
+            cache: &self.cache,
+            world_marker: PhantomData,
+        }
+    }
 }
 
 impl<Q: ReadOnlyQuerySpec> PreparedEntityView<Q> {
     /// Binds this plan immutably to `world`.
     #[inline]
     pub fn bind<'s, 'w>(&'s mut self, world: &'w World) -> BoundEntityView<'s, 'w, Q> {
-        self.refresh(world);
+        self.cache.prepare(world);
         BoundEntityView {
             world,
-            matched_routes: &self.matched_routes,
-            component_ptrs: &self.component_ptrs,
-            query_width: self.query_width,
-            query_marker: PhantomData,
+            cache: &self.cache,
         }
     }
 }
@@ -123,10 +160,7 @@ impl<Q: ReadOnlyQuerySpec> PreparedEntityView<Q> {
 #[must_use = "bound entity views do nothing until get is called"]
 pub struct BoundEntityView<'s, 'w, Q> {
     world: &'w World,
-    matched_routes: &'s [u8],
-    component_ptrs: &'s [*mut u8],
-    query_width: usize,
-    query_marker: PhantomData<fn() -> Q>,
+    cache: &'s EntityViewCache<Q>,
 }
 
 impl<Q: ReadOnlyQuerySpec> BoundEntityView<'_, '_, Q> {
@@ -147,22 +181,12 @@ impl<Q: ReadOnlyQuerySpec> BoundEntityView<'_, '_, Q> {
     /// ```
     #[inline(always)]
     pub fn get<'a>(&'a self, entity: EntityId) -> Option<Q::Item<'a>> {
-        let route = self.world.entity_route(entity)?;
-        let route_index = route.chunk_id.index();
-        if unsafe { *self.matched_routes.get_unchecked(route_index) } == 0 {
-            return None;
-        }
-
-        let offset = route_index * self.query_width;
-        let pointers = unsafe {
-            self.component_ptrs
-                .get_unchecked(offset..offset + self.query_width)
-        };
+        let (pointers, entity_index) = self.cache.row(self.world, entity)?;
         Some(unsafe {
-            // SAFETY: refresh wrote the descriptor-matched columns for this
+            // SAFETY: prepare wrote the descriptor-matched columns for this
             // live route. The shared bound World prevents pointer relocation
             // and Q is read-only, so all references may share this borrow.
-            Q::item_from_raw_parts(pointers, route.entity_index)
+            Q::item_from_raw_parts(pointers, entity_index)
         })
     }
 }
@@ -171,11 +195,8 @@ impl<Q: ReadOnlyQuerySpec> BoundEntityView<'_, '_, Q> {
 #[must_use = "bound mutable entity views do nothing until get_mut is called"]
 pub struct BoundEntityViewMut<'s, 'w, Q> {
     world: NonNull<World>,
-    matched_routes: &'s [u8],
-    component_ptrs: &'s [*mut u8],
-    query_width: usize,
+    cache: &'s EntityViewCache<Q>,
     world_marker: PhantomData<&'w mut World>,
-    query_marker: PhantomData<fn() -> Q>,
 }
 
 impl<Q: QuerySpec> BoundEntityViewMut<'_, '_, Q> {
@@ -198,28 +219,18 @@ impl<Q: QuerySpec> BoundEntityViewMut<'_, '_, Q> {
     /// ```
     #[inline(always)]
     pub fn get_mut<'a>(&'a mut self, entity: EntityId) -> Option<Q::Item<'a>> {
-        let route = unsafe {
+        let world = unsafe {
             // SAFETY: world_marker retains the exclusive World borrow. This
             // temporary shared access is used only to copy route metadata and
             // ends before any component reference is constructed.
-            self.world.as_ref().entity_route(entity)?
+            self.world.as_ref()
         };
-
-        let route_index = route.chunk_id.index();
-        if unsafe { *self.matched_routes.get_unchecked(route_index) } == 0 {
-            return None;
-        }
-
-        let offset = route_index * self.query_width;
-        let pointers = unsafe {
-            self.component_ptrs
-                .get_unchecked(offset..offset + self.query_width)
-        };
+        let (pointers, entity_index) = self.cache.row(world, entity)?;
         Some(unsafe {
-            // SAFETY: bind_mut exclusively borrows the World, refresh wrote
+            // SAFETY: bind_mut exclusively borrows the World, prepare wrote
             // every descriptor-matched pointer, and this method's mutable
             // borrow prevents overlapping query items from the same view.
-            Q::item_from_raw_parts(pointers, route.entity_index)
+            Q::item_from_raw_parts(pointers, entity_index)
         })
     }
 }
@@ -244,16 +255,16 @@ mod tests {
         let mut prepared = PreparedEntityView::<(&Position, &Velocity)>::new();
 
         assert_eq!(prepared.bind(&world).get(entity).unwrap().0 .0, 1);
-        let matched_ptr = prepared.matched_routes.as_ptr();
-        let matched_capacity = prepared.matched_routes.capacity();
-        let component_ptr = prepared.component_ptrs.as_ptr();
-        let component_capacity = prepared.component_ptrs.capacity();
+        let matched_ptr = prepared.cache.matched_routes.as_ptr();
+        let matched_capacity = prepared.cache.matched_routes.capacity();
+        let component_ptr = prepared.cache.component_ptrs.as_ptr();
+        let component_capacity = prepared.cache.component_ptrs.capacity();
 
         assert_eq!(prepared.bind(&world).get(entity).unwrap().1 .0, 2);
-        assert_eq!(prepared.matched_routes.as_ptr(), matched_ptr);
-        assert_eq!(prepared.matched_routes.capacity(), matched_capacity);
-        assert_eq!(prepared.component_ptrs.as_ptr(), component_ptr);
-        assert_eq!(prepared.component_ptrs.capacity(), component_capacity);
+        assert_eq!(prepared.cache.matched_routes.as_ptr(), matched_ptr);
+        assert_eq!(prepared.cache.matched_routes.capacity(), matched_capacity);
+        assert_eq!(prepared.cache.component_ptrs.as_ptr(), component_ptr);
+        assert_eq!(prepared.cache.component_ptrs.capacity(), component_capacity);
     }
 
     #[test]
@@ -264,15 +275,15 @@ mod tests {
         }
         let mut prepared = PreparedEntityView::<&Position>::new();
         let _ = prepared.bind(&world);
-        assert!(prepared.matched_routes.len() > 1);
-        let matched_ptr = prepared.matched_routes.as_ptr();
-        let matched_capacity = prepared.matched_routes.capacity();
-        let component_ptr = prepared.component_ptrs.as_ptr();
-        let component_capacity = prepared.component_ptrs.capacity();
+        assert!(prepared.cache.matched_routes.len() > 1);
+        let matched_ptr = prepared.cache.matched_routes.as_ptr();
+        let matched_capacity = prepared.cache.matched_routes.capacity();
+        let component_ptr = prepared.cache.component_ptrs.as_ptr();
+        let component_capacity = prepared.cache.component_ptrs.capacity();
 
         world.clear();
         let _ = prepared.bind(&world);
-        assert!(prepared.matched_routes.is_empty());
+        assert!(prepared.cache.matched_routes.is_empty());
 
         let mut last = None;
         for value in 0..160 {
@@ -280,10 +291,10 @@ mod tests {
         }
         let last = last.unwrap();
         assert_eq!(prepared.bind(&world).get(last), Some(&Position(159)));
-        assert_eq!(prepared.matched_routes.as_ptr(), matched_ptr);
-        assert_eq!(prepared.matched_routes.capacity(), matched_capacity);
-        assert_eq!(prepared.component_ptrs.as_ptr(), component_ptr);
-        assert_eq!(prepared.component_ptrs.capacity(), component_capacity);
+        assert_eq!(prepared.cache.matched_routes.as_ptr(), matched_ptr);
+        assert_eq!(prepared.cache.matched_routes.capacity(), matched_capacity);
+        assert_eq!(prepared.cache.component_ptrs.as_ptr(), component_ptr);
+        assert_eq!(prepared.cache.component_ptrs.capacity(), component_capacity);
     }
 
     #[test]

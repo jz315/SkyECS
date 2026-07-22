@@ -29,7 +29,15 @@ fn benchmark_group<'a>(c: &'a mut Criterion, name: &str) -> BenchmarkGroup<'a, W
 pub(crate) fn bench_insert(c: &mut Criterion) {
     let mut group = benchmark_group(c, "prepared_construction");
     for engine in engine_order() {
-        dispatch!(engine, bench_insert, &mut group);
+        dispatch!(engine, bench_single_insert, &mut group);
+    }
+    group.finish();
+}
+
+pub(crate) fn bench_native_bulk(c: &mut Criterion) {
+    let mut group = benchmark_group(c, "scenario_native_bulk_construction");
+    for engine in engine_order() {
+        dispatch!(engine, bench_native_bulk, &mut group);
     }
     group.finish();
 }
@@ -82,11 +90,20 @@ pub(crate) fn bench_heavy_compute(c: &mut Criterion) {
     group.finish();
 }
 
-pub(crate) fn bench_random_access(c: &mut Criterion) {
-    let mut group = benchmark_group(c, "prepared_random_access");
+pub(crate) fn bench_entity_id_random_access(c: &mut Criterion) {
+    let mut group = benchmark_group(c, "entity_id_random_access");
     group.sampling_mode(SamplingMode::Flat);
     for engine in engine_order() {
-        dispatch!(engine, bench_random_access, &mut group);
+        dispatch!(engine, bench_entity_id_random_access, &mut group);
+    }
+    group.finish();
+}
+
+pub(crate) fn bench_fixed_sequence_access(c: &mut Criterion) {
+    let mut group = benchmark_group(c, "scenario_fixed_sequence_access");
+    group.sampling_mode(SamplingMode::Flat);
+    for engine in engine_order() {
+        dispatch!(engine, bench_fixed_sequence_access, &mut group);
     }
     group.finish();
 }
@@ -103,14 +120,6 @@ pub(crate) fn bench_gameplay_frame(c: &mut Criterion) {
     let mut group = benchmark_group(c, "scenario_gameplay_frame");
     for engine in engine_order() {
         dispatch!(engine, bench_gameplay_frame, &mut group);
-    }
-    group.finish();
-}
-
-pub(crate) fn bench_gameplay_phases(c: &mut Criterion) {
-    let mut group = benchmark_group(c, "diagnostic_gameplay_phases");
-    for engine in engine_order() {
-        dispatch!(engine, bench_gameplay_phases, &mut group);
     }
     group.finish();
 }

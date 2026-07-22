@@ -1,5 +1,5 @@
 use super::*;
-use crate::ecs::{CommandBuffer, Commands, EntityId, Time, World};
+use crate::ecs::{CommandBuffer, Commands, EntityId, QueryData, Time, World};
 use std::cell::RefCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
@@ -10,8 +10,20 @@ use std::time::Duration;
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Position(f32);
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Velocity(f32);
+
+#[derive(QueryData)]
+struct EntityMovement<'w> {
+    position: &'w mut Position,
+    velocity: &'w Velocity,
+}
+
+struct EntityLookupTargets {
+    moving: EntityId,
+    position_only: EntityId,
+    stale: EntityId,
+}
 
 #[derive(Default)]
 struct Trace(Vec<&'static str>);
@@ -22,6 +34,23 @@ fn movement(entities: View<(&mut Position, &Velocity)>) {
 
 fn parallel_movement(entities: ParView<(&mut Position, &Velocity)>) {
     entities.par_for_each(|(position, velocity)| position.0 += velocity.0);
+}
+
+fn move_selected_entity(
+    targets: Res<EntityLookupTargets>,
+    mut entities: EntityView<EntityMovement<'static>>,
+) {
+    let item = entities.get_mut(targets.moving).unwrap();
+    item.position.0 += item.velocity.0;
+}
+
+fn validate_optional_entity_lookup(
+    targets: Res<EntityLookupTargets>,
+    velocities: EntityView<Option<&'static Velocity>>,
+) {
+    assert_eq!(velocities.get(targets.moving).flatten().unwrap().0, 2.0);
+    assert_eq!(velocities.get(targets.position_only), Some(None));
+    assert_eq!(velocities.get(targets.stale), None);
 }
 
 fn record_a(mut trace: ResMut<Trace>) {
@@ -48,6 +77,48 @@ fn typed_system_reads_and_writes_components() {
     world
         .query::<&Position>()
         .for_each(|position| assert_eq!(*position, Position(3.0)));
+}
+
+#[test]
+fn entity_view_fetches_mutable_derived_and_optional_items() {
+    let mut world = World::new();
+    let moving = world.spawn((Position(1.0), Velocity(2.0)));
+    let position_only = world.spawn((Position(5.0),));
+    let stale = world.spawn((Position(9.0), Velocity(3.0)));
+    assert!(world.despawn(stale));
+    world.insert_resource(EntityLookupTargets {
+        moving,
+        position_only,
+        stale,
+    });
+    world
+        .stage(Update)
+        .add(move_selected_entity)
+        .add(validate_optional_entity_lookup);
+
+    world.tick_with_delta(0.0).unwrap();
+
+    assert_eq!(world.get::<Position>(moving), Some(&Position(3.0)));
+    assert_eq!(world.get::<Position>(position_only), Some(&Position(5.0)));
+}
+
+#[test]
+fn scheduled_entity_view_is_miri_clean() {
+    let mut world = World::new();
+    let moving = world.spawn((Position(4.0), Velocity(1.5)));
+    let position_only = world.spawn((Position(8.0),));
+    let stale = world.spawn((Position(0.0), Velocity(0.0)));
+    assert!(world.despawn(stale));
+    world.insert_resource(EntityLookupTargets {
+        moving,
+        position_only,
+        stale,
+    });
+    world.stage(Update).add(move_selected_entity);
+
+    world.tick_with_delta(0.0).unwrap();
+
+    assert_eq!(world.get::<Position>(moving), Some(&Position(5.5)));
 }
 
 #[test]
@@ -981,6 +1052,8 @@ fn invalid_resource_access(_write: ResMut<Trace>, _read: Res<Trace>) {}
 
 fn invalid_component_access(_write: View<&mut Position>, _read: View<&Position>) {}
 
+fn invalid_entity_view_access(_write: EntityView<&'static mut Position>, _read: View<&Position>) {}
+
 #[test]
 fn overlapping_parameters_are_rejected_at_registration() {
     let mut resource_world = World::new();
@@ -994,6 +1067,14 @@ fn overlapping_parameters_are_rejected_at_registration() {
         component_world.stage(Update).add(invalid_component_access);
     }));
     assert!(component_error.is_err());
+
+    let mut entity_view_world = World::new();
+    let entity_view_error = catch_unwind(AssertUnwindSafe(|| {
+        entity_view_world
+            .stage(Update)
+            .add(invalid_entity_view_access);
+    }));
+    assert!(entity_view_error.is_err());
 }
 
 #[derive(Default)]

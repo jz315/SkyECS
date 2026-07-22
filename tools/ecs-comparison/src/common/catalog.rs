@@ -69,6 +69,15 @@ const fn fixed(family: &'static str, count: usize) -> BenchmarkSpec {
     }
 }
 
+const fn fixed_class(family: &'static str, count: usize, class: BenchmarkClass) -> BenchmarkSpec {
+    BenchmarkSpec {
+        family,
+        class,
+        work_items: WorkItems::Fixed(count),
+        engines: &Engine::ALL,
+    }
+}
+
 const fn no_items(family: &'static str, class: BenchmarkClass) -> BenchmarkSpec {
     BenchmarkSpec {
         family,
@@ -106,8 +115,12 @@ const fn random_without_freecs(
     }
 }
 
-pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 37] = [
-    fixed("prepared_construction/native_bulk_insert_10k", 10_000),
+pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 44] = [
+    fixed_class(
+        "scenario_native_bulk_construction/insert_10k",
+        10_000,
+        BenchmarkClass::Scenario,
+    ),
     fixed("prepared_construction/single_insert_10k", 10_000),
     fixed("prepared_iteration/simple_10k", 10_000),
     fixed("prepared_iteration_large/simple_100k", 100_000),
@@ -214,11 +227,74 @@ pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 37] = [
         8,
     ),
     no_items("diagnostic_heavy_compute/heavy", BenchmarkClass::Diagnostic),
-    fixed("prepared_random_access/hot_10k", 10_000),
-    fixed("prepared_random_access/warm_100k", 100_000),
+    fixed("entity_id_random_access/hot_10k", 10_000),
+    fixed("entity_id_random_access/warm_100k", 100_000),
+    fixed_class(
+        "scenario_fixed_sequence_access/build_10k",
+        10_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/steady_10k",
+        10_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/amortized_10k_x1",
+        10_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/amortized_10k_x4",
+        40_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/amortized_10k_x16",
+        160_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/amortized_10k_x64",
+        640_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/build_100k",
+        100_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/steady_100k",
+        100_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/amortized_100k_x1",
+        100_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/amortized_100k_x4",
+        400_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/amortized_100k_x16",
+        1_600_000,
+        BenchmarkClass::Scenario,
+    ),
+    fixed_class(
+        "scenario_fixed_sequence_access/amortized_100k_x64",
+        6_400_000,
+        BenchmarkClass::Scenario,
+    ),
     fixed("entity_ops/spawn_despawn_1k", 1_000),
     fixed("entity_ops/add_remove_component_1k", 1_000),
     no_items("scenario_gameplay_frame/frame", BenchmarkClass::Scenario),
+];
+
+pub const GAMEPLAY_PHASE_BENCHMARKS: [BenchmarkSpec; 5] = [
     no_items(
         "diagnostic_gameplay_phases/iteration",
         BenchmarkClass::Diagnostic,
@@ -244,6 +320,7 @@ pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 37] = [
 pub fn benchmark_spec(family: &str) -> Option<&'static BenchmarkSpec> {
     CANONICAL_BENCHMARKS
         .iter()
+        .chain(GAMEPLAY_PHASE_BENCHMARKS.iter())
         .find(|spec| spec.family == family)
 }
 
@@ -257,12 +334,39 @@ pub fn benchmark_class(full_id: &str) -> Option<BenchmarkClass> {
     Some(benchmark_spec(family)?.class)
 }
 
+pub fn fixed_sequence_plan_payload_bytes(full_id: &str) -> Option<usize> {
+    let (family, _) = full_id.rsplit_once('/')?;
+    if !family.starts_with("scenario_fixed_sequence_access/") {
+        return None;
+    }
+    let entity_count: usize = if family.contains("100k") {
+        100_000
+    } else if family.contains("10k") {
+        10_000
+    } else {
+        return None;
+    };
+    entity_count.checked_mul(std::mem::size_of::<*const ()>())
+}
+
+pub fn fixed_sequence_amortized_traversals(full_id: &str) -> Option<usize> {
+    let (family, _) = full_id.rsplit_once('/')?;
+    let suffix = family
+        .strip_prefix("scenario_fixed_sequence_access/amortized_")?
+        .rsplit_once("_x")?
+        .1;
+    suffix.parse().ok()
+}
+
 pub fn is_canonical_group(group: &str) -> bool {
-    CANONICAL_BENCHMARKS.iter().any(|spec| {
-        spec.family
-            .split_once('/')
-            .is_some_and(|(candidate, _)| candidate == group)
-    })
+    CANONICAL_BENCHMARKS
+        .iter()
+        .chain(GAMEPLAY_PHASE_BENCHMARKS.iter())
+        .any(|spec| {
+            spec.family
+                .split_once('/')
+                .is_some_and(|(candidate, _)| candidate == group)
+        })
 }
 
 #[cfg(test)]
@@ -296,21 +400,21 @@ mod tests {
                 .iter()
                 .filter(|spec| spec.class == BenchmarkClass::Comparable)
                 .count(),
-            30
+            29
         );
         assert_eq!(
             CANONICAL_BENCHMARKS
                 .iter()
                 .filter(|spec| spec.class == BenchmarkClass::Scenario)
                 .count(),
-            1
+            14
         );
         assert_eq!(
             CANONICAL_BENCHMARKS
                 .iter()
                 .filter(|spec| spec.class == BenchmarkClass::Diagnostic)
                 .count(),
-            6
+            1
         );
         assert_eq!(
             benchmark_class("scenario_gameplay_frame/frame/sky"),
@@ -329,5 +433,27 @@ mod tests {
             benchmark_spec("prepared_random_fragmented_iteration/random_10_tags_1_term").unwrap();
         assert!(ten.engines.contains(&Engine::Freecs));
         assert_eq!(ten.engines, &Engine::ALL);
+    }
+
+    #[test]
+    fn fixed_sequence_metadata_reports_plan_and_amortization_costs() {
+        assert_eq!(
+            fixed_sequence_plan_payload_bytes("scenario_fixed_sequence_access/steady_10k/sky"),
+            Some(10_000 * std::mem::size_of::<*const ()>())
+        );
+        assert_eq!(
+            fixed_sequence_plan_payload_bytes("entity_id_random_access/hot_10k/sky"),
+            None
+        );
+        assert_eq!(
+            fixed_sequence_amortized_traversals(
+                "scenario_fixed_sequence_access/amortized_100k_x64/hecs"
+            ),
+            Some(64)
+        );
+        assert_eq!(
+            fixed_sequence_amortized_traversals("scenario_fixed_sequence_access/steady_100k/hecs"),
+            None
+        );
     }
 }

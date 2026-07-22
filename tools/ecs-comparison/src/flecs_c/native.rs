@@ -29,6 +29,9 @@ unsafe extern "C" {
     pub(super) fn sky_flecs_c_random_new(count: usize) -> *mut c_void;
     pub(super) fn sky_flecs_c_random_delete(context: *mut c_void);
     pub(super) fn sky_flecs_c_random_run(context: *mut c_void) -> u64;
+    pub(super) fn sky_flecs_c_fixed_sequence_build_run(context: *mut c_void, repeats: usize)
+        -> u64;
+    pub(super) fn sky_flecs_c_fixed_sequence_steady_run(context: *mut c_void) -> u64;
     pub(super) fn sky_flecs_c_entity_ops_new() -> *mut c_void;
     pub(super) fn sky_flecs_c_entity_ops_delete(context: *mut c_void);
     pub(super) fn sky_flecs_c_spawn_despawn(context: *mut c_void) -> u64;

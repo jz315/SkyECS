@@ -3,30 +3,6 @@ use criterion::{measurement::WallTime, BenchmarkGroup};
 use sky_ecs::dynamic::{DynamicBundle, WorldDynamicExt};
 use sky_ecs::{EntityId, PreparedEntityView, PreparedQuery, World};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SkyIterationApi {
-    ChunkClosure,
-    ChunkFunction,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SkyLookupApi {
-    WorldGet,
-    EntityAccessor,
-    PreparedEntityView,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SkyAiApi {
-    WorldGetPair,
-    SplitAccessors,
-    PreparedEntityView,
-}
-
-pub(super) const SELECTED_ITERATION_API: SkyIterationApi = SkyIterationApi::ChunkClosure;
-pub(super) const SELECTED_LOOKUP_API: SkyLookupApi = SkyLookupApi::EntityAccessor;
-pub(super) const SELECTED_AI_API: SkyAiApi = SkyAiApi::PreparedEntityView;
-
 pub(super) struct SkyGameplayWorld {
     world: World,
     entities: Vec<EntityId>,
@@ -37,7 +13,6 @@ pub(super) struct SkyGameplayWorld {
     allies: PreparedQuery<(&'static mut Health, &'static Regen)>,
     lifetimes: PreparedQuery<&'static mut Lifetime>,
     ai: PreparedEntityView<(&'static TargetSlot, &'static mut Cooldown)>,
-    positions: PreparedEntityView<&'static PositionComponent>,
     ai_lookup_checksum: u64,
 }
 
@@ -83,161 +58,58 @@ impl SkyGameplayWorld {
             allies,
             lifetimes,
             ai: PreparedEntityView::new(),
-            positions: PreparedEntityView::new(),
             ai_lookup_checksum: 0,
         }
     }
 
     pub(super) fn run_frame(&mut self, frame: &GameplayFrame) {
-        self.run_frame_with_apis(
-            frame,
-            SELECTED_ITERATION_API,
-            SELECTED_AI_API,
-            SELECTED_LOOKUP_API,
-        );
-    }
-
-    pub(super) fn run_frame_with_apis(
-        &mut self,
-        frame: &GameplayFrame,
-        iteration_api: SkyIterationApi,
-        ai_api: SkyAiApi,
-        lookup_api: SkyLookupApi,
-    ) {
-        self.run_iteration_phase(iteration_api);
-        self.run_ai_source_phase(frame, ai_api);
-        self.run_target_position_phase(frame, lookup_api);
+        self.run_iteration_phase();
+        self.run_ai_source_phase(frame);
+        self.run_target_position_phase(frame);
         self.run_status_transition_phase(frame);
         self.run_projectile_recycle_phase(frame);
     }
 
-    pub(super) fn run_iteration_phase(&mut self, iteration_api: SkyIterationApi) {
-        match iteration_api {
-            SkyIterationApi::ChunkClosure => {
-                self.movement
-                    .for_each_chunk(&mut self.world, |(positions, velocities)| {
-                        move_chunk(positions, velocities);
-                    });
-                self.enemies
-                    .for_each_chunk(&mut self.world, |(health, damage)| {
-                        damage_chunk(health, damage);
-                    });
-                self.allies
-                    .for_each_chunk(&mut self.world, |(health, regen)| {
-                        regen_chunk(health, regen);
-                    });
-                self.lifetimes
-                    .for_each_chunk(&mut self.world, lifetime_chunk);
-            }
-            SkyIterationApi::ChunkFunction => {
-                self.movement.for_each_chunk_fn(&mut self.world, move_chunk);
-                self.enemies
-                    .for_each_chunk_fn(&mut self.world, damage_chunk);
-                self.allies.for_each_chunk_fn(&mut self.world, regen_chunk);
-                self.lifetimes
-                    .for_each_chunk(&mut self.world, lifetime_chunk);
-            }
-        }
+    pub(super) fn run_iteration_phase(&mut self) {
+        self.movement
+            .for_each_chunk(&mut self.world, |(positions, velocities)| {
+                move_chunk(positions, velocities);
+            });
+        self.enemies
+            .for_each_chunk(&mut self.world, |(health, damage)| {
+                damage_chunk(health, damage);
+            });
+        self.allies
+            .for_each_chunk(&mut self.world, |(health, regen)| {
+                regen_chunk(health, regen);
+            });
+        self.lifetimes
+            .for_each_chunk(&mut self.world, lifetime_chunk);
     }
 
-    pub(super) fn run_ai_source_phase(&mut self, frame: &GameplayFrame, ai_api: SkyAiApi) {
+    pub(super) fn run_ai_source_phase(&mut self, frame: &GameplayFrame) {
         self.target_entities.clear();
-        match ai_api {
-            SkyAiApi::WorldGetPair => {
-                for &slot in frame.ai_slots.iter() {
-                    let ai_entity = self.entities[slot];
-                    let target_slot = self
-                        .world
-                        .get::<TargetSlot>(ai_entity)
-                        .expect("AI entity must have TargetSlot")
-                        .0 as usize;
-                    self.target_entities.push(self.entities[target_slot]);
-                    let cooldown = self
-                        .world
-                        .get_mut::<Cooldown>(ai_entity)
-                        .expect("AI entity must have Cooldown");
-                    cooldown.0 = cooldown.0.saturating_sub(1);
-                }
-            }
-            SkyAiApi::SplitAccessors => {
-                {
-                    let targets = self.world.accessor::<TargetSlot>();
-                    for &slot in frame.ai_slots.iter() {
-                        let target_slot = targets
-                            .get(self.entities[slot])
-                            .expect("AI entity must have TargetSlot")
-                            .0 as usize;
-                        self.target_entities.push(self.entities[target_slot]);
-                    }
-                }
-                {
-                    let mut cooldowns = self.world.accessor_mut::<Cooldown>();
-                    for &slot in frame.ai_slots.iter() {
-                        let cooldown = cooldowns
-                            .get_mut(self.entities[slot])
-                            .expect("AI entity must have Cooldown");
-                        cooldown.0 = cooldown.0.saturating_sub(1);
-                    }
-                }
-            }
-            SkyAiApi::PreparedEntityView => {
-                let mut ai = self.ai.bind_mut(&mut self.world);
-                for &slot in frame.ai_slots.iter() {
-                    let (target, cooldown) = ai
-                        .get_mut(self.entities[slot])
-                        .expect("AI entity must have TargetSlot and Cooldown");
-                    self.target_entities.push(self.entities[target.0 as usize]);
-                    cooldown.0 = cooldown.0.saturating_sub(1);
-                }
-            }
+        let mut ai = self.ai.bind_mut(&mut self.world);
+        for &slot in frame.ai_slots.iter() {
+            let (target, cooldown) = ai
+                .get_mut(self.entities[slot])
+                .expect("AI entity must have TargetSlot and Cooldown");
+            self.target_entities.push(self.entities[target.0 as usize]);
+            cooldown.0 = cooldown.0.saturating_sub(1);
         }
     }
 
-    pub(super) fn run_target_position_phase(
-        &mut self,
-        frame: &GameplayFrame,
-        lookup_api: SkyLookupApi,
-    ) {
-        match lookup_api {
-            SkyLookupApi::WorldGet => {
-                for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
-                    let position = self
-                        .world
-                        .get::<PositionComponent>(target)
-                        .expect("AI target must have PositionComponent");
-                    self.ai_lookup_checksum = gameplay_mix_checksum(
-                        self.ai_lookup_checksum,
-                        slot as u64,
-                        position.0.x.to_bits() as u64,
-                    );
-                }
-            }
-            SkyLookupApi::EntityAccessor => {
-                let positions = self.world.accessor::<PositionComponent>();
-                for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
-                    let position = positions
-                        .get(target)
-                        .expect("AI target must have PositionComponent");
-                    self.ai_lookup_checksum = gameplay_mix_checksum(
-                        self.ai_lookup_checksum,
-                        slot as u64,
-                        position.0.x.to_bits() as u64,
-                    );
-                }
-            }
-            SkyLookupApi::PreparedEntityView => {
-                let positions = self.positions.bind(&self.world);
-                for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
-                    let position = positions
-                        .get(target)
-                        .expect("AI target must have PositionComponent");
-                    self.ai_lookup_checksum = gameplay_mix_checksum(
-                        self.ai_lookup_checksum,
-                        slot as u64,
-                        position.0.x.to_bits() as u64,
-                    );
-                }
-            }
+    pub(super) fn run_target_position_phase(&mut self, frame: &GameplayFrame) {
+        let positions = self.world.accessor::<PositionComponent>();
+        for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_entities) {
+            let position = positions
+                .get(target)
+                .expect("AI target must have PositionComponent");
+            self.ai_lookup_checksum = gameplay_mix_checksum(
+                self.ai_lookup_checksum,
+                slot as u64,
+                position.0.x.to_bits() as u64,
+            );
         }
     }
 
@@ -417,39 +289,19 @@ pub fn validate_gameplay_contract() {
     reference.run_trace(&trace);
     assert_eq!(reference.digest(), GAMEPLAY_CANONICAL_DIGEST);
 
-    for (iteration_api, ai_api, lookup_api) in [
-        (
-            SkyIterationApi::ChunkClosure,
-            SkyAiApi::WorldGetPair,
-            SkyLookupApi::WorldGet,
-        ),
-        (
-            SkyIterationApi::ChunkFunction,
-            SkyAiApi::SplitAccessors,
-            SkyLookupApi::EntityAccessor,
-        ),
-        (
-            SkyIterationApi::ChunkFunction,
-            SkyAiApi::PreparedEntityView,
-            SkyLookupApi::PreparedEntityView,
-        ),
-    ] {
-        let mut gameplay = SkyGameplayWorld::new(&trace);
-        for frame in trace.frames() {
-            gameplay.run_frame_with_apis(frame, iteration_api, ai_api, lookup_api);
-        }
-        assert_eq!(gameplay.digest(), GAMEPLAY_CANONICAL_DIGEST);
+    let mut gameplay = SkyGameplayWorld::new(&trace);
+    for frame in trace.frames() {
+        gameplay.run_frame(frame);
     }
+    assert_eq!(gameplay.digest(), GAMEPLAY_CANONICAL_DIGEST);
 }
 
 impl GameplayPhaseAdapter for SkyGameplayWorld {
     fn run_phase(&mut self, phase: GameplayPhase, frame: &GameplayFrame) {
         match phase {
-            GameplayPhase::Iteration => self.run_iteration_phase(SELECTED_ITERATION_API),
-            GameplayPhase::AiSourceLookup => self.run_ai_source_phase(frame, SELECTED_AI_API),
-            GameplayPhase::TargetPositionLookup => {
-                self.run_target_position_phase(frame, SELECTED_LOOKUP_API);
-            }
+            GameplayPhase::Iteration => self.run_iteration_phase(),
+            GameplayPhase::AiSourceLookup => self.run_ai_source_phase(frame),
+            GameplayPhase::TargetPositionLookup => self.run_target_position_phase(frame),
             GameplayPhase::StatusTransition => self.run_status_transition_phase(frame),
             GameplayPhase::ProjectileRecycle => self.run_projectile_recycle_phase(frame),
         }

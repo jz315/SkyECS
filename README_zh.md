@@ -29,7 +29,7 @@ Flecs、`freecs` 和 `shipyard`。
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.3"
+sky_ecs = "0.2.0"
 ```
 
 ```rust
@@ -76,6 +76,9 @@ fn main() {
 下方数字是可追溯的历史公开快照，来自 commit
 `e47f48163759f2e0438bcb89504908749999a416` 的
 [GitHub Actions 运行 #29695552048](https://github.com/jz315/SkyECS/actions/runs/29695552048)。
+
+Sky API 候选只在 `crates/sky_ecs/benches` 中本地测量；正式 Compare-ECS 与
+GitHub workflow 只包含已经选定的路径，不会在 shared runner 上决定 API。
 
 
 | Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |

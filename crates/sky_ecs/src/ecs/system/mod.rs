@@ -8,7 +8,7 @@ mod schedule;
 mod stage;
 
 pub use function::{ExclusiveSystem, IntoSystem};
-pub use param::{Local, ParView, Res, ResMut, View};
+pub use param::{EntityView, Local, ParView, Res, ResMut, View};
 pub use schedule::StageBuilder;
 pub use stage::{
     CommandDiagnostics, First, FixedOverflow, FixedStageDiagnostics, FixedStep, FixedUpdate, Last,

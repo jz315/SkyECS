@@ -14,7 +14,7 @@
 | [类型化查询](reference/zh-CN/queries.md) | `Query`、`QueryMut`、`PreparedQuery`、`QueryFilter`、`With`、`Without`、`Any` |
 | [延迟命令](reference/zh-CN/commands.md) | `CommandBuffer` 与调度器发放的 `Commands` |
 | [资源](reference/zh-CN/resources.md) | World 资源方法、`Res`、`ResMut` 与永久 `Time` 资源规则 |
-| [系统](reference/zh-CN/systems.md) | `IntoSystem`、`ExclusiveSystem`、`View`、`ParView`、`Local` 与 system parameter 契约 |
+| [系统](reference/zh-CN/systems.md) | `IntoSystem`、`ExclusiveSystem`、`View`、`ParView`、`EntityView`、`Local` 与 system parameter 契约 |
 | [调度与时间](reference/zh-CN/scheduling.md) | `StageBuilder`、`StageLabel`、内置 stage、`FixedStep`、`Time`、报告、诊断与调度错误 |
 | [动态 API](reference/zh-CN/dynamic.md) | `sky_ecs::dynamic` 安全运行时类型生成与 chunk 查询 |
 | [Expert API](reference/zh-CN/expert.md) | `sky_ecs::expert` archetype、chunk、未初始化生成与原始存储契约 |
@@ -32,6 +32,7 @@
 | 运行时选择组件 | `dynamic::DynamicQuery` |
 | System/遍历期间的结构变更 | `CommandBuffer` / `Commands` |
 | 调度器中的组件访问 | `View` / `ParView` |
+| 调度器中按任意 ID 访问 tuple | `EntityView` |
 
 ## 接口边界
 

@@ -15,7 +15,7 @@ task-oriented introduction, use the [Tutorial](TUTORIAL.md).
 | [Typed queries](reference/en/queries.md) | `Query`, `QueryMut`, `PreparedQuery`, `QueryFilter`, `With`, `Without`, `Any` |
 | [Deferred commands](reference/en/commands.md) | `CommandBuffer` and scheduler-issued `Commands` |
 | [Resources](reference/en/resources.md) | World resource methods, `Res`, `ResMut`, and the permanent `Time` resource rules |
-| [Systems](reference/en/systems.md) | `IntoSystem`, `ExclusiveSystem`, `View`, `ParView`, `Local`, and system parameter contracts |
+| [Systems](reference/en/systems.md) | `IntoSystem`, `ExclusiveSystem`, `View`, `ParView`, `EntityView`, `Local`, and system parameter contracts |
 | [Scheduling and time](reference/en/scheduling.md) | `StageBuilder`, `StageLabel`, built-in stages, `FixedStep`, `Time`, reports, diagnostics, and schedule errors |
 | [Dynamic API](reference/en/dynamic.md) | `sky_ecs::dynamic` safe runtime-typed spawning and chunk queries |
 | [Expert API](reference/en/expert.md) | `sky_ecs::expert` archetypes, chunks, uninitialized spawning, and raw storage contracts |
@@ -33,6 +33,7 @@ task-oriented introduction, use the [Tutorial](TUTORIAL.md).
 | Runtime-selected components | `dynamic::DynamicQuery` |
 | Structural changes during systems/iteration | `CommandBuffer` / `Commands` |
 | Scheduled component access | `View` / `ParView` |
+| Scheduled arbitrary-ID tuple access | `EntityView` |
 
 ## Surface boundary
 

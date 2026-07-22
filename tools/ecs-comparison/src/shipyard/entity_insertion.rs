@@ -25,8 +25,8 @@ pub(super) fn insert_native_bulk(context: &mut NativeBulkContext) {
     // the IDs of entities that already exist in the world.
     let _new_entity_ids = context.world.bulk_add_entity(bundles);
 }
-pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("native_bulk_insert_10k/shipyard", |b| {
+pub fn bench_native_bulk(group: &mut BenchmarkGroup<'_, WallTime>) {
+    group.bench_function("insert_10k/shipyard", |b| {
         b.iter_batched_ref(
             || native_bulk_context(suite_columns(SIMPLE_ENTITY_COUNT)),
             |context| {
@@ -36,7 +36,9 @@ pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
             BatchSize::SmallInput,
         );
     });
+}
 
+pub fn bench_single_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.bench_function("single_insert_10k/shipyard", |b| {
         let bundles = suite_bundles(SIMPLE_ENTITY_COUNT);
         b.iter_batched_ref(

@@ -8,7 +8,7 @@
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.3"
+sky_ecs = "0.2.0"
 ```
 
 创建 `src/main.rs` 并导入 `World`：
@@ -146,12 +146,32 @@ assert_eq!(world.get_resource::<FrameCount>().unwrap().0, 60);
 固定频率模拟使用 `FixedUpdate` 和 `FixedStep::hz(...)`。当系统负载足够大时，
 使用 `ParView<Q>` 和 `par_for_each` 执行并行遍历。
 
+当 system 已经知道一批选定的 Entity ID 时，请求 `EntityView<Q>`，一次 prepared
+route 查询即可返回整个 tuple：
+
+```rust
+use sky_ecs::{EntityId, EntityView, Res};
+
+struct Selected(EntityId);
+
+fn slow_selected(
+    selected: Res<Selected>,
+    mut bodies: EntityView<(&Position, &mut Velocity)>,
+) {
+    if let Some((_position, velocity)) = bodies.get_mut(selected.0) {
+        velocity.x *= 0.5;
+        velocity.y *= 0.5;
+    }
+}
+```
+
 ## 8. 选择正确的访问方式
 
 - 常规遍历使用 `World::query` / `query_mut`。
 - 批处理或向量化需要切片时使用 chunk 遍历。
 - 只有代码必须显式持有可复用计划时才使用 `PreparedQuery`。
 - 偶发的 `EntityId` 访问使用 `get` / `get_mut`。
+- system 内重复按任意 ID 取得 tuple 时使用 `EntityView<Q>`。
 - 结构变更应批量或延迟执行，不要与查询交错。
 
 ## 运行仓库示例

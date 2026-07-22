@@ -12,7 +12,6 @@
 namespace sky_ecs_bench::flecs_c::random_access {
 
 constexpr std::size_t CONTRACT_ENTITY_COUNT = 128;
-constexpr std::size_t REF_VERSION_WRAP_ENTITY_COUNT = 70'000;
 constexpr std::size_t ORDER_COUNT = 4;
 
 struct Position {
@@ -56,8 +55,10 @@ void deterministic_shuffle(std::vector<Value>& values, std::uint64_t state) {
 struct Context {
     ecs_world_t* world = nullptr;
     ecs_entity_t position = 0;
-    std::array<std::vector<ecs_ref_t>, ORDER_COUNT> access_orders;
+    std::array<std::vector<ecs_entity_t>, ORDER_COUNT> access_orders;
+    std::array<std::vector<const Position*>, ORDER_COUNT> fixed_orders;
     std::size_t next_order = 0;
+    std::size_t next_fixed_order = 0;
 
     ~Context() {
         if (world) {
@@ -100,9 +101,6 @@ Context* create_context(std::size_t entity_count) {
         return nullptr;
     }
 
-    // Initialize refs only after structural setup is complete. A ref caches a
-    // component pointer and table version, so creating it while the table is
-    // still growing can leave it pointing at storage that was reallocated.
     std::vector<std::size_t> indices(entity_count);
     std::iota(indices.begin(), indices.end(), std::size_t{0});
     for (std::size_t order = 0; order < ORDER_COUNT; ++order) {
@@ -111,28 +109,75 @@ Context* create_context(std::size_t entity_count) {
             shuffled,
             0xDEADBEEFCAFEBABEULL ^
                 (order * 0x9E3779B97F4A7C15ULL));
-        auto& references = context->access_orders[order];
-        references.reserve(entity_count);
+        auto& entity_order = context->access_orders[order];
+        entity_order.reserve(entity_count);
         for (std::size_t index : shuffled) {
-            references.push_back(ecs_ref_init_id(
-                context->world,
-                entities[index],
-                context->position));
+            entity_order.push_back(entities[index]);
+        }
+        auto& fixed_order = context->fixed_orders[order];
+        fixed_order.reserve(entity_count);
+        for (ecs_entity_t entity : entity_order) {
+            const auto* position = static_cast<const Position*>(
+                ecs_get_id(context->world, entity, context->position));
+            if (!position) {
+                delete context;
+                return nullptr;
+            }
+            fixed_order.push_back(position);
         }
     }
     return context;
+}
+
+std::uint64_t read_fixed_positions(Context& context) {
+    const auto& order =
+        context.fixed_orders[context.next_fixed_order++ % ORDER_COUNT];
+    std::uint64_t checksum = 0;
+    for (const Position* position : order) {
+        std::uint32_t x_bits = 0;
+        std::memcpy(&x_bits, &position->x, sizeof(x_bits));
+        checksum += x_bits;
+    }
+    return checksum;
+}
+
+std::uint64_t build_and_read_fixed_positions(
+    Context& context,
+    std::size_t repeats) {
+    const auto& entities =
+        context.access_orders[context.next_fixed_order++ % ORDER_COUNT];
+    std::vector<const Position*> positions;
+    positions.reserve(entities.size());
+    for (ecs_entity_t entity : entities) {
+        const auto* position = static_cast<const Position*>(
+            ecs_get_id(context.world, entity, context.position));
+        if (!position) {
+            return 0;
+        }
+        positions.push_back(position);
+    }
+    if (repeats == 0) {
+        return positions.size();
+    }
+
+    std::uint64_t checksum = 0;
+    for (std::size_t repeat = 0; repeat < repeats; ++repeat) {
+        for (const Position* position : positions) {
+            std::uint32_t x_bits = 0;
+            std::memcpy(&x_bits, &position->x, sizeof(x_bits));
+            checksum += x_bits;
+        }
+    }
+    return checksum;
 }
 
 std::uint64_t read_positions(Context& context) {
     auto& order =
         context.access_orders[context.next_order++ % ORDER_COUNT];
     std::uint64_t checksum = 0;
-    for (ecs_ref_t& reference : order) {
+    for (ecs_entity_t entity : order) {
         const auto* position = static_cast<const Position*>(
-            ecs_ref_get_id(
-                context.world,
-                &reference,
-                context.position));
+            ecs_get_id(context.world, entity, context.position));
         if (!position) {
             return 0;
         }
@@ -154,13 +199,19 @@ bool validate_count(std::size_t entity_count) {
     for (std::size_t order = 0; order < ORDER_COUNT; ++order) {
         valid = valid && read_positions(*context) == expected;
     }
+    for (std::size_t order = 0; order < ORDER_COUNT; ++order) {
+        valid = valid && read_fixed_positions(*context) == expected;
+    }
+    for (std::size_t order = 0; order < ORDER_COUNT; ++order) {
+        valid = valid &&
+            build_and_read_fixed_positions(*context, 1) == expected;
+    }
     delete context;
     return valid;
 }
 
 bool validate() {
-    return validate_count(CONTRACT_ENTITY_COUNT) &&
-        validate_count(REF_VERSION_WRAP_ENTITY_COUNT);
+    return validate_count(CONTRACT_ENTITY_COUNT);
 }
 
 } // namespace sky_ecs_bench::flecs_c::random_access
@@ -179,6 +230,19 @@ void sky_flecs_c_random_delete(void* context) {
 
 std::uint64_t sky_flecs_c_random_run(void* context) {
     return sky_ecs_bench::flecs_c::random_access::read_positions(
+        *static_cast<RandomAccessContext*>(context));
+}
+
+std::uint64_t sky_flecs_c_fixed_sequence_build_run(
+    void* context,
+    std::size_t repeats) {
+    return sky_ecs_bench::flecs_c::random_access::build_and_read_fixed_positions(
+        *static_cast<RandomAccessContext*>(context),
+        repeats);
+}
+
+std::uint64_t sky_flecs_c_fixed_sequence_steady_run(void* context) {
+    return sky_ecs_bench::flecs_c::random_access::read_fixed_positions(
         *static_cast<RandomAccessContext*>(context));
 }
 

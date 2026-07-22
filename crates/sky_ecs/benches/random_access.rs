@@ -3,7 +3,7 @@ mod common;
 
 use common::{Position2D, Velocity2D};
 use criterion::{criterion_group, criterion_main, BenchmarkGroup, Criterion};
-use sky_ecs::{EntityId, World};
+use sky_ecs::{EntityId, PreparedEntityView, World};
 use std::hint::black_box;
 use std::time::Duration;
 
@@ -79,6 +79,19 @@ fn bench_reads(group: &mut BenchmarkGroup<'_, criterion::measurement::WallTime>,
         bencher.iter(|| {
             for position in plans[order % plans.len()].iter() {
                 black_box(position);
+            }
+            order += 1;
+        });
+    });
+
+    group.bench_function("prepared_entity_view", |bencher| {
+        let (world, orders) = world_and_orders(count);
+        let mut prepared = PreparedEntityView::<&Position2D>::new();
+        let positions = prepared.bind(&world);
+        let mut order = 0;
+        bencher.iter(|| {
+            for &entity in &orders[order % orders.len()] {
+                black_box(positions.get(entity));
             }
             order += 1;
         });

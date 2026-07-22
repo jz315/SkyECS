@@ -132,6 +132,20 @@ fn validate_random_access() {
             random_checksum,
             position_checksum_value(1.0, CONTRACT_ENTITY_COUNT)
         );
+
+        let fixed_plan: Vec<_> = order
+            .iter()
+            .map(|&entity| {
+                random_query
+                    .get_manual(&random_world, entity)
+                    .expect("contract entity must be readable through QueryState")
+            })
+            .collect();
+        let fixed_checksum = fixed_plan.into_iter().fold(0_u64, add_position_checksum);
+        assert_eq!(
+            fixed_checksum,
+            position_checksum_value(1.0, CONTRACT_ENTITY_COUNT)
+        );
     }
 }
 

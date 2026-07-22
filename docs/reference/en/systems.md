@@ -17,6 +17,7 @@ pub trait ExclusiveSystem: 'static {
 
 pub struct View<'w, Q, F = ()> { /* private fields */ }
 pub struct ParView<'w, Q, F = ()> { /* private fields */ }
+pub struct EntityView<'w, Q> { /* private fields */ }
 pub struct Res<'w, T: 'static>(/* private */);
 pub struct ResMut<'w, T: 'static>(/* private */);
 pub struct Local<'w, T: 'static>(/* private */);
@@ -33,6 +34,7 @@ Supported parameters:
 |---|---|
 | `View<Q, F>` | Sequential typed component access declared by `Q` and `F`. |
 | `ParView<Q, F>` | The same component access plus serially prepared parallel jobs. |
+| `EntityView<Q>` | Prepared tuple-capable lookup for selected arbitrary entity IDs. |
 | `Res<T>` | Shared resource access; `T: Sync + 'static`. |
 | `ResMut<T>` | Exclusive resource access; `T: Send + 'static`; unavailable for `Time`. |
 | `Local<T>` | Per-system persistent state initialized with `T::default()`; `T: Default + Send + 'static`. |
@@ -77,6 +79,21 @@ Parallel item/chunk values must be `Send` and callbacks must be `Send + Sync`. T
 fall back to sequential processing for small workloads. Execution order is unspecified.
 Recursive iteration of the same `ParView` panics.
 
+## `EntityView`
+
+`EntityView<'w, Q>` provides prepared random access inside an ordinary system:
+
+| Declaration | Result |
+|---|---|
+| `get(&self, entity: EntityId)` | Available for `Q: ReadOnlyQuerySpec`; returns `Option<Q::Item<'_>>`. |
+| `get_mut(&mut self, entity: EntityId)` | Available for `Q: QuerySpec`; returns an item tied to the mutable view borrow. |
+
+The scheduler registers every component access declared by `Q` and refreshes the route-major
+column table during serial preparation. A stale/dead entity or an entity missing a required
+component returns `None`. An optional-only query returns an outer `Some` for every live entity,
+even when every optional item is absent. The parameter intentionally has no filter type; use
+`View<Q, F>` for filtered iteration.
+
 ## `Res`, `ResMut`, and `Local`
 
 - `Res<T>` implements `Deref<Target = T>`.
@@ -108,6 +125,7 @@ systems do not need to be `Send` because they are never dispatched as an ordinar
   preflight.
 - Prepared query/resource state is retained per registered system and refreshed after the
   relevant World epoch changes.
+- `EntityView::get*` is O(1) after serial route-table preparation and performs no allocation.
 - Per-invocation traversal complexity matches the corresponding query operation; scheduler
   preparation is outside the component inner loop.
 

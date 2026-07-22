@@ -7,6 +7,10 @@ rust-version = "1.95"
 publish = false
 build = "build.rs"
 
+[features]
+default = []
+api-experiments = []
+
 [build-dependencies]
 cc = "1.2"
 
@@ -30,6 +34,12 @@ harness = false
 [[bench]]
 name = "api_candidates"
 path = "benches/api_candidates.rs"
+harness = false
+required-features = ["api-experiments"]
+
+[[bench]]
+name = "gameplay_phases"
+path = "benches/gameplay_phases.rs"
 harness = false
 
 [[bin]]

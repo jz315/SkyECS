@@ -18,6 +18,10 @@ pub(super) struct Summary {
     pub(super) work_items: Option<usize>,
     pub(super) ns_per_item: Option<f64>,
     pub(super) items_per_second: Option<f64>,
+    #[serde(default)]
+    pub(super) plan_payload_bytes: Option<usize>,
+    #[serde(default)]
+    pub(super) amortized_ns_per_traversal: Option<f64>,
     pub(super) run_spread_percent: f64,
     pub(super) noisy: bool,
     pub(super) runs: Vec<RunEstimate>,
@@ -32,9 +36,11 @@ pub(super) struct PositionBias {
 
 #[derive(Serialize)]
 pub(super) struct OrderBias {
+    pub(super) available: bool,
+    pub(super) reason: Option<String>,
     pub(super) positions: Vec<PositionBias>,
-    pub(super) max_deviation_percent: f64,
-    pub(super) spread_percent: f64,
+    pub(super) max_deviation_percent: Option<f64>,
+    pub(super) spread_percent: Option<f64>,
     pub(super) complete: bool,
     pub(super) noisy: bool,
 }

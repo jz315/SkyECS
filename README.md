@@ -35,7 +35,7 @@ shared workloads and public APIs.
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.3"
+sky_ecs = "0.2.0"
 ```
 
 ```rust
@@ -83,6 +83,9 @@ retired: matrix inversion dominated it, so it did not represent ECS behavior.
 Its replacement is a deterministic 65,536-entity, 256-frame gameplay trace with
 real status and projectile lifetimes. New gameplay and best-native-bulk numbers
 will appear here only after the updated four-rotation public workflow completes.
+Sky API candidates are measured locally in `crates/sky_ecs/benches`; the formal
+Compare-ECS target and GitHub workflow contain only the selected paths and never
+choose an API on a shared runner.
 
 | Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|

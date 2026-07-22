@@ -26,8 +26,8 @@ pub(super) fn insert_native_bulk(context: &mut NativeBulkContext) {
         .expect("suite columns have equal lengths");
 }
 
-pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("native_bulk_insert_10k/sky", |b| {
+pub fn bench_native_bulk(group: &mut BenchmarkGroup<'_, WallTime>) {
+    group.bench_function("insert_10k/sky", |b| {
         b.iter_batched_ref(
             || native_bulk_context(suite_columns(SIMPLE_ENTITY_COUNT)),
             |context| {
@@ -37,7 +37,9 @@ pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
             BatchSize::SmallInput,
         );
     });
+}
 
+pub fn bench_single_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.bench_function("single_insert_10k/sky", |b| {
         let bundles = suite_bundles(SIMPLE_ENTITY_COUNT);
         b.iter_batched_ref(

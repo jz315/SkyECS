@@ -5,8 +5,8 @@ fn insert_context() -> Context {
     // SAFETY: This constructor has no preconditions and returns owned state.
     unsafe { Context::new(sky_flecs_c_insert_new(), sky_flecs_c_insert_delete) }
 }
-pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("native_bulk_insert_10k/flecs_c", |bencher| {
+pub fn bench_native_bulk(group: &mut BenchmarkGroup<'_, WallTime>) {
+    group.bench_function("insert_10k/flecs_c", |bencher| {
         bencher.iter_batched_ref(
             insert_context,
             |context| {
@@ -16,7 +16,9 @@ pub fn bench_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
             BatchSize::SmallInput,
         );
     });
+}
 
+pub fn bench_single_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.bench_function("single_insert_10k/flecs_c", |bencher| {
         bencher.iter_batched_ref(
             insert_context,

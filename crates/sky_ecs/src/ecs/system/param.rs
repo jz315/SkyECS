@@ -1,6 +1,7 @@
 use super::access::AccessSet;
 use super::cell::{SystemParamContext, UnsafeWorldCell};
 use super::stage::ScheduleError;
+use crate::ecs::access::EntityViewCache;
 use crate::ecs::query::{
     count_matches, matches_nothing, par_for_each, par_for_each_chunk,
     par_for_each_chunk_with_entities, par_for_each_with_entity, prepare_job_cache,
@@ -10,7 +11,7 @@ use crate::ecs::query::{
     ParallelJobCache, ParallelJobSnapshot, PreparedCache, QueryDescriptor, SequentialChunk,
     SequentialChunkCache,
 };
-use crate::ecs::{Commands, EntityId, QueryFilter, QuerySpec, World};
+use crate::ecs::{Commands, EntityId, QueryFilter, QuerySpec, ReadOnlyQuerySpec, World};
 use std::cell::Cell;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -440,6 +441,129 @@ where
             sequential_chunks: &state.view.sequential_chunks,
             active_iteration: &state.view.active_iteration,
             marker: PhantomData,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EntityView
+// ---------------------------------------------------------------------------
+
+pub(crate) struct EntityViewState<Q: QuerySpec> {
+    cache: EntityViewCache<Q>,
+}
+
+// Safety: raw component bases are refreshed during the scheduler's serial
+// prepare pass. They are transferred to a worker only while World structure is
+// frozen, and the SystemParam implementation requires every produced item to
+// be Send before this state can be used by an ordinary system.
+unsafe impl<Q> Send for EntityViewState<Q>
+where
+    Q: QuerySpec,
+    for<'a> Q::Item<'a>: Send,
+{
+}
+
+/// Scheduler-provided tuple-capable access for arbitrary entity IDs.
+///
+/// Unlike [`View`], this parameter is optimized for selected entity lookups
+/// rather than sequential iteration. Its route table is refreshed before each
+/// structurally frozen stage execution and retained across frames.
+#[must_use = "entity views do nothing until get or get_mut is called"]
+pub struct EntityView<'w, Q: QuerySpec> {
+    world: UnsafeWorldCell<'w>,
+    cache: &'w EntityViewCache<Q>,
+}
+
+impl<Q: QuerySpec> EntityView<'_, Q> {
+    #[inline(always)]
+    fn world(&self) -> &World {
+        // SAFETY: EntityView is constructed only by SystemParam::get for the
+        // live scheduler invocation and cannot outlive that invocation.
+        unsafe { self.world.world() }
+    }
+
+    /// Returns all requested components for a live matching entity.
+    ///
+    /// The returned item is tied to this mutable view borrow, so safe code
+    /// cannot perform another lookup while mutable component references remain
+    /// live.
+    ///
+    /// ```compile_fail
+    /// use sky_ecs::{EntityId, EntityView};
+    ///
+    /// fn invalid(mut view: EntityView<&mut u32>, first: EntityId, second: EntityId) {
+    ///     let first_value = view.get_mut(first).unwrap();
+    ///     let second_value = view.get_mut(second).unwrap();
+    ///     *first_value += *second_value;
+    /// }
+    /// ```
+    #[inline(always)]
+    pub fn get_mut<'a>(&'a mut self, entity: EntityId) -> Option<Q::Item<'a>> {
+        let (pointers, entity_index) = self.cache.row(self.world(), entity)?;
+        Some(unsafe {
+            // SAFETY: scheduler preparation resolved Q's descriptor-matched
+            // columns, the registered access set grants this system every
+            // required write, and the mutable view borrow prevents overlapping
+            // items from this capability.
+            Q::item_from_raw_parts(pointers, entity_index)
+        })
+    }
+}
+
+impl<Q: ReadOnlyQuerySpec> EntityView<'_, Q> {
+    /// Returns all requested components for a live matching entity.
+    ///
+    /// Optional-only queries return `Some` for any live entity, including
+    /// `Some(None)` or `Some((None, None))` when optional components are absent.
+    #[inline(always)]
+    pub fn get<'a>(&'a self, entity: EntityId) -> Option<Q::Item<'a>> {
+        let (pointers, entity_index) = self.cache.row(self.world(), entity)?;
+        Some(unsafe {
+            // SAFETY: scheduler preparation resolved Q's descriptor-matched
+            // columns and registered read access keeps them live and shared
+            // for this invocation.
+            Q::item_from_raw_parts(pointers, entity_index)
+        })
+    }
+}
+
+// Safety: Q's descriptor is registered exactly, route preparation finishes
+// before the system wave starts, and get/get_mut can only expose Q items while
+// the scheduler keeps World structure frozen.
+unsafe impl<'marker, Q> SystemParam for EntityView<'marker, Q>
+where
+    Q: QuerySpec + 'static,
+    for<'a> Q::Item<'a>: Send,
+{
+    type State = EntityViewState<Q>;
+    type Item<'w> = EntityView<'w, Q>;
+
+    fn register(meta: &mut SystemMeta) {
+        for component in Q::descriptor().components {
+            meta.access.add_component(component.ty, component.mutable);
+        }
+    }
+
+    fn init(_world: &mut World) -> Result<Self::State, ParamError> {
+        Ok(EntityViewState {
+            cache: EntityViewCache::default(),
+        })
+    }
+
+    fn prepare(state: &mut Self::State, world: &World) -> Result<(), ParamError> {
+        state.cache.prepare(world);
+        Ok(())
+    }
+
+    unsafe fn get<'w>(
+        world: UnsafeWorldCell<'w>,
+        state: &'w mut Self::State,
+        _context: SystemParamContext<'w>,
+    ) -> Self::Item<'w> {
+        EntityView {
+            world,
+            cache: &state.cache,
         }
     }
 }

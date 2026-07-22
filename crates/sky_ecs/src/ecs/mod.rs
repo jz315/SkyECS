@@ -16,7 +16,7 @@
 //! - [`Query`] / [`QueryMut`] — world-bound typed query facades.
 //! - [`PreparedQuery`] — an explicit reusable query plan for advanced hot paths.
 //! - [`With`] / [`Without`] — archetype-level query filters.
-//! - [`View`], [`ParView`], [`Res`], and [`Commands`] — inferred typed system parameters.
+//! - [`View`], [`ParView`], [`EntityView`], [`Res`], and [`Commands`] — inferred typed system parameters.
 //! - [`StageLabel`] — type-level labels used by [`World::stage`].
 //! - [`Time`] — per-frame timing information.
 
@@ -54,8 +54,8 @@ pub use sky_type::{
     type_of as component_type, Type as ComponentType, TypeInfo as ComponentTypeInfo,
 };
 pub use system::{
-    CommandDiagnostics, ExclusiveSystem, First, FixedOverflow, FixedStageDiagnostics, FixedStep,
-    FixedUpdate, IntoSystem, Last, Local, ParView, PostUpdate, PreUpdate, Res, ResMut,
+    CommandDiagnostics, EntityView, ExclusiveSystem, First, FixedOverflow, FixedStageDiagnostics,
+    FixedStep, FixedUpdate, IntoSystem, Last, Local, ParView, PostUpdate, PreUpdate, Res, ResMut,
     ScheduleBuildError, ScheduleDiagnostics, ScheduleError, StageBuilder, StageDiagnostics,
     StageLabel, StageSegmentDiagnostics, SystemAccessDiagnostics, SystemDiagnostics, TickReport,
     Update, View,

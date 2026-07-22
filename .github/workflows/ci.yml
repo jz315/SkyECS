@@ -55,7 +55,7 @@ jobs:
   miri:
     name: Miri (focused ECS safety paths)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -76,6 +76,11 @@ jobs:
           cargo miri test -p sky_ecs --lib ecs::access::entity_view::tests::refreshes_pointer_when_tiny_chunk_keeps_id_during_promotion -- --exact
           MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --lib ecs::access::entity_view::tests::refreshes_pointer_when_tiny_chunk_keeps_id_during_promotion -- --exact
           cargo miri test -p sky_ecs --test prepared_entity_view optional_only_queries_distinguish_live_entities_from_invalid_ids -- --exact
+          cargo miri test -p sky_ecs --test prepared_entity_view mutable_and_derived_queries_fetch_one_row_directly -- --exact
+          MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --test prepared_entity_view mutable_and_derived_queries_fetch_one_row_directly -- --exact
+          MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --lib ecs::access::entity_view::tests::refreshes_recycled_routes_in_both_match_directions -- --exact
+          cargo miri test -p sky_ecs --test prepared_entity_access mutable_plan_handles_distinct_zero_sized_and_over_aligned_components -- --exact
+          MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --test prepared_entity_access mutable_plan_updates_non_copy_components_without_changing_ownership -- --exact
           cargo miri test -p sky_ecs --lib ecs::chunk::tests::panicking_component_drop_releases_storage_before_resuming -- --exact
           cargo miri test -p sky_ecs --lib ecs::chunk::tests::thread_exit_storage_drop_survives_pool_tls_destruction -- --exact
           MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test -p sky_ecs --lib ecs::world::tests::direct_
@@ -83,6 +88,8 @@ jobs:
           cargo miri test -p sky_ecs --lib ecs::commands::tests::apply_panic_swallows_panics_from_unvisited_command_drops -- --exact
           cargo miri test -p sky_ecs --lib ecs::system::tests::scheduled_resmut_is_miri_clean -- --exact
           cargo miri test -p sky_ecs --lib ecs::system::tests::scheduled_resource_access_mode_transitions_are_miri_clean -- --exact
+          cargo miri test -p sky_ecs --lib ecs::system::tests::scheduled_entity_view_is_miri_clean -- --exact
+          MIRIFLAGS=-Zmiri-tree-borrows cargo miri test -p sky_ecs --lib ecs::system::tests::scheduled_entity_view_is_miri_clean -- --exact
           cargo miri test -p sky_ecs --lib ecs::system::tests::fixed_system_panic_poisons_world_before_the_step_can_repeat -- --exact
 
   msrv:
@@ -109,6 +116,11 @@ jobs:
           sudo apt-get install --yes clang lld llvm
       - run: cargo bench -p sky_ecs --no-run
       - run: cargo bench -p sky_ecs_comparison --bench comparison --no-run
+      - run: cargo bench -p sky_ecs_comparison --bench gameplay_phases --no-run
+      - run: cargo bench -p sky_ecs_comparison --bench api_candidates --features api-experiments --no-run
       - run: cargo package -p sky_type --allow-dirty
       - run: cargo package -p sky_ecs_derive --allow-dirty
-      - run: cargo package -p sky_ecs --allow-dirty
+      # Cargo cannot resolve core's crates.io dependency until derive 0.1.1 is
+      # actually published. Validate the package file set now; the release
+      # procedure runs full core packaging after publishing derive.
+      - run: cargo package -p sky_ecs --allow-dirty --list

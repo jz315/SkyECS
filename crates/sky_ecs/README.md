@@ -28,7 +28,7 @@ used independently.
 
 ```toml
 [dependencies]
-sky_ecs = "0.1.3"
+sky_ecs = "0.2.0"
 ```
 
 ```rust
@@ -177,13 +177,20 @@ System access is inferred from typed parameters. Compatible systems may run in
 parallel, while conflicting systems keep registration order.
 
 ```rust
-use sky_ecs::{Res, Time, Update, View, World};
+use sky_ecs::{EntityId, EntityView, Res, Time, Update, View, World};
 
 fn movement(bodies: View<(&mut Position, &Velocity)>, time: Res<Time>) {
     bodies.for_each(|(position, velocity)| {
         position.x += velocity.x * time.delta;
         position.y += velocity.y * time.delta;
     });
+}
+
+fn update_selected(mut bodies: EntityView<(&Position, &mut Velocity)>, entity: Res<EntityId>) {
+    if let Some((_position, velocity)) = bodies.get_mut(*entity) {
+        velocity.x *= 0.5;
+        velocity.y *= 0.5;
+    }
 }
 
 let mut world = World::new();
@@ -200,12 +207,11 @@ The repository includes a Criterion comparison of six ECS implementations.
 Compare-ECS limits conclusions to its single-threaded public-API workloads,
 uses each implementation's fastest suitable reusable query, view, or accessor
 state, and validates every adapter before measurement. Results are
-machine-specific. The benchmark guide records current-protocol local
-measurements from 2026-07-17, including a Clang/LLVM 22.1.2 remeasurement of
-the Flecs column; see it for workload classifications, compiler configuration,
-and measurement boundaries. Prepared random access excludes
-preparation cost and cache memory, while scenarios and diagnostics are reported
-separately from comparable workloads.
+machine-specific. The benchmark guide records workload classifications,
+compiler configuration, and measurement boundaries. Entity-ID random access
+starts from an ID in every adapter; fixed-sequence plan build, steady traversal,
+payload, and amortization are a separate Scenario. Diagnostics and native
+capability scenarios are reported separately from Comparable workloads.
 
 ```bash
 cargo compare-ecs
@@ -214,7 +220,9 @@ cargo compare-ecs-publish
 
 The methodology and recorded results are kept in the
 [benchmark guide](https://github.com/jz315/SkyECS/blob/main/benches/BENCHMARKS.md).
-Internal Sky ECS benchmarks are kept separate and run with `cargo bench`.
+Internal Sky ECS API candidates are kept in this crate's `benches/` directory
+and run locally with `cargo bench`; the formal comparison contains only the
+selected paths and never chooses a winner on GitHub shared runners.
 
 ## API overview
 

@@ -77,6 +77,17 @@ fn write_markdown(
         BenchmarkClass::Diagnostic,
     )?;
     writeln!(output, "## Order-bias check\n")?;
+    if !order_bias.available {
+        writeln!(
+            output,
+            "**N/A.** {}.\n",
+            order_bias
+                .reason
+                .as_deref()
+                .unwrap_or("complete position-balanced data is unavailable")
+        )?;
+        return write_noisy_benchmarks(&mut output, summaries);
+    }
     writeln!(
         output,
         "Only comparable workloads supported by all six engines are included. Each position is the centered median of per-workload geometric means across all six engines.\n"
@@ -100,9 +111,15 @@ fn write_markdown(
     writeln!(
         output,
         "\nMaximum deviation: {:.2}%; position spread: {:.2}%; status: **{}**.",
-        order_bias.max_deviation_percent, order_bias.spread_percent, order_status
+        order_bias.max_deviation_percent.unwrap_or_default(),
+        order_bias.spread_percent.unwrap_or_default(),
+        order_status
     )?;
 
+    write_noisy_benchmarks(&mut output, summaries)
+}
+
+fn write_noisy_benchmarks(output: &mut File, summaries: &[Summary]) -> io::Result<()> {
     let noisy: Vec<_> = summaries.iter().filter(|summary| summary.noisy).collect();
     if !noisy.is_empty() {
         writeln!(output, "\n## Noisy benchmarks\n")?;
@@ -124,15 +141,18 @@ fn write_summary_table(
     class: BenchmarkClass,
 ) -> io::Result<()> {
     writeln!(output, "## {title}\n")?;
-    writeln!(output, "| Benchmark | Median | ns/item | items/s |")?;
-    writeln!(output, "|---|---:|---:|---:|")?;
+    writeln!(
+        output,
+        "| Benchmark | Median | ns/item | items/s | Plan payload | Amortized/traversal |"
+    )?;
+    writeln!(output, "|---|---:|---:|---:|---:|---:|")?;
     for summary in summaries {
         if benchmark_class(&summary.benchmark) != Some(class) {
             continue;
         }
         writeln!(
             output,
-            "| `{}` | {:.3} µs | {} | {} |",
+            "| `{}` | {:.3} µs | {} | {} | {} | {} |",
             summary.benchmark,
             summary.median_ns / 1_000.0,
             summary
@@ -142,6 +162,14 @@ fn write_summary_table(
             summary
                 .items_per_second
                 .map(|value| format!("{value:.0}"))
+                .unwrap_or_else(|| "—".to_owned()),
+            summary
+                .plan_payload_bytes
+                .map(|bytes| format!("{bytes} B"))
+                .unwrap_or_else(|| "—".to_owned()),
+            summary
+                .amortized_ns_per_traversal
+                .map(|value| format!("{:.3} µs", value / 1_000.0))
                 .unwrap_or_else(|| "—".to_owned())
         )?;
     }

@@ -17,6 +17,7 @@ pub trait ExclusiveSystem: 'static {
 
 pub struct View<'w, Q, F = ()> { /* 私有字段 */ }
 pub struct ParView<'w, Q, F = ()> { /* 私有字段 */ }
+pub struct EntityView<'w, Q> { /* 私有字段 */ }
 pub struct Res<'w, T: 'static>(/* private */);
 pub struct ResMut<'w, T: 'static>(/* private */);
 pub struct Local<'w, T: 'static>(/* private */);
@@ -33,6 +34,7 @@ pub struct Local<'w, T: 'static>(/* private */);
 |---|---|
 | `View<Q, F>` | `Q` 与 `F` 声明的顺序类型化组件访问。 |
 | `ParView<Q, F>` | 相同组件访问，并在串行阶段准备并行 job。 |
+| `EntityView<Q>` | 面向选定任意 Entity ID 的 prepared tuple 访问。 |
 | `Res<T>` | 共享资源；`T: Sync + 'static`。 |
 | `ResMut<T>` | 独占资源；`T: Send + 'static`；`Time` 不可用。 |
 | `Local<T>` | 以 `T::default()` 初始化的 system 私有持久状态；`T: Default + Send + 'static`。 |
@@ -75,6 +77,20 @@ pub struct Local<'w, T: 'static>(/* private */);
 并行 item/chunk 值必须为 `Send`，callback 必须为 `Send + Sync`。执行器可对小工作量
 回退为顺序处理，执行顺序未指定。递归遍历同一 `ParView` 会 panic。
 
+## `EntityView`
+
+`EntityView<'w, Q>` 在普通 system 内提供 prepared 随机访问：
+
+| 声明 | 结果 |
+|---|---|
+| `get(&self, entity: EntityId)` | `Q: ReadOnlyQuerySpec` 时可用；返回 `Option<Q::Item<'_>>`。 |
+| `get_mut(&mut self, entity: EntityId)` | `Q: QuerySpec` 时可用；item 生命周期绑定到 view 的可变借用。 |
+
+调度器注册 `Q` 声明的全部组件访问，并在串行 prepare 阶段刷新 route-major 列表。
+死亡、过期或缺少必选组件的实体返回 `None`。只有 optional 的查询对所有活实体返回外层
+`Some`，即使内部 optional 全部缺失。本参数刻意不支持 filter；过滤遍历应使用
+`View<Q, F>`。
+
 ## `Res`、`ResMut` 与 `Local`
 
 - `Res<T>` 实现 `Deref<Target = T>`；
@@ -103,6 +119,7 @@ Exclusive system 是串行屏障并接收 `&mut World`：
 - 普通 system 不能直接结构修改 World，应使用 `Commands`。
 - 缺少 `Res`/`ResMut` 时在帧 preflight 返回 `ScheduleError::MissingResource`。
 - 每个已注册 system 保留查询/资源 prepared state，并在对应 World epoch 变化后刷新。
+- `EntityView::get*` 在串行 route-table 准备后为 O(1)，且不分配。
 - 单次遍历复杂度与对应 query 操作一致；调度 prepare 不位于组件内循环。
 
 ## 最小示例

@@ -1,0 +1,856 @@
+{
+  "metadata": {
+    "source_revision": "b2d90d45fee191bc2158e450ff0b7bc28f4cdbf9",
+    "working_tree_dirty": true,
+    "cpu": "Intel64 Family 6 Model 151 Stepping 2, GenuineIntel",
+    "os": "windows-x86_64",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: x86_64-pc-windows-msvc\nrelease: 1.96.0\nLLVM version: 22.1.2",
+    "rustflags": "",
+    "cargo_profile": "bench",
+    "command": "SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs --bench gameplay_api"
+  },
+  "operation_contracts": {
+    "ai_source": "for 2,048 selected entities read TargetSlot, emit target EntityId, and decrement Cooldown",
+    "full_frame": "run iteration, AI source, and target Position phases in that order",
+    "iteration": "update every Position+Velocity row through the same prepared chunk query",
+    "target_position": "consume the emitted target EntityIds, read Position, and update one checksum"
+  },
+  "initial_rounds": 4,
+  "extra_rounds_when_unclear": 8,
+  "iterations_per_measurement": 256,
+  "decision_band": [
+    0.98,
+    1.02
+  ],
+  "iteration": {
+    "incumbent": "PreparedQuery::for_each_chunk closure",
+    "comparisons": [
+      {
+        "first": "PreparedQuery::for_each_chunk closure",
+        "second": "PreparedQuery::for_each_chunk_fn function",
+        "rounds": [
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2674.21875,
+            "ab_second_ns": 2633.984375,
+            "ba_second_ns": 2628.90625,
+            "ba_first_ns": 2650.390625,
+            "order_neutral_ratio": 1.0117174982749162
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2628.125,
+            "ab_second_ns": 2635.15625,
+            "ba_second_ns": 2713.671875,
+            "ba_first_ns": 2663.671875,
+            "order_neutral_ratio": 0.989421899738723
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2632.421875,
+            "ab_second_ns": 2650.78125,
+            "ba_second_ns": 2626.953125,
+            "ba_first_ns": 2650.78125,
+            "order_neutral_ratio": 1.0010403510281776
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2630.078125,
+            "ab_second_ns": 2635.9375,
+            "ba_second_ns": 2680.078125,
+            "ba_first_ns": 2636.328125,
+            "order_neutral_ratio": 0.9907013953713412
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2670.703125,
+            "ab_second_ns": 2638.671875,
+            "ba_second_ns": 2741.015625,
+            "ba_first_ns": 2676.5625,
+            "order_neutral_ratio": 0.9941525988443701
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2631.640625,
+            "ab_second_ns": 2653.125,
+            "ba_second_ns": 2629.296875,
+            "ba_first_ns": 2636.328125,
+            "order_neutral_ratio": 0.9972736720517761
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2661.328125,
+            "ab_second_ns": 2635.15625,
+            "ba_second_ns": 2755.859375,
+            "ba_first_ns": 2638.28125,
+            "order_neutral_ratio": 0.9832819006631461
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2646.09375,
+            "ab_second_ns": 2651.5625,
+            "ba_second_ns": 2733.984375,
+            "ba_first_ns": 3692.1875,
+            "order_neutral_ratio": 1.1609019456219416
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 3435.546875,
+            "ab_second_ns": 2652.34375,
+            "ba_second_ns": 2893.75,
+            "ba_first_ns": 2756.25,
+            "order_neutral_ratio": 1.110738521741955
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2652.734375,
+            "ab_second_ns": 2723.4375,
+            "ba_second_ns": 2651.953125,
+            "ba_first_ns": 2743.75,
+            "order_neutral_ratio": 1.0038701093508577
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2688.28125,
+            "ab_second_ns": 2780.46875,
+            "ba_second_ns": 2653.125,
+            "ba_first_ns": 2819.921875,
+            "order_neutral_ratio": 1.0137200226089729
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2655.078125,
+            "ab_second_ns": 2662.890625,
+            "ba_second_ns": 2629.296875,
+            "ba_first_ns": 2684.765625,
+            "order_neutral_ratio": 1.0090097542276315
+          }
+        ],
+        "decision": "order_neutral_median_fallback",
+        "winner": "PreparedQuery::for_each_chunk_fn function",
+        "median_order_neutral_ratio": 1.0024552301895175
+      }
+    ],
+    "condorcet_winner": "PreparedQuery::for_each_chunk_fn function",
+    "selected": "PreparedQuery::for_each_chunk_fn function",
+    "selection_reason": "selected pairwise Condorcet winner"
+  },
+  "ai_source": {
+    "incumbent": "PreparedEntityView<(&TargetSlot, &mut Cooldown)>",
+    "comparisons": [
+      {
+        "first": "World::get + World::get_mut",
+        "second": "split EntityAccessor passes",
+        "rounds": [
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 32891.40625,
+            "ab_second_ns": 6949.21875,
+            "ba_second_ns": 6521.09375,
+            "ba_first_ns": 33029.6875,
+            "order_neutral_ratio": 4.896268663528633
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 33280.859375,
+            "ab_second_ns": 6331.25,
+            "ba_second_ns": 6403.515625,
+            "ba_first_ns": 35939.0625,
+            "order_neutral_ratio": 5.431586120667345
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 45001.953125,
+            "ab_second_ns": 7443.359375,
+            "ba_second_ns": 7666.40625,
+            "ba_first_ns": 36993.359375,
+            "order_neutral_ratio": 5.4012858107737545
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 38091.40625,
+            "ab_second_ns": 7360.546875,
+            "ba_second_ns": 6516.40625,
+            "ba_first_ns": 34014.0625,
+            "order_neutral_ratio": 5.197370039484059
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "split EntityAccessor passes",
+        "median_order_neutral_ratio": 5.299327925128907
+      },
+      {
+        "first": "World::get + World::get_mut",
+        "second": "PreparedEntityView<(&TargetSlot, &mut Cooldown)>",
+        "rounds": [
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 36164.453125,
+            "ab_second_ns": 5587.5,
+            "ba_second_ns": 5359.375,
+            "ba_first_ns": 34370.703125,
+            "order_neutral_ratio": 6.442720903779972
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 33501.953125,
+            "ab_second_ns": 5339.453125,
+            "ba_second_ns": 5262.890625,
+            "ba_first_ns": 33192.96875,
+            "order_neutral_ratio": 6.2906793750492636
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 35903.515625,
+            "ab_second_ns": 5317.96875,
+            "ba_second_ns": 5312.109375,
+            "ba_first_ns": 33723.046875,
+            "order_neutral_ratio": 6.54674607472616
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 33299.609375,
+            "ab_second_ns": 5139.84375,
+            "ba_second_ns": 5148.046875,
+            "ba_first_ns": 32988.671875,
+            "order_neutral_ratio": 6.443261838531342
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "PreparedEntityView<(&TargetSlot, &mut Cooldown)>",
+        "median_order_neutral_ratio": 6.442991371155657
+      },
+      {
+        "first": "split EntityAccessor passes",
+        "second": "PreparedEntityView<(&TargetSlot, &mut Cooldown)>",
+        "rounds": [
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 6378.125,
+            "ab_second_ns": 5441.40625,
+            "ba_second_ns": 5097.265625,
+            "ba_first_ns": 7654.296875,
+            "order_neutral_ratio": 1.3267068026755684
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 6551.171875,
+            "ab_second_ns": 5478.125,
+            "ba_second_ns": 5309.765625,
+            "ba_first_ns": 6579.6875,
+            "order_neutral_ratio": 1.2173304510249026
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 6357.421875,
+            "ab_second_ns": 5001.953125,
+            "ba_second_ns": 5430.078125,
+            "ba_first_ns": 6232.8125,
+            "order_neutral_ratio": 1.207840810263426
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 6216.796875,
+            "ab_second_ns": 4978.515625,
+            "ba_second_ns": 5476.953125,
+            "ba_first_ns": 7335.9375,
+            "order_neutral_ratio": 1.293277437329618
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "PreparedEntityView<(&TargetSlot, &mut Cooldown)>",
+        "median_order_neutral_ratio": 1.2553039441772604
+      }
+    ],
+    "condorcet_winner": "PreparedEntityView<(&TargetSlot, &mut Cooldown)>",
+    "selected": "PreparedEntityView<(&TargetSlot, &mut Cooldown)>",
+    "selection_reason": "selected pairwise Condorcet winner"
+  },
+  "target_position": {
+    "incumbent": "EntityAccessor<Position>::get",
+    "comparisons": [
+      {
+        "first": "World::get<Position>",
+        "second": "EntityAccessor<Position>::get",
+        "rounds": [
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 7856.25,
+            "ab_second_ns": 2496.484375,
+            "ba_second_ns": 2453.125,
+            "ba_first_ns": 7746.09375,
+            "order_neutral_ratio": 3.1522797827388853
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 7798.828125,
+            "ab_second_ns": 2438.671875,
+            "ba_second_ns": 2409.375,
+            "ba_first_ns": 7718.75,
+            "order_neutral_ratio": 3.200805446761975
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 7724.21875,
+            "ab_second_ns": 2484.375,
+            "ba_second_ns": 2469.140625,
+            "ba_first_ns": 7723.046875,
+            "order_neutral_ratio": 3.118459656627828
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 7691.015625,
+            "ab_second_ns": 2505.078125,
+            "ba_second_ns": 2474.609375,
+            "ba_first_ns": 8260.15625,
+            "order_neutral_ratio": 3.201267855769174
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "EntityAccessor<Position>::get",
+        "median_order_neutral_ratio": 3.17654261475043
+      },
+      {
+        "first": "World::get<Position>",
+        "second": "PreparedEntityView<&Position>::get",
+        "rounds": [
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 7954.6875,
+            "ab_second_ns": 2755.859375,
+            "ba_second_ns": 2741.015625,
+            "ba_first_ns": 7732.03125,
+            "order_neutral_ratio": 2.853475051887807
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 7791.796875,
+            "ab_second_ns": 2787.5,
+            "ba_second_ns": 2722.65625,
+            "ba_first_ns": 8069.53125,
+            "order_neutral_ratio": 2.8783202999265036
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 7820.703125,
+            "ab_second_ns": 2694.921875,
+            "ba_second_ns": 2734.765625,
+            "ba_first_ns": 7838.671875,
+            "order_neutral_ratio": 2.8841045311613973
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 7867.578125,
+            "ab_second_ns": 2667.1875,
+            "ba_second_ns": 2673.828125,
+            "ba_first_ns": 8353.125,
+            "order_neutral_ratio": 3.0356486558359643
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "PreparedEntityView<&Position>::get",
+        "median_order_neutral_ratio": 2.8812124155439505
+      },
+      {
+        "first": "EntityAccessor<Position>::get",
+        "second": "PreparedEntityView<&Position>::get",
+        "rounds": [
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2453.515625,
+            "ab_second_ns": 2662.890625,
+            "ba_second_ns": 2682.8125,
+            "ba_first_ns": 2414.453125,
+            "order_neutral_ratio": 0.9106090836884438
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2416.40625,
+            "ab_second_ns": 2673.828125,
+            "ba_second_ns": 2666.40625,
+            "ba_first_ns": 2429.6875,
+            "order_neutral_ratio": 0.9074658321226536
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2441.015625,
+            "ab_second_ns": 2658.59375,
+            "ba_second_ns": 2666.015625,
+            "ba_first_ns": 3231.640625,
+            "order_neutral_ratio": 1.0549684560502828
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2451.5625,
+            "ab_second_ns": 2729.6875,
+            "ba_second_ns": 2696.09375,
+            "ba_first_ns": 2438.28125,
+            "order_neutral_ratio": 0.9012378523754223
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2491.40625,
+            "ab_second_ns": 2721.875,
+            "ba_second_ns": 2698.828125,
+            "ba_first_ns": 2491.796875,
+            "order_neutral_ratio": 0.9192992190621894
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2472.265625,
+            "ab_second_ns": 2807.03125,
+            "ba_second_ns": 2808.59375,
+            "ba_first_ns": 2419.140625,
+            "order_neutral_ratio": 0.8709837174970609
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 3413.671875,
+            "ab_second_ns": 2764.453125,
+            "ba_second_ns": 2732.8125,
+            "ba_first_ns": 2558.59375,
+            "order_neutral_ratio": 1.0752316051454733
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2459.375,
+            "ab_second_ns": 2725.0,
+            "ba_second_ns": 2758.59375,
+            "ba_first_ns": 2462.890625,
+            "order_neutral_ratio": 0.8976516066826016
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2462.890625,
+            "ab_second_ns": 2825.0,
+            "ba_second_ns": 2731.640625,
+            "ba_first_ns": 2400.0,
+            "order_neutral_ratio": 0.8751997322236256
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2601.171875,
+            "ab_second_ns": 2698.046875,
+            "ba_second_ns": 2677.734375,
+            "ba_first_ns": 2421.484375,
+            "order_neutral_ratio": 0.9337204443844149
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2419.921875,
+            "ab_second_ns": 2670.703125,
+            "ba_second_ns": 2766.015625,
+            "ba_first_ns": 2401.171875,
+            "order_neutral_ratio": 0.88689493519647
+          },
+          {
+            "sequence": [
+              "first",
+              "second",
+              "second",
+              "first"
+            ],
+            "ab_first_ns": 2419.140625,
+            "ab_second_ns": 2671.09375,
+            "ba_second_ns": 2675.0,
+            "ba_first_ns": 2481.640625,
+            "order_neutral_ratio": 0.9166288953529279
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "EntityAccessor<Position>::get",
+        "median_order_neutral_ratio": 0.9090374579055487
+      }
+    ],
+    "condorcet_winner": "EntityAccessor<Position>::get",
+    "selected": "EntityAccessor<Position>::get",
+    "selection_reason": "selected pairwise Condorcet winner"
+  },
+  "full_frame": {
+    "incumbent": "PreparedQuery::for_each_chunk closure | PreparedEntityView<(&TargetSlot, &mut Cooldown)> | EntityAccessor<Position>::get",
+    "proposed": "PreparedQuery::for_each_chunk_fn function | PreparedEntityView<(&TargetSlot, &mut Cooldown)> | EntityAccessor<Position>::get",
+    "comparison": {
+      "first": "PreparedQuery::for_each_chunk closure | PreparedEntityView<(&TargetSlot, &mut Cooldown)> | EntityAccessor<Position>::get",
+      "second": "PreparedQuery::for_each_chunk_fn function | PreparedEntityView<(&TargetSlot, &mut Cooldown)> | EntityAccessor<Position>::get",
+      "rounds": [
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 14360.15625,
+          "ab_second_ns": 12339.0625,
+          "ba_second_ns": 13033.203125,
+          "ba_first_ns": 12095.3125,
+          "order_neutral_ratio": 1.0392534274635397
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 19633.59375,
+          "ab_second_ns": 12725.390625,
+          "ba_second_ns": 13303.90625,
+          "ba_first_ns": 13264.453125,
+          "order_neutral_ratio": 1.2402791008311835
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 13088.28125,
+          "ab_second_ns": 12316.015625,
+          "ba_second_ns": 12315.234375,
+          "ba_first_ns": 13626.171875,
+          "order_neutral_ratio": 1.0843557442204956
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 12896.09375,
+          "ab_second_ns": 13346.875,
+          "ba_second_ns": 13960.546875,
+          "ba_first_ns": 12652.734375,
+          "order_neutral_ratio": 0.9357940382402616
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 13361.328125,
+          "ab_second_ns": 13010.546875,
+          "ba_second_ns": 12898.4375,
+          "ba_first_ns": 12039.453125,
+          "order_neutral_ratio": 0.9790657701308128
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 12459.375,
+          "ab_second_ns": 14160.15625,
+          "ba_second_ns": 13743.75,
+          "ba_first_ns": 12222.65625,
+          "order_neutral_ratio": 0.8845945949966544
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 13256.640625,
+          "ab_second_ns": 12049.609375,
+          "ba_second_ns": 13485.9375,
+          "ba_first_ns": 13426.171875,
+          "order_neutral_ratio": 1.0465639897512689
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 12799.609375,
+          "ab_second_ns": 12712.109375,
+          "ba_second_ns": 13400.78125,
+          "ba_first_ns": 12866.015625,
+          "order_neutral_ratio": 0.9832105404536635
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 13376.5625,
+          "ab_second_ns": 11931.25,
+          "ba_second_ns": 12353.125,
+          "ba_first_ns": 13250.78125,
+          "order_neutral_ratio": 1.0966337633952912
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 12715.234375,
+          "ab_second_ns": 12706.25,
+          "ba_second_ns": 12755.46875,
+          "ba_first_ns": 12567.96875,
+          "order_neutral_ratio": 0.9929738727268038
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 12180.859375,
+          "ab_second_ns": 13101.171875,
+          "ba_second_ns": 12284.375,
+          "ba_first_ns": 13055.46875,
+          "order_neutral_ratio": 0.9940393910285195
+        },
+        {
+          "sequence": [
+            "first",
+            "second",
+            "second",
+            "first"
+          ],
+          "ab_first_ns": 14067.1875,
+          "ab_second_ns": 13221.09375,
+          "ba_second_ns": 13355.46875,
+          "ba_first_ns": 12471.484375,
+          "order_neutral_ratio": 0.9967803120447154
+        }
+      ],
+      "decision": "order_neutral_median_fallback",
+      "winner": "PreparedQuery::for_each_chunk closure | PreparedEntityView<(&TargetSlot, &mut Cooldown)> | EntityAccessor<Position>::get",
+      "median_order_neutral_ratio": 0.9954098515366174
+    },
+    "accepted": false,
+    "selected": "PreparedQuery::for_each_chunk closure | PreparedEntityView<(&TargetSlot, &mut Cooldown)> | EntityAccessor<Position>::get",
+    "reason": "full-frame gate was not a clear proposed-path win; retained incumbent"
+  }
+}

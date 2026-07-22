@@ -1,8 +1,8 @@
 use super::model::{OrderBias, PositionBias, RunEstimate, Summary};
 use serde_json::Value;
 use sky_ecs_comparison::common::{
-    benchmark_class, benchmark_spec, benchmark_work_items, is_canonical_group, BenchmarkClass,
-    CANONICAL_BENCHMARKS,
+    benchmark_class, benchmark_spec, benchmark_work_items, fixed_sequence_amortized_traversals,
+    fixed_sequence_plan_payload_bytes, is_canonical_group, BenchmarkClass, CANONICAL_BENCHMARKS,
 };
 use sky_ecs_comparison::Engine;
 use std::collections::{BTreeMap, BTreeSet};
@@ -88,6 +88,9 @@ pub(super) fn summarize(estimates: BTreeMap<String, Vec<RunEstimate>>) -> Vec<Su
             } else {
                 (maximum - minimum) * 100.0 / median_ns
             };
+            let plan_payload_bytes = fixed_sequence_plan_payload_bytes(&benchmark);
+            let amortized_ns_per_traversal = fixed_sequence_amortized_traversals(&benchmark)
+                .map(|traversals| median_ns / traversals as f64);
             Summary {
                 class: benchmark_class(&benchmark)
                     .map(BenchmarkClass::name)
@@ -98,6 +101,8 @@ pub(super) fn summarize(estimates: BTreeMap<String, Vec<RunEstimate>>) -> Vec<Su
                 work_items,
                 ns_per_item: work_items.map(|count| median_ns / count as f64),
                 items_per_second: work_items.map(|count| count as f64 * 1e9 / median_ns),
+                plan_payload_bytes,
+                amortized_ns_per_traversal,
                 run_spread_percent,
                 noisy: run_spread_percent > 10.0,
                 runs,
@@ -179,6 +184,25 @@ pub(super) fn validate_results(
 }
 
 pub(super) fn analyze_order_bias(summaries: &[Summary]) -> OrderBias {
+    let run_orders = summaries
+        .first()
+        .map(|summary| summary.runs.as_slice())
+        .unwrap_or_default();
+    if !forms_complete_position_blocks(run_orders) {
+        return OrderBias {
+            available: false,
+            reason: Some(format!(
+                "{} rotation(s) do not form complete six-engine position blocks",
+                run_orders.len()
+            )),
+            positions: Vec::new(),
+            max_deviation_percent: None,
+            spread_percent: None,
+            complete: false,
+            noisy: true,
+        };
+    }
+
     let mut families: BTreeMap<&str, Vec<Vec<f64>>> = BTreeMap::new();
     for summary in summaries {
         let Some((family, engine)) = summary.benchmark.rsplit_once('/') else {
@@ -219,7 +243,7 @@ pub(super) fn analyze_order_bias(summaries: &[Summary]) -> OrderBias {
     let mut complete = families.len() == comparable_count;
     for position_logs in families.values() {
         for (position, logs) in position_logs.iter().enumerate() {
-            if logs.len() != Engine::ALL.len() {
+            if logs.len() != run_orders.len() {
                 complete = false;
                 continue;
             }
@@ -258,12 +282,38 @@ pub(super) fn analyze_order_bias(summaries: &[Summary]) -> OrderBias {
         position.sample_count == comparable_count && position.median_ratio.is_finite()
     });
     OrderBias {
+        available: complete,
+        reason: (!complete).then(|| {
+            "comparable workload coverage is incomplete for at least one position".to_owned()
+        }),
         positions,
-        max_deviation_percent,
-        spread_percent,
+        max_deviation_percent: complete.then_some(max_deviation_percent),
+        spread_percent: complete.then_some(spread_percent),
         complete,
         noisy: !complete || max_deviation_percent > 3.0 || spread_percent > 5.0,
     }
+}
+
+fn forms_complete_position_blocks(runs: &[RunEstimate]) -> bool {
+    if runs.is_empty() || !runs.len().is_multiple_of(Engine::ALL.len()) {
+        return false;
+    }
+    runs.chunks_exact(Engine::ALL.len()).all(|block| {
+        Engine::ALL.iter().all(|engine| {
+            let mut positions = BTreeSet::new();
+            for run in block {
+                let order: Vec<_> = run.order.split(',').collect();
+                let Some(position) = order
+                    .iter()
+                    .position(|candidate| *candidate == engine.name())
+                else {
+                    return false;
+                };
+                positions.insert(position);
+            }
+            positions.len() == Engine::ALL.len()
+        })
+    })
 }
 
 fn geometric_mean(values: &[f64]) -> f64 {
@@ -330,6 +380,8 @@ mod tests {
                     work_items: None,
                     ns_per_item: None,
                     items_per_second: None,
+                    plan_payload_bytes: None,
+                    amortized_ns_per_traversal: None,
                     run_spread_percent: 20.0,
                     noisy: true,
                     runs,
@@ -347,8 +399,47 @@ mod tests {
             .count();
         assert_eq!(bias.positions[0].sample_count, comparable_count);
         assert!(bias.positions[0].median_ratio > 1.15);
-        assert!(bias.max_deviation_percent > 15.0);
+        assert!(bias.max_deviation_percent.unwrap() > 15.0);
         assert!(bias.noisy);
+    }
+
+    #[test]
+    fn four_rotations_report_order_bias_as_unavailable() {
+        let spec = CANONICAL_BENCHMARKS
+            .iter()
+            .find(|spec| spec.class == BenchmarkClass::Comparable)
+            .unwrap();
+        let summaries = spec
+            .engines
+            .iter()
+            .map(|engine| Summary {
+                benchmark: format!("{}/{}", spec.family, engine.name()),
+                class: spec.class.name().to_owned(),
+                median_ns: 1.0,
+                work_items: None,
+                ns_per_item: None,
+                items_per_second: None,
+                plan_payload_bytes: None,
+                amortized_ns_per_traversal: None,
+                run_spread_percent: 0.0,
+                noisy: false,
+                runs: (0..4)
+                    .map(|run| RunEstimate {
+                        run: run + 1,
+                        order: rotated_order(run),
+                        point_ns: 1.0,
+                        lower_ns: 1.0,
+                        upper_ns: 1.0,
+                    })
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+
+        let bias = analyze_order_bias(&summaries);
+        assert!(!bias.available);
+        assert!(bias.positions.is_empty());
+        assert_eq!(bias.max_deviation_percent, None);
+        assert!(bias.reason.unwrap().contains("4 rotation"));
     }
 
     #[test]
@@ -363,6 +454,8 @@ mod tests {
                     work_items: None,
                     ns_per_item: None,
                     items_per_second: None,
+                    plan_payload_bytes: None,
+                    amortized_ns_per_traversal: None,
                     run_spread_percent: 0.0,
                     noisy: false,
                     runs: vec![RunEstimate {

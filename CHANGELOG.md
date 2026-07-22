@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-22
+
 - Renamed the bound random-access types to `EntityAccessor` and
   `EntityAccessorMut`; the former `ComponentAccessor` names are removed.
 - Added `prepare_access` and `prepare_access_mut` with compact direct-address
@@ -11,8 +13,13 @@ All notable changes to this project are documented here.
   for mutable access.
 - Added reusable tuple-capable `PreparedEntityView`, with optional-component
   semantics and bind-time pointer refresh for structurally changing worlds.
+- Added scheduler-native `EntityView<Q>` for prepared tuple lookup by entity ID
+  inside ordinary systems.
 - Restored comparable five-phase gameplay diagnostics and aligned Flecs with
   the per-frame `TargetSlot` data flow used by every other adapter.
+- Separated crate-owned API experiments from the canonical Compare-ECS target,
+  split EntityId and fixed-sequence access contracts, and reclassified native
+  bulk construction as a scenario workload.
 
 ## [0.1.3] - 2026-07-18
 
@@ -44,7 +51,8 @@ All notable changes to this project are documented here.
   documentation.
 - Kept the public ECS API compatible with 0.1.0.
 
-[Unreleased]: https://github.com/jz315/SkyECS/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/jz315/SkyECS/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jz315/SkyECS/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/jz315/SkyECS/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/jz315/SkyECS/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/jz315/SkyECS/releases/tag/v0.1.1
