@@ -179,7 +179,11 @@ struct Digest {
     std::uint64_t stunned_count = 0;
     std::uint64_t component_mask_checksum = 0;
     std::uint64_t position_checksum = 0;
+    std::uint64_t velocity_checksum = 0;
     std::uint64_t health_checksum = 0;
+    std::uint64_t damage_checksum = 0;
+    std::uint64_t regen_checksum = 0;
+    std::uint64_t cooldown_checksum = 0;
     std::uint64_t lifetime_checksum = 0;
     std::uint64_t target_slot_checksum = 0;
     std::uint64_t owner_slot_checksum = 0;
@@ -196,6 +200,7 @@ struct Context {
     ecs_query_t* enemies = nullptr;
     ecs_query_t* allies = nullptr;
     ecs_query_t* lifetimes = nullptr;
+    ecs_query_t* effect_lifetimes = nullptr;
     std::vector<ecs_entity_t> entities;
     std::vector<std::uint32_t> generations;
     std::vector<ecs_entity_t> target_entities;
@@ -209,6 +214,7 @@ struct Context {
         if (enemies) ecs_query_fini(enemies);
         if (allies) ecs_query_fini(allies);
         if (lifetimes) ecs_query_fini(lifetimes);
+        if (effect_lifetimes) ecs_query_fini(effect_lifetimes);
         if (world) ecs_fini(world);
     }
 };
@@ -348,8 +354,15 @@ Context* create_context() {
     context->lifetimes = prepare_query(
         context->world,
         {{c.lifetime, EcsInOut}});
+    ecs_query_desc_t effect_lifetimes{};
+    effect_lifetimes.cache_kind = EcsQueryCacheAll;
+    effect_lifetimes.terms[0].id = c.lifetime;
+    effect_lifetimes.terms[0].inout = EcsInOut;
+    effect_lifetimes.terms[1].id = c.velocity;
+    effect_lifetimes.terms[1].oper = EcsNot;
+    context->effect_lifetimes = ecs_query_init(context->world, &effect_lifetimes);
     if (!context->movement || !context->enemies || !context->allies ||
-        !context->lifetimes) {
+        !context->lifetimes || !context->effect_lifetimes) {
         delete context;
         return nullptr;
     }
@@ -408,6 +421,12 @@ void run_lifetimes(Context& context) {
             lifetimes[row].value = lifetimes[row].value == 0
                 ? 0
                 : lifetimes[row].value - 1;
+        }
+    }
+    iterator = ecs_query_iter(context.world, context.effect_lifetimes);
+    while (ecs_query_next(&iterator)) {
+        Lifetime* lifetimes = ecs_field(&iterator, Lifetime, 0);
+        for (std::int32_t row = 0; row < iterator.count; ++row) {
             if (lifetimes[row].value == 0) lifetimes[row].value = 256;
         }
     }
@@ -547,6 +566,15 @@ Digest digest(const Context& context) {
             static_cast<std::uint64_t>(bits(position->x)) ^
                 (static_cast<std::uint64_t>(bits(position->y)) << 1U) ^
                 (static_cast<std::uint64_t>(bits(position->z)) << 2U));
+        if (const auto* velocity = static_cast<const Velocity*>(ecs_get_id(
+                context.world, entity, context.components.velocity))) {
+            result.velocity_checksum = mix_checksum(
+                result.velocity_checksum,
+                slot,
+                static_cast<std::uint64_t>(bits(velocity->x)) ^
+                    (static_cast<std::uint64_t>(bits(velocity->y)) << 1U) ^
+                    (static_cast<std::uint64_t>(bits(velocity->z)) << 2U));
+        }
         if (const auto* health = static_cast<const Health*>(ecs_get_id(
                 context.world, entity, context.components.health))) {
             result.health_checksum = mix_checksum(
@@ -556,6 +584,21 @@ Digest digest(const Context& context) {
                 context.world, entity, context.components.lifetime))) {
             result.lifetime_checksum = mix_checksum(
                 result.lifetime_checksum, slot, lifetime->value);
+        }
+        if (const auto* damage = static_cast<const Damage*>(ecs_get_id(
+                context.world, entity, context.components.damage))) {
+            result.damage_checksum = mix_checksum(
+                result.damage_checksum, slot, bits(damage->value));
+        }
+        if (const auto* regen = static_cast<const Regen*>(ecs_get_id(
+                context.world, entity, context.components.regen))) {
+            result.regen_checksum = mix_checksum(
+                result.regen_checksum, slot, bits(regen->value));
+        }
+        if (const auto* cooldown = static_cast<const Cooldown*>(ecs_get_id(
+                context.world, entity, context.components.cooldown))) {
+            result.cooldown_checksum = mix_checksum(
+                result.cooldown_checksum, slot, cooldown->value);
         }
         if (const auto* target = static_cast<const TargetSlot*>(ecs_get_id(
                 context.world, entity, context.components.target_slot))) {

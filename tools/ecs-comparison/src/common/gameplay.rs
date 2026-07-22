@@ -323,7 +323,11 @@ pub struct GameplayDigest {
     pub stunned_count: usize,
     pub component_mask_checksum: u64,
     pub position_checksum: u64,
+    pub velocity_checksum: u64,
     pub health_checksum: u64,
+    pub damage_checksum: u64,
+    pub regen_checksum: u64,
+    pub cooldown_checksum: u64,
     pub lifetime_checksum: u64,
     pub target_slot_checksum: u64,
     pub owner_slot_checksum: u64,
@@ -344,7 +348,11 @@ pub const GAMEPLAY_CANONICAL_DIGEST: GameplayDigest = GameplayDigest {
     stunned_count: 1_024,
     component_mask_checksum: 13_341_931_166_528_947_233,
     position_checksum: 10_560_141_441_565_265_326,
+    velocity_checksum: 1_395_278_975_465_285_033,
     health_checksum: 9_148_023_443_901_091_336,
+    damage_checksum: 16_656_466_140_374_394_388,
+    regen_checksum: 14_036_302_533_298_054_945,
+    cooldown_checksum: 14_603_649_943_731_757_795,
     lifetime_checksum: 8_703_545_528_283_948_197,
     target_slot_checksum: 9_422_107_194_792_689_560,
     owner_slot_checksum: 722_449_847_523_312_062,
@@ -376,6 +384,7 @@ struct ReferenceEntity {
 /// entities by logical slot rather than imitating an archetype implementation.
 pub struct GameplayReference {
     entities: Vec<ReferenceEntity>,
+    target_slots: Vec<usize>,
     ai_lookup_checksum: u64,
     cooldown_trace_checksum: u64,
 }
@@ -410,6 +419,7 @@ impl GameplayReference {
             .collect();
         Self {
             entities,
+            target_slots: Vec::with_capacity(GAMEPLAY_AI_LOOKUPS_PER_FRAME),
             ai_lookup_checksum: 0,
             cooldown_trace_checksum: 0,
         }
@@ -422,6 +432,28 @@ impl GameplayReference {
     }
 
     pub fn run_frame(&mut self, frame: &GameplayFrame) {
+        for phase in super::gameplay_phase::GameplayPhase::ALL {
+            self.run_phase(phase, frame);
+        }
+    }
+
+    pub fn run_phase(
+        &mut self,
+        phase: super::gameplay_phase::GameplayPhase,
+        frame: &GameplayFrame,
+    ) {
+        use super::gameplay_phase::GameplayPhase;
+
+        match phase {
+            GameplayPhase::Iteration => self.run_iteration_phase(),
+            GameplayPhase::AiSourceLookup => self.run_ai_source_phase(frame),
+            GameplayPhase::TargetPositionLookup => self.run_target_position_phase(frame),
+            GameplayPhase::StatusTransition => self.run_status_transition_phase(frame),
+            GameplayPhase::ProjectileRecycle => self.run_projectile_recycle_phase(frame),
+        }
+    }
+
+    fn run_iteration_phase(&mut self) {
         for entity in &mut self.entities {
             if let Some(velocity) = entity.velocity {
                 entity.position.0 += velocity.0;
@@ -436,6 +468,19 @@ impl GameplayReference {
             }
         }
 
+        for entity in &mut self.entities {
+            let is_effect = entity.velocity.is_none();
+            if let Some(lifetime) = &mut entity.lifetime {
+                lifetime.0 = lifetime.0.saturating_sub(1);
+                if lifetime.0 == 0 && is_effect {
+                    lifetime.0 = 256;
+                }
+            }
+        }
+    }
+
+    fn run_ai_source_phase(&mut self, frame: &GameplayFrame) {
+        self.target_slots.clear();
         for &slot in frame.ai_slots.iter() {
             let entity = &mut self.entities[slot];
             let target = entity.target.expect("AI entity must have TargetSlot").0 as usize;
@@ -451,21 +496,20 @@ impl GameplayReference {
                 target,
                 cooldown.0,
             );
+            self.target_slots.push(target);
+        }
+    }
+
+    fn run_target_position_phase(&mut self, frame: &GameplayFrame) {
+        assert_eq!(self.target_slots.len(), frame.ai_slots.len());
+        for (&slot, &target) in frame.ai_slots.iter().zip(&self.target_slots) {
             let position = self.entities[target].position;
             self.ai_lookup_checksum =
                 gameplay_ai_lookup_checksum(self.ai_lookup_checksum, slot, target, &position);
         }
+    }
 
-        for entity in &mut self.entities {
-            let is_effect = entity.velocity.is_none();
-            if let Some(lifetime) = &mut entity.lifetime {
-                lifetime.0 = lifetime.0.saturating_sub(1);
-                if lifetime.0 == 0 && is_effect {
-                    lifetime.0 = 256;
-                }
-            }
-        }
-
+    fn run_status_transition_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.remove_stunned.iter() {
             assert!(
                 self.entities[slot].stunned,
@@ -480,7 +524,9 @@ impl GameplayReference {
             );
             self.entities[slot].stunned = true;
         }
+    }
 
+    fn run_projectile_recycle_phase(&mut self, frame: &GameplayFrame) {
         for &slot in frame.recycle_projectiles.iter() {
             let generation = self.entities[slot].generation.wrapping_add(1);
             let values = gameplay_entity_values(slot, generation, false);
@@ -516,6 +562,7 @@ impl GameplayReference {
         let mut component_mask_checksum = 0;
         let mut target_slot_checksum = 0;
         let mut owner_slot_checksum = 0;
+        let mut value_checksums = GameplayValueChecksums::default();
 
         for (slot, entity) in self.entities.iter().enumerate() {
             moving_count += usize::from(entity.velocity.is_some());
@@ -523,6 +570,13 @@ impl GameplayReference {
             lifetime_count += usize::from(entity.lifetime.is_some());
             stunned_count += usize::from(entity.stunned);
             let mask = reference_component_mask(entity);
+            value_checksums.observe(
+                slot,
+                entity.velocity.as_ref(),
+                entity.damage.as_ref(),
+                entity.regen.as_ref(),
+                entity.cooldown.as_ref(),
+            );
             component_mask_checksum =
                 gameplay_mix_checksum(component_mask_checksum, slot as u64, mask as u64);
             position_checksum = gameplay_mix_checksum(
@@ -561,7 +615,11 @@ impl GameplayReference {
             stunned_count,
             component_mask_checksum,
             position_checksum,
+            velocity_checksum: value_checksums.velocity,
             health_checksum,
+            damage_checksum: value_checksums.damage,
+            regen_checksum: value_checksums.regen,
+            cooldown_checksum: value_checksums.cooldown,
             lifetime_checksum,
             target_slot_checksum,
             owner_slot_checksum,
@@ -569,6 +627,60 @@ impl GameplayReference {
             generation_checksum,
             ai_lookup_checksum: self.ai_lookup_checksum,
         }
+    }
+}
+
+#[derive(Default)]
+pub struct GameplayValueChecksums {
+    pub velocity: u64,
+    pub damage: u64,
+    pub regen: u64,
+    pub cooldown: u64,
+}
+
+impl GameplayValueChecksums {
+    pub fn observe(
+        &mut self,
+        slot: usize,
+        velocity: Option<&VelocityComponent>,
+        damage: Option<&Damage>,
+        regen: Option<&Regen>,
+        cooldown: Option<&Cooldown>,
+    ) {
+        if let Some(velocity) = velocity {
+            self.observe_velocity(slot, velocity);
+        }
+        if let Some(damage) = damage {
+            self.observe_damage(slot, damage);
+        }
+        if let Some(regen) = regen {
+            self.observe_regen(slot, regen);
+        }
+        if let Some(cooldown) = cooldown {
+            self.observe_cooldown(slot, cooldown);
+        }
+    }
+
+    pub fn observe_velocity(&mut self, slot: usize, velocity: &VelocityComponent) {
+        self.velocity = gameplay_mix_checksum(
+            self.velocity,
+            slot as u64,
+            (velocity.0.x.to_bits() as u64)
+                ^ ((velocity.0.y.to_bits() as u64) << 1)
+                ^ ((velocity.0.z.to_bits() as u64) << 2),
+        );
+    }
+
+    pub fn observe_damage(&mut self, slot: usize, damage: &Damage) {
+        self.damage = gameplay_mix_checksum(self.damage, slot as u64, damage.0.to_bits() as u64);
+    }
+
+    pub fn observe_regen(&mut self, slot: usize, regen: &Regen) {
+        self.regen = gameplay_mix_checksum(self.regen, slot as u64, regen.0.to_bits() as u64);
+    }
+
+    pub fn observe_cooldown(&mut self, slot: usize, cooldown: &Cooldown) {
+        self.cooldown = gameplay_mix_checksum(self.cooldown, slot as u64, cooldown.0 as u64);
     }
 }
 
@@ -775,6 +887,11 @@ mod tests {
         let mut leaked_projectile = expected;
         leaked_projectile.actual_entity_count += 1;
         assert_ne!(leaked_projectile, expected);
+
+        let mut wrong_damage = GameplayReference::new(&trace);
+        wrong_damage.entities[GAMEPLAY_COMBAT_START].damage = Some(Damage(123.0));
+        wrong_damage.run_frame(&trace.frames()[0]);
+        assert_ne!(wrong_damage.digest(), expected);
 
         let mut duplicated_mapping = expected;
         duplicated_mapping.unique_mapped_entity_count -= 1;

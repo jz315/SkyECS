@@ -12,7 +12,7 @@ pub(super) struct HecsGameplayWorld {
     movement: PreparedQuery<(&'static mut PositionComponent, &'static VelocityComponent)>,
     enemies: PreparedQuery<(&'static mut Health, &'static Damage)>,
     allies: PreparedQuery<(&'static mut Health, &'static Regen)>,
-    lifetimes: PreparedQuery<&'static mut Lifetime>,
+    lifetimes: PreparedQuery<(&'static mut Lifetime, Option<&'static VelocityComponent>)>,
     ai: PreparedQuery<(&'static TargetSlot, &'static mut Cooldown)>,
     positions: PreparedQuery<&'static PositionComponent>,
     ai_lookup_checksum: u64,
@@ -69,9 +69,9 @@ impl HecsGameplayWorld {
         for (health, regen) in self.allies.query(&self.world).iter() {
             health.0 += regen.0;
         }
-        for lifetime in self.lifetimes.query(&self.world).iter() {
+        for (lifetime, velocity) in self.lifetimes.query(&self.world).iter() {
             lifetime.0 = lifetime.0.saturating_sub(1);
-            if lifetime.0 == 0 {
+            if lifetime.0 == 0 && velocity.is_none() {
                 lifetime.0 = 256;
             }
         }
@@ -160,6 +160,7 @@ impl HecsGameplayWorld {
         let mut component_mask_checksum = 0;
         let mut target_slot_checksum = 0;
         let mut owner_slot_checksum = 0;
+        let mut value_checksums = GameplayValueChecksums::default();
 
         for (slot, &entity) in self.entities.iter().enumerate() {
             moving_count += usize::from(self.world.get::<&VelocityComponent>(entity).is_ok());
@@ -234,6 +235,18 @@ impl HecsGameplayWorld {
                 };
             component_mask_checksum =
                 gameplay_mix_checksum(component_mask_checksum, slot as u64, mask as u64);
+            if let Ok(value) = self.world.get::<&VelocityComponent>(entity) {
+                value_checksums.observe_velocity(slot, &value);
+            }
+            if let Ok(value) = self.world.get::<&Damage>(entity) {
+                value_checksums.observe_damage(slot, &value);
+            }
+            if let Ok(value) = self.world.get::<&Regen>(entity) {
+                value_checksums.observe_regen(slot, &value);
+            }
+            if let Ok(value) = self.world.get::<&Cooldown>(entity) {
+                value_checksums.observe_cooldown(slot, &value);
+            }
 
             let position = self
                 .world
@@ -278,7 +291,11 @@ impl HecsGameplayWorld {
             stunned_count,
             component_mask_checksum,
             position_checksum,
+            velocity_checksum: value_checksums.velocity,
             health_checksum,
+            damage_checksum: value_checksums.damage,
+            regen_checksum: value_checksums.regen,
+            cooldown_checksum: value_checksums.cooldown,
             lifetime_checksum,
             target_slot_checksum,
             owner_slot_checksum,

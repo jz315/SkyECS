@@ -22,7 +22,7 @@ pub(super) struct SkyGameplayWorld {
     movement: PreparedQuery<(&'static mut PositionComponent, &'static VelocityComponent)>,
     enemies: PreparedQuery<(&'static mut Health, &'static Damage)>,
     allies: PreparedQuery<(&'static mut Health, &'static Regen)>,
-    lifetimes: PreparedQuery<&'static mut Lifetime>,
+    lifetimes: PreparedQuery<(&'static mut Lifetime, Option<&'static VelocityComponent>)>,
     ai: PreparedEntityView<(&'static TargetSlot, &'static mut Cooldown)>,
     ai_lookup_checksum: u64,
     cooldown_trace_checksum: u64,
@@ -49,7 +49,7 @@ impl SkyGameplayWorld {
         let mut movement = PreparedQuery::<(&mut PositionComponent, &VelocityComponent)>::new();
         let mut enemies = PreparedQuery::<(&mut Health, &Damage)>::new();
         let mut allies = PreparedQuery::<(&mut Health, &Regen)>::new();
-        let mut lifetimes = PreparedQuery::<&mut Lifetime>::new();
+        let mut lifetimes = PreparedQuery::<(&mut Lifetime, Option<&VelocityComponent>)>::new();
         assert_eq!(movement.count(&world), GAMEPLAY_MOVING_COUNT);
         assert_eq!(enemies.count(&world), GAMEPLAY_ENEMY_COUNT);
         assert_eq!(
@@ -172,6 +172,7 @@ impl SkyGameplayWorld {
         let mut component_mask_checksum = 0;
         let mut target_slot_checksum = 0;
         let mut owner_slot_checksum = 0;
+        let mut value_checksums = GameplayValueChecksums::default();
 
         for (slot, &entity) in self.entities.iter().enumerate() {
             moving_count += usize::from(self.world.get::<VelocityComponent>(entity).is_some());
@@ -247,6 +248,13 @@ impl SkyGameplayWorld {
                 };
             component_mask_checksum =
                 gameplay_mix_checksum(component_mask_checksum, slot as u64, mask as u64);
+            value_checksums.observe(
+                slot,
+                self.world.get::<VelocityComponent>(entity),
+                self.world.get::<Damage>(entity),
+                self.world.get::<Regen>(entity),
+                self.world.get::<Cooldown>(entity),
+            );
 
             let position = self
                 .world
@@ -291,7 +299,11 @@ impl SkyGameplayWorld {
             stunned_count,
             component_mask_checksum,
             position_checksum,
+            velocity_checksum: value_checksums.velocity,
             health_checksum,
+            damage_checksum: value_checksums.damage,
+            regen_checksum: value_checksums.regen,
+            cooldown_checksum: value_checksums.cooldown,
             lifetime_checksum,
             target_slot_checksum,
             owner_slot_checksum,
@@ -385,10 +397,10 @@ fn regen_chunk(health: &mut [Health], regen: &[Regen]) {
 }
 
 #[inline(never)]
-fn lifetime_chunk(lifetimes: &mut [Lifetime]) {
+fn lifetime_chunk((lifetimes, velocities): (&mut [Lifetime], Option<&[VelocityComponent]>)) {
     for lifetime in lifetimes {
         lifetime.0 = lifetime.0.saturating_sub(1);
-        if lifetime.0 == 0 {
+        if lifetime.0 == 0 && velocities.is_none() {
             lifetime.0 = 256;
         }
     }

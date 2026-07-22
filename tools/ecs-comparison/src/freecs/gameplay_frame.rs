@@ -99,7 +99,7 @@ impl FreecsGameplayWorld {
         self.world
             .for_each_mut(LIFETIME_MASK, 0, |_entity, table, index| {
                 table.lifetime[index].0 = table.lifetime[index].0.saturating_sub(1);
-                if table.lifetime[index].0 == 0 {
+                if table.lifetime[index].0 == 0 && table.mask & VELOCITY_MASK == 0 {
                     table.lifetime[index].0 = 256;
                 }
             });
@@ -187,6 +187,7 @@ impl FreecsGameplayWorld {
         let mut component_mask_checksum = 0;
         let mut target_slot_checksum = 0;
         let mut owner_slot_checksum = 0;
+        let mut value_checksums = GameplayValueChecksums::default();
 
         for (slot, &entity) in self.entities.iter().enumerate() {
             moving_count += usize::from(self.world.get_velocity(entity).is_some());
@@ -261,6 +262,13 @@ impl FreecsGameplayWorld {
                 };
             component_mask_checksum =
                 gameplay_mix_checksum(component_mask_checksum, slot as u64, mask as u64);
+            value_checksums.observe(
+                slot,
+                self.world.get_velocity(entity),
+                self.world.get_damage(entity),
+                self.world.get_regen(entity),
+                self.world.get_cooldown(entity),
+            );
             let position = self
                 .world
                 .get_position(entity)
@@ -304,7 +312,11 @@ impl FreecsGameplayWorld {
             stunned_count,
             component_mask_checksum,
             position_checksum,
+            velocity_checksum: value_checksums.velocity,
             health_checksum,
+            damage_checksum: value_checksums.damage,
+            regen_checksum: value_checksums.regen,
+            cooldown_checksum: value_checksums.cooldown,
             lifetime_checksum,
             target_slot_checksum,
             owner_slot_checksum,

@@ -82,9 +82,28 @@ where
     Adapter: GameplayPhaseAdapter,
     Factory: FnOnce(&GameplayTrace) -> Adapter,
 {
-    validate_gameplay_runner(factory, GameplayPhaseAdapter::run_frame, |adapter| {
-        adapter.digest()
-    });
+    const PHASE_CHECKPOINTS: &[usize] = &[0, 7, 63, 255];
+
+    let trace = GameplayTrace::standard();
+    let mut expected = GameplayReference::new(&trace);
+    let mut actual = factory(&trace);
+    for frame in trace.frames() {
+        for phase in GameplayPhase::ALL {
+            expected.run_phase(phase, frame);
+            actual.run_phase(phase, frame);
+            if PHASE_CHECKPOINTS.contains(&frame.index) {
+                assert_eq!(
+                    actual.digest(),
+                    expected.digest(),
+                    "gameplay contract diverged after frame {}, phase {:?}",
+                    frame.index,
+                    phase
+                );
+            }
+        }
+    }
+    assert_eq!(expected.digest(), GAMEPLAY_CANONICAL_DIGEST);
+    assert_eq!(actual.digest(), GAMEPLAY_CANONICAL_DIGEST);
 }
 
 /// Benchmarks one phase while still executing the complete evolving frame.
@@ -176,4 +195,42 @@ pub fn bench_full_gameplay_frames<Adapter, Factory, Run>(
             measured
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct ShiftedAiWork {
+        reference: GameplayReference,
+        pending_frame: Option<GameplayFrame>,
+    }
+
+    impl GameplayPhaseAdapter for ShiftedAiWork {
+        fn run_phase(&mut self, phase: GameplayPhase, frame: &GameplayFrame) {
+            match phase {
+                GameplayPhase::AiSourceLookup => self.pending_frame = Some(frame.clone()),
+                GameplayPhase::TargetPositionLookup => {
+                    let pending = self.pending_frame.take().unwrap();
+                    self.reference
+                        .run_phase(GameplayPhase::AiSourceLookup, &pending);
+                    self.reference.run_phase(phase, frame);
+                }
+                _ => self.reference.run_phase(phase, frame),
+            }
+        }
+
+        fn digest(&self) -> GameplayDigest {
+            self.reference.digest()
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "phase AiSourceLookup")]
+    fn phase_contract_rejects_work_shifted_to_a_later_phase() {
+        validate_gameplay_adapter(|trace| ShiftedAiWork {
+            reference: GameplayReference::new(trace),
+            pending_frame: None,
+        });
+    }
 }

@@ -12,7 +12,7 @@ pub(super) struct BevyGameplayWorld {
     movement: QueryState<(&'static mut PositionComponent, &'static VelocityComponent)>,
     enemies: QueryState<(&'static mut Health, &'static Damage)>,
     allies: QueryState<(&'static mut Health, &'static Regen)>,
-    lifetimes: QueryState<&'static mut Lifetime>,
+    lifetimes: QueryState<(&'static mut Lifetime, Option<&'static VelocityComponent>)>,
     ai: QueryState<(&'static TargetSlot, &'static mut Cooldown)>,
     positions: QueryState<&'static PositionComponent>,
     ai_lookup_checksum: u64,
@@ -42,7 +42,7 @@ impl BevyGameplayWorld {
         let movement = world.query::<(&mut PositionComponent, &VelocityComponent)>();
         let enemies = world.query::<(&mut Health, &Damage)>();
         let allies = world.query::<(&mut Health, &Regen)>();
-        let lifetimes = world.query::<&mut Lifetime>();
+        let lifetimes = world.query::<(&mut Lifetime, Option<&VelocityComponent>)>();
         let ai = world.query::<(&TargetSlot, &mut Cooldown)>();
         let positions = world.query::<&PositionComponent>();
 
@@ -81,9 +81,9 @@ impl BevyGameplayWorld {
         for (mut health, regen) in self.allies.iter_mut(&mut self.world) {
             health.0 += regen.0;
         }
-        for mut lifetime in self.lifetimes.iter_mut(&mut self.world) {
+        for (mut lifetime, velocity) in self.lifetimes.iter_mut(&mut self.world) {
             lifetime.0 = lifetime.0.saturating_sub(1);
-            if lifetime.0 == 0 {
+            if lifetime.0 == 0 && velocity.is_none() {
                 lifetime.0 = 256;
             }
         }
@@ -161,6 +161,7 @@ impl BevyGameplayWorld {
         let mut component_mask_checksum = 0;
         let mut target_slot_checksum = 0;
         let mut owner_slot_checksum = 0;
+        let mut value_checksums = GameplayValueChecksums::default();
 
         for (slot, &entity) in self.entities.iter().enumerate() {
             moving_count += usize::from(self.world.get::<VelocityComponent>(entity).is_some());
@@ -235,6 +236,13 @@ impl BevyGameplayWorld {
                 };
             component_mask_checksum =
                 gameplay_mix_checksum(component_mask_checksum, slot as u64, mask as u64);
+            value_checksums.observe(
+                slot,
+                self.world.get::<VelocityComponent>(entity),
+                self.world.get::<Damage>(entity),
+                self.world.get::<Regen>(entity),
+                self.world.get::<Cooldown>(entity),
+            );
 
             let position = self
                 .world
@@ -283,7 +291,11 @@ impl BevyGameplayWorld {
             stunned_count,
             component_mask_checksum,
             position_checksum,
+            velocity_checksum: value_checksums.velocity,
             health_checksum,
+            damage_checksum: value_checksums.damage,
+            regen_checksum: value_checksums.regen,
+            cooldown_checksum: value_checksums.cooldown,
             lifetime_checksum,
             target_slot_checksum,
             owner_slot_checksum,

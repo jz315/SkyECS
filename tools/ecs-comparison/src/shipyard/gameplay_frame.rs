@@ -77,13 +77,23 @@ impl ShipyardGameplayWorld {
                 .for_each(|(health, regen)| health.0 += regen.0);
         }
         {
-            let mut lifetimes = self.world.borrow::<ViewMut<Lifetime>>().unwrap();
-            (&mut lifetimes).iter().for_each(|lifetime| {
-                lifetime.0 = lifetime.0.saturating_sub(1);
-                if lifetime.0 == 0 {
-                    lifetime.0 = 256;
-                }
-            });
+            let (mut lifetimes, velocities) = self
+                .world
+                .borrow::<(ViewMut<Lifetime>, View<VelocityComponent>)>()
+                .unwrap();
+            (&mut lifetimes, !&velocities)
+                .iter()
+                .for_each(|(lifetime, ())| {
+                    lifetime.0 = lifetime.0.saturating_sub(1);
+                    if lifetime.0 == 0 {
+                        lifetime.0 = 256;
+                    }
+                });
+            (&mut lifetimes, &velocities)
+                .iter()
+                .for_each(|(lifetime, _)| {
+                    lifetime.0 = lifetime.0.saturating_sub(1);
+                });
         }
     }
 
@@ -191,6 +201,7 @@ impl ShipyardGameplayWorld {
         let mut component_mask_checksum = 0;
         let mut target_slot_checksum = 0;
         let mut owner_slot_checksum = 0;
+        let mut value_checksums = GameplayValueChecksums::default();
 
         for (slot, &entity) in self.entities.iter().enumerate() {
             moving_count += usize::from((&velocities).get(entity).is_ok());
@@ -265,6 +276,18 @@ impl ShipyardGameplayWorld {
                 };
             component_mask_checksum =
                 gameplay_mix_checksum(component_mask_checksum, slot as u64, mask as u64);
+            if let Ok(value) = (&velocities).get(entity) {
+                value_checksums.observe_velocity(slot, value);
+            }
+            if let Ok(value) = (&damages).get(entity) {
+                value_checksums.observe_damage(slot, value);
+            }
+            if let Ok(value) = (&regens).get(entity) {
+                value_checksums.observe_regen(slot, value);
+            }
+            if let Ok(value) = (&cooldowns).get(entity) {
+                value_checksums.observe_cooldown(slot, value);
+            }
 
             let position = (&positions)
                 .get(entity)
@@ -308,7 +331,11 @@ impl ShipyardGameplayWorld {
             stunned_count,
             component_mask_checksum,
             position_checksum,
+            velocity_checksum: value_checksums.velocity,
             health_checksum,
+            damage_checksum: value_checksums.damage,
+            regen_checksum: value_checksums.regen,
+            cooldown_checksum: value_checksums.cooldown,
             lifetime_checksum,
             target_slot_checksum,
             owner_slot_checksum,
