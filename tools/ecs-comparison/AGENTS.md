@@ -80,7 +80,7 @@ published.
 
 | Adapter | Gameplay AI source | Gameplay target Position |
 |---|---|---|
-| Sky | `PreparedEntityView<(&TargetSlot, &mut Cooldown)>` (canonical recertification pending) | `EntityAccessor<Position>::get` (canonical recertification pending) |
+| Sky | `PreparedEntityView<(&TargetSlot, &mut Cooldown)>`; canonical winner on `b157e347` | `EntityAccessor<Position>::get`; canonical winner on `b157e347` |
 | hecs | `PreparedQuery<(&TargetSlot, &mut Cooldown)>::view_mut().get_mut` (uncertified) | `PreparedQuery<&Position>::view_mut().get` (uncertified) |
 | Flecs C | per-frame `ecs_get_id(TargetSlot)` plus `ecs_get_mut_id(Cooldown)` (uncertified) | `ecs_get_id(Position)` over the generated target list (uncertified) |
 | Bevy ECS | reusable tuple `QueryState::get_mut` (uncertified) | reusable `QueryState::get_manual` (uncertified) |
@@ -95,6 +95,11 @@ api_candidates --features api-experiments -- sky` on a clean publication target 
 relevant workload, toolchain, or storage changes. This command records raw
 AB/BA rounds and the full-frame gate; the ordinary command runs Criterion's
 candidate groups.
+The `b157e347` Windows x86-64 certificate retained the production combination
+`Closure | PreparedEntityView | EntityAccessor`: the function iteration path
+was only a provisional winner and did not clear the 2% full-frame gate. Raw
+rounds are stored in
+`benches/certifications/sky-gameplay-api.windows-x86_64.b157e347.json`.
 All other gameplay rows remain `uncertified` until phase-specific
 candidate comparisons cover every plausible API; therefore new gameplay-frame
 numbers are diagnostic and must not be published yet.
