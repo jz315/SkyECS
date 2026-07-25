@@ -28,7 +28,7 @@ block, and noisy rows must not support fine-grained claims.
 
 ## General workloads
 
-| Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
+| Workload | Sky | hecs | Bevy | Fle那不对啊cs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
 | EntityId random access 10k | 16.595 µs | **15.989 µs** | 44.224 µs | 38.338 µs | 23.849 µs | 20.127 µs |
 | EntityId random access 100k | 304.899 µs | **299.815 µs** | 870.120 µs | 664.948 µs | 445.007 µs | 441.247 µs |
@@ -41,6 +41,37 @@ block, and noisy rows must not support fine-grained claims.
 | Spawn/despawn 1k | 52.597 µs | **46.080 µs** | 104.186 µs | 68.138 µs | 110.889 µs | 112.367 µs |
 | Add/remove component 1k | 107.409 µs | 108.837 µs | 163.619 µs | 132.399 µs | 229.765 µs | **51.432 µs** |
 | Scenario: canonical gameplay frame | **121.680 µs** | 150.293 µs | 211.163 µs | 139.380 µs | 183.381 µs | 330.224 µs |
+
+## Fixed-sequence access scenarios
+
+These are intentionally separate from EntityId random access: they include a
+reusable fixed sequence, explicit plan construction, or amortized construction
+across the stated number of traversals. The 10k and 100k plan payloads are
+80,000 B and 800,000 B respectively.
+
+| Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
+|---|---:|---:|---:|---:|---:|---:|
+| Build plan 10k | 22.093 µs | **16.249 µs** | 40.453 µs | 43.156 µs | 24.588 µs | 17.192 µs |
+| Build plan 100k | 325.150 µs | **238.507 µs** | 620.690 µs | 585.822 µs | 384.074 µs | 277.085 µs |
+| Steady traversal 10k | 5.868 µs | **5.841 µs** | 5.847 µs | 5.870 µs | 5.849 µs | 5.847 µs |
+| Steady traversal 100k | 83.631 µs | 89.174 µs | 83.567 µs | 76.938 µs | **76.691 µs** | 76.984 µs |
+| Build + 1 traversal, 10k | 28.181 µs | **22.160 µs** | 48.093 µs | 50.222 µs | 30.653 µs | 23.931 µs |
+| Build + 4 traversals, 10k | 45.683 µs | **39.645 µs** | 65.163 µs | 68.664 µs | 48.160 µs | 41.417 µs |
+| Build + 16 traversals, 10k | 115.575 µs | **109.552 µs** | 135.442 µs | 141.727 µs | 118.142 µs | 111.374 µs |
+| Build + 64 traversals, 10k | 395.085 µs | **388.708 µs** | 416.136 µs | 433.583 µs | 397.804 µs | 390.847 µs |
+| Build + 1 traversal, 100k | 412.480 µs | **331.373 µs** | 704.242 µs | 668.349 µs | 465.369 µs | 359.073 µs |
+| Build + 4 traversals, 100k | 661.797 µs | **576.504 µs** | 926.677 µs | 939.068 µs | 696.923 µs | 643.129 µs |
+| Build + 16 traversals, 100k | 1561.714 µs | 1576.206 µs | 1858.329 µs | 1989.409 µs | 1827.861 µs | **1517.669 µs** |
+| Build + 64 traversals, 100k | 5292.410 µs | 5570.296 µs | 5555.433 µs | 6451.518 µs | 6136.340 µs | **5215.339 µs** |
+
+## Native capability scenario
+
+Native bulk construction uses each engine's specialized bulk API and is a
+scenario rather than a comparable public-API workload.
+
+| Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
+|---|---:|---:|---:|---:|---:|---:|
+| Native bulk construction 10k | 82.397 µs | **13.615 µs** | 462.218 µs | 118.960 µs | 332.428 µs | 197.624 µs |
 
 ## Random-fragmentation workloads
 
