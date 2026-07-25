@@ -1,8 +1,8 @@
 use super::model::{OrderBias, PositionBias, RunEstimate, Summary};
 use serde_json::Value;
 use sky_ecs_comparison::common::{
-    benchmark_class, benchmark_spec, benchmark_work_items, fixed_sequence_amortized_traversals,
-    fixed_sequence_plan_payload_bytes, is_canonical_group, BenchmarkClass, CANONICAL_BENCHMARKS,
+    benchmark_class, benchmark_spec, benchmark_work_items, is_canonical_group, BenchmarkClass,
+    CANONICAL_BENCHMARKS,
 };
 use sky_ecs_comparison::Engine;
 use std::collections::{BTreeMap, BTreeSet};
@@ -88,9 +88,6 @@ pub(super) fn summarize(estimates: BTreeMap<String, Vec<RunEstimate>>) -> Vec<Su
             } else {
                 (maximum - minimum) * 100.0 / median_ns
             };
-            let plan_payload_bytes = fixed_sequence_plan_payload_bytes(&benchmark);
-            let amortized_ns_per_traversal = fixed_sequence_amortized_traversals(&benchmark)
-                .map(|traversals| median_ns / traversals as f64);
             Summary {
                 class: benchmark_class(&benchmark)
                     .map(BenchmarkClass::name)
@@ -101,8 +98,8 @@ pub(super) fn summarize(estimates: BTreeMap<String, Vec<RunEstimate>>) -> Vec<Su
                 work_items,
                 ns_per_item: work_items.map(|count| median_ns / count as f64),
                 items_per_second: work_items.map(|count| count as f64 * 1e9 / median_ns),
-                plan_payload_bytes,
-                amortized_ns_per_traversal,
+                plan_payload_bytes: None,
+                amortized_ns_per_traversal: None,
                 run_spread_percent,
                 noisy: run_spread_percent > 10.0,
                 runs,

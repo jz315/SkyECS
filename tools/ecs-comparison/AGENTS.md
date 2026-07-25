@@ -25,6 +25,47 @@ experiments, raw local results, and publication progress belong outside
 - Reuse adapter helpers from benchmarks and contract validation where practical
   so their semantics cannot drift independently.
 
+## Official Benchmark Taxonomy
+
+The GitHub Compare-ECS benchmark has four publication sections in this fixed
+order. Do not move a workload between sections merely to simplify the report.
+
+1. **Comparable** contains exactly these operation families:
+   - Entity construction: repeated single-entity construction at 10K and each
+     engine's fastest public native-bulk construction at 10K.
+   - Entity operations: spawn/despawn 1K and add/remove component 1K.
+   - Sky-authored EntityId random access: hot 10K and warm 100K.
+   - Prepared iteration: 10K, 100K, and 1M.
+   - Fragmented iteration: 26 × 400.
+2. **Random Fragmentation** is a separate official section containing the full
+   tag and data-component matrix: 6 and 8 shapes at 1/4 terms, plus 10 and 16
+   shapes at 1/4/8 terms. Keep the section title neutral; acknowledge the
+   benchmark's external origin in prose, never by adding "ported", "移植", or
+   similar wording to the benchmark name.
+3. **Gameplay Scenario** contains only the canonical gameplay workload:
+   full frame, iteration, AI source lookup, target Position lookup, status
+   transition, and projectile recycle. Native bulk construction and
+   fixed-sequence access are not scenarios.
+4. **Diagnostic** contains heavy compute and any future explicitly diagnostic
+   probes. Diagnostics do not participate in comparative wins.
+
+The formal GitHub report therefore has 37 rows: 10 Comparable, 20 Random
+Fragmentation, 6 Gameplay Scenario, and 1 Diagnostic. Treat these counts as a
+publication contract and update this file deliberately if the official suite
+changes.
+
+Fixed-sequence entity access is a local API-strategy experiment. It measures
+plan build, steady traversal, and build amortized over 1/4/16/64 traversals,
+but it must not be registered in the formal `comparison` bench, publisher
+catalog, GitHub performance workflow, or published result tables. Keep it in a
+feature-gated local candidate bench; CI may compile it but must not execute it
+or use it to select a production API.
+
+Gameplay phase rows are formal GitHub results, not local API candidates. Every
+phase benchmark must advance the same complete evolving state machine as the
+full frame while timing only the selected phase. Do not replace these rows with
+isolated worlds or omit them from the publication artifact.
+
 ## Fastest Public API Requirement
 
 Every timed adapter phase must use that engine's fastest supported public API
@@ -62,7 +103,7 @@ published.
 
 | Adapter | Dense/prepared iteration | Entity/random access | Native bulk construction |
 |---|---|---|---|
-| Sky | `PreparedQuery::for_each_chunk_fn` for the simple dense kernel; gameplay retains the closure form because the provisional function winner did not clear the full-frame gate | `EntityAccessor<T>::get` for comparable EntityId access; `PreparedEntityAccess<T>::iter` for the fixed-sequence scenario; `PreparedEntityView<Q>::get/get_mut` for arbitrary multi-component items | `World::spawn_columns` with prepared component columns |
+| Sky | `PreparedQuery::for_each_chunk_fn` for the simple dense kernel; gameplay retains the closure form because the provisional function winner did not clear the full-frame gate | `EntityAccessor<T>::get` for comparable EntityId access; `PreparedEntityAccess<T>::iter` for the local fixed-sequence experiment; `PreparedEntityView<Q>::get/get_mut` for arbitrary multi-component items | `World::spawn_columns` with prepared component columns |
 | hecs | Provisional: 10K/100K use `World::query_mut().into_iter_batched(u32::MAX)`; 1M uses prepared matching `Archetype::get` columns. Publication remains uncertified until the candidate bench is repeated on the publication target | `PreparedQuery::view_mut(...).get` / `get_mut` | `World::spawn_column_batch` with a completed `ColumnBatch` |
 | Flecs C | prepared `ecs_query_t` with `ecs_query_iter` / `ecs_query_next` and direct `ecs_field` columns | `ecs_ref_init_id` in permitted stable-identity setup plus `ecs_ref_get_id`; otherwise `ecs_get_id` / `ecs_get_mut_id`. Gameplay must use the latter because it reads `TargetSlot` and builds the target list each frame | `ecs_bulk_init` with sorted component IDs and prepared columns |
 | Bevy ECS | reusable `QueryState::iter_mut` | reusable `QueryState::get_manual` / `get_mut` | `World::spawn_batch` with prepared bundles |
@@ -87,7 +128,8 @@ published.
 | Shipyard | borrowed `View<TargetSlot>` / `ViewMut<Cooldown>` tuple and `Get::get` (uncertified) | borrowed `View<Position>` and `Get::get` (uncertified) |
 | FreeCS | generated `get_target_slot` / `get_cooldown_mut` (uncertified) | generated `get_position` (uncertified) |
 
-The native-bulk scenario has contract tests and explicit native prepared inputs.
+The native-bulk construction workload has contract tests and explicit native
+prepared inputs.
 Sky API experiments live in `crates/sky_ecs/benches`; the canonical comparison
 contains only the selected paths and never chooses an API on a shared runner.
 Re-run `SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs_comparison --bench
@@ -143,24 +185,28 @@ Record actual chunk lengths for storage experiments. The current known-batch
 policy may use unpooled oversized chunks, while repeated smaller batches can
 retain the normal 4 MiB layout; keep both cases as diagnostics.
 
-## EntityId and Fixed-Sequence Access
+## EntityId and Local Fixed-Sequence Access
 
 `entity_id_random_access` is comparable only when every adapter begins each
 timed lookup from its Entity ID. Sky therefore uses `EntityAccessor::get` and
 Flecs uses `ecs_get_id`; no adapter may substitute a prepared address plan.
+This Sky-authored workload stays in the Comparable section and must not be
+merged with the separately presented Random Fragmentation matrix.
 
-`scenario_fixed_sequence_access` separately measures plan build, steady
-traversal, and build amortized over 1/4/16/64 traversals. Plans may retain direct
-component references only while the fixture World remains structurally frozen.
-Plan payload bytes exclude allocator bookkeeping. Sky's crate-local candidates
-are reproduced with `cargo bench -p sky_ecs --bench random_access`.
+The local fixed-sequence experiment separately measures plan build, steady
+traversal, and build amortized over 1/4/16/64 traversals. Plans may retain
+direct component references only while the fixture World remains structurally
+frozen. Plan payload bytes exclude allocator bookkeeping. Do not use a
+`scenario_` prefix for this experiment. Sky's crate-local candidates are
+reproduced with `cargo bench -p sky_ecs --bench random_access`.
 
-## Native Bulk Construction
+## Entity Construction
 
-`scenario_native_bulk_construction/insert_10k` measures each engine's fastest
-public native bulk capability from an empty schema-prepared world and a fully
-prepared engine-native input batch. It is a scenario rather than a comparable
-neutral-input workload.
+Repeated single-entity construction at 10K and native-bulk construction at 10K
+belong to the same Comparable Entity Construction family. Present them next to
+each other in one table. Native bulk measures each engine's fastest public bulk
+capability from an empty schema-prepared world and a fully prepared
+engine-native input batch.
 
 | Adapter | Public path | Prepared input |
 |---|---|---|
@@ -173,8 +219,10 @@ neutral-input workload.
 
 Destroy the benchmark context after timing. Explicitly exhaust or drop returned
 iterators inside the measured closure when that action completes insertion.
-Keep `single_insert_10k` as the repeated single-spawn comparison; it is a
-different workload.
+Keep `single_insert_10k` as the repeated single-spawn row and display it as
+"Individual construction 10K" or "逐实体构建 10K" so readers do not mistake
+the name for a single-entity benchmark. Do not add a separate derived speedup
+table for individual versus bulk construction.
 
 ## Adapter and Native-Code Boundaries
 
@@ -200,6 +248,22 @@ different workload.
   once; all reports retain exact orders and per-run distributions.
 - Update English and Chinese benchmark documents from a completed publication
   run, not by hand from an isolated Criterion sample.
+- The human-facing GitHub report starts with one source line linking to the
+  GitHub Actions run, then immediately presents the four official sections.
+  Do not add a run-metadata table. Commit, contracts, runner, toolchain, and raw
+  distributions remain available through the Actions run and its artifact.
+- Use the engine column order `Sky`, `hecs`, `Bevy`, `Flecs C`, `FreeCS`,
+  `Shipyard` in every table. Lower is faster; bold only the lowest median in a
+  row, mark noisy cells with `†`, and render unsupported or unfinished cells as
+  `N/A`.
+- The Comparable table uses `Test` and `Scale/Mode` columns so its ten rows can
+  group both Entity Construction modes without creating an auxiliary table.
+  Random Fragmentation uses separate Tag and Data Component tables. Gameplay
+  uses one table with full frame first and its five phases below it.
+- Do not commit CI summary JSON, runner dumps, hash manifests, or copied
+  publication artifacts solely to render the benchmark documentation. Keep
+  the human-facing tables concise and obtain provenance from the linked
+  Actions artifact.
 
 ## Verification
 

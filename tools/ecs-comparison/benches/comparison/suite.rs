@@ -26,17 +26,10 @@ fn benchmark_group<'a>(c: &'a mut Criterion, name: &str) -> BenchmarkGroup<'a, W
     group
 }
 
-pub(crate) fn bench_insert(c: &mut Criterion) {
-    let mut group = benchmark_group(c, "prepared_construction");
+pub(crate) fn bench_construction(c: &mut Criterion) {
+    let mut group = benchmark_group(c, "entity_construction");
     for engine in engine_order() {
         dispatch!(engine, bench_single_insert, &mut group);
-    }
-    group.finish();
-}
-
-pub(crate) fn bench_native_bulk(c: &mut Criterion) {
-    let mut group = benchmark_group(c, "scenario_native_bulk_construction");
-    for engine in engine_order() {
         dispatch!(engine, bench_native_bulk, &mut group);
     }
     group.finish();
@@ -75,7 +68,7 @@ pub(crate) fn bench_fragmented_iteration(c: &mut Criterion) {
 }
 
 pub(crate) fn bench_random_fragmented_iteration(c: &mut Criterion) {
-    let mut group = benchmark_group(c, "prepared_random_fragmented_iteration");
+    let mut group = benchmark_group(c, "random_fragmentation");
     for engine in engine_order() {
         dispatch!(engine, bench_random_fragmented_iteration, &mut group);
     }
@@ -99,15 +92,6 @@ pub(crate) fn bench_entity_id_random_access(c: &mut Criterion) {
     group.finish();
 }
 
-pub(crate) fn bench_fixed_sequence_access(c: &mut Criterion) {
-    let mut group = benchmark_group(c, "scenario_fixed_sequence_access");
-    group.sampling_mode(SamplingMode::Flat);
-    for engine in engine_order() {
-        dispatch!(engine, bench_fixed_sequence_access, &mut group);
-    }
-    group.finish();
-}
-
 pub(crate) fn bench_entity_ops(c: &mut Criterion) {
     let mut group = benchmark_group(c, "entity_ops");
     for engine in engine_order() {
@@ -116,10 +100,17 @@ pub(crate) fn bench_entity_ops(c: &mut Criterion) {
     group.finish();
 }
 
-pub(crate) fn bench_gameplay_frame(c: &mut Criterion) {
-    let mut group = benchmark_group(c, "scenario_gameplay_frame");
+pub(crate) fn bench_gameplay_scenario(c: &mut Criterion) {
+    let mut group = benchmark_group(c, "gameplay_scenario");
     for engine in engine_order() {
         dispatch!(engine, bench_gameplay_frame, &mut group);
+    }
+    group
+        .warm_up_time(Duration::from_millis(500))
+        .measurement_time(Duration::from_secs(1))
+        .sample_size(30);
+    for engine in engine_order() {
+        dispatch!(engine, bench_gameplay_phases, &mut group);
     }
     group.finish();
 }

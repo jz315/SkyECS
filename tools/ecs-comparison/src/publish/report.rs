@@ -1,10 +1,9 @@
 use super::analysis::{analyze_order_bias, validate_results};
-use super::model::{
-    ContractVerification, OrderBias, PublicationReport, StoredPublicationReport, Summary,
-};
+use super::layout;
+use super::model::{ContractVerification, PublicationReport, StoredPublicationReport, Summary};
 use sky_ecs_comparison::common::{benchmark_class, BenchmarkClass};
+use std::env;
 use std::fs::{self, File};
-use std::io::{self, Write};
 use std::path::Path;
 
 pub(super) fn write_report(
@@ -28,12 +27,14 @@ pub(super) fn write_report(
         report_dir.join("summary.json"),
         serde_json::to_vec_pretty(&report)?,
     )?;
-    write_markdown(
-        report_dir,
-        run_count,
+
+    let source = report_source(report_dir);
+    let mut output = File::create(report_dir.join("summary.md"))?;
+    layout::write_markdown(
+        &mut output,
+        source.as_deref(),
         summaries,
         &order_bias,
-        contracts,
         allow_dirty,
     )?;
     Ok(())
@@ -62,153 +63,56 @@ pub(super) fn reanalyze_report(report_dir: &Path) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-fn write_markdown(
-    report_dir: &Path,
-    run_count: usize,
-    summaries: &[Summary],
-    order_bias: &OrderBias,
-    contracts: &ContractVerification,
-    allow_dirty: bool,
-) -> io::Result<()> {
-    let mut output = File::create(report_dir.join("summary.md"))?;
-    if allow_dirty {
-        writeln!(output, "# NON-PUBLICATION / DIRTY WORKTREE\n")?;
-    } else {
-        writeln!(output, "# Compare-ECS publication report\n")?;
-    }
-    writeln!(
-        output,
-        "Reproducible: **{}**; working tree marked dirty: **{}**.\n",
-        !allow_dirty, allow_dirty
-    )?;
-    writeln!(
-        output,
-        "Contracts: **{}** (`{}`, profile `{}`, log `{}`).\n",
-        contracts.status, contracts.commit, contracts.profile, contracts.log
-    )?;
-    writeln!(
-        output,
-        "{run_count} engine-order rotation(s); values are medians of the per-run Criterion median estimates.\n"
-    )?;
-    writeln!(
-        output,
-        "Comparable workloads are used for cross-ECS comparisons. Scenarios and diagnostics are reported separately and are not included in comparative win counts or the order-bias check.\n"
-    )?;
-    write_summary_table(
-        &mut output,
-        "Comparable workloads",
-        summaries,
-        BenchmarkClass::Comparable,
-    )?;
-    write_summary_table(
-        &mut output,
-        "Scenario workloads",
-        summaries,
-        BenchmarkClass::Scenario,
-    )?;
-    write_summary_table(
-        &mut output,
-        "Diagnostic workloads",
-        summaries,
-        BenchmarkClass::Diagnostic,
-    )?;
-    writeln!(output, "## Order-bias check\n")?;
-    if !order_bias.available {
-        writeln!(
-            output,
-            "**N/A.** {}.\n",
-            order_bias
-                .reason
-                .as_deref()
-                .unwrap_or("complete position-balanced data is unavailable")
-        )?;
-        return write_noisy_benchmarks(&mut output, summaries);
-    }
-    writeln!(
-        output,
-        "Only comparable workloads supported by all six engines are included. Each position is the centered median of per-workload geometric means across all six engines.\n"
-    )?;
-    writeln!(output, "| Position | Workloads | Median normalized time |")?;
-    writeln!(output, "|---:|---:|---:|")?;
-    for position in &order_bias.positions {
-        writeln!(
-            output,
-            "| {} | {} | {:.4}× |",
-            position.position, position.sample_count, position.median_ratio
-        )?;
-    }
-    let order_status = if !order_bias.complete {
-        "insufficient data"
-    } else if order_bias.noisy {
-        "noisy"
-    } else {
-        "stable"
-    };
-    writeln!(
-        output,
-        "\nMaximum deviation: {:.2}%; position spread: {:.2}%; status: **{}**.",
-        order_bias.max_deviation_percent.unwrap_or_default(),
-        order_bias.spread_percent.unwrap_or_default(),
-        order_status
-    )?;
-
-    write_noisy_benchmarks(&mut output, summaries)
+fn report_source(report_dir: &Path) -> Option<String> {
+    github_source(
+        env::var("GITHUB_SERVER_URL").ok().as_deref(),
+        env::var("GITHUB_REPOSITORY").ok().as_deref(),
+        env::var("GITHUB_RUN_ID").ok().as_deref(),
+    )
+    .or_else(|| {
+        let runner = fs::read_to_string(report_dir.join("github-runner.txt")).ok()?;
+        let value = |key: &str| {
+            runner
+                .lines()
+                .find_map(|line| line.strip_prefix(&format!("{key}=")))
+        };
+        github_source(
+            Some("https://github.com"),
+            value("github_repository"),
+            value("github_run_id"),
+        )
+    })
 }
 
-fn write_noisy_benchmarks(output: &mut File, summaries: &[Summary]) -> io::Result<()> {
-    let noisy: Vec<_> = summaries.iter().filter(|summary| summary.noisy).collect();
-    if !noisy.is_empty() {
-        writeln!(output, "\n## Noisy benchmarks\n")?;
-        for summary in noisy {
-            writeln!(
-                output,
-                "- `{}`: {:.2}% max-to-min spread across runs",
-                summary.benchmark, summary.run_spread_percent
-            )?;
-        }
-    }
-    Ok(())
+fn github_source(
+    server: Option<&str>,
+    repository: Option<&str>,
+    run_id: Option<&str>,
+) -> Option<String> {
+    let server = server?;
+    let repository = repository?;
+    let run_id = run_id?;
+    Some(format!(
+        "[GitHub Actions run {run_id}]({server}/{repository}/actions/runs/{run_id})"
+    ))
 }
 
-fn write_summary_table(
-    output: &mut File,
-    title: &str,
-    summaries: &[Summary],
-    class: BenchmarkClass,
-) -> io::Result<()> {
-    writeln!(output, "## {title}\n")?;
-    writeln!(
-        output,
-        "| Benchmark | Median | ns/item | items/s | Plan payload | Amortized/traversal |"
-    )?;
-    writeln!(output, "|---|---:|---:|---:|---:|---:|")?;
-    for summary in summaries {
-        if benchmark_class(&summary.benchmark) != Some(class) {
-            continue;
-        }
-        writeln!(
-            output,
-            "| `{}` | {:.3} µs | {} | {} | {} | {} |",
-            summary.benchmark,
-            summary.median_ns / 1_000.0,
-            summary
-                .ns_per_item
-                .map(|value| format!("{value:.3}"))
-                .unwrap_or_else(|| "—".to_owned()),
-            summary
-                .items_per_second
-                .map(|value| format!("{value:.0}"))
-                .unwrap_or_else(|| "—".to_owned()),
-            summary
-                .plan_payload_bytes
-                .map(|bytes| format!("{bytes} B"))
-                .unwrap_or_else(|| "—".to_owned()),
-            summary
-                .amortized_ns_per_traversal
-                .map(|value| format!("{:.3} µs", value / 1_000.0))
-                .unwrap_or_else(|| "—".to_owned())
-        )?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn github_source_is_one_link() {
+        assert_eq!(
+            github_source(
+                Some("https://github.com"),
+                Some("jz315/SkyECS"),
+                Some("123")
+            ),
+            Some(
+                "[GitHub Actions run 123](https://github.com/jz315/SkyECS/actions/runs/123)"
+                    .to_owned()
+            )
+        );
     }
-    writeln!(output)?;
-    Ok(())
 }

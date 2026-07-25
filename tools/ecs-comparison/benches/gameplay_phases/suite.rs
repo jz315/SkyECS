@@ -17,7 +17,7 @@ macro_rules! dispatch {
 
 pub(crate) fn bench_gameplay_phases(criterion: &mut Criterion) {
     let mut group: criterion::BenchmarkGroup<'_, WallTime> =
-        criterion.benchmark_group("diagnostic_gameplay_phases");
+        criterion.benchmark_group("gameplay_scenario");
     group
         .warm_up_time(Duration::from_millis(500))
         .measurement_time(Duration::from_secs(1))

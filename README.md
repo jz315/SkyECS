@@ -76,27 +76,19 @@ For larger workloads, replace serial iteration with `par_for_each` or
 
 ## Benchmarks
 
-The numeric rows below are a traceable historical snapshot from public
-[GitHub Actions run #29695552048](https://github.com/jz315/SkyECS/actions/runs/29695552048)
-at commit `e47f48163759f2e0438bcb89504908749999a416`. The old Mixed frame has been
-retired: matrix inversion dominated it, so it did not represent ECS behavior.
-Its replacement is a deterministic 65,536-entity, 256-frame gameplay trace with
-real status and projectile lifetimes. New gameplay and best-native-bulk numbers
-will appear here only after the updated four-rotation public workflow completes.
-Sky API candidates are measured locally in `crates/sky_ecs/benches`; the formal
-Compare-ECS target and GitHub workflow contain only the selected paths and never
-choose an API on a shared runner.
+The formal [Compare-ECS workflow](https://github.com/jz315/SkyECS/actions/workflows/benchmarks.yml)
+measures Sky, hecs, Bevy ECS, Flecs C, FreeCS, and Shipyard through equivalent
+public APIs. Each report has a fixed 37-row layout:
 
-| Workload | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
-|---|---:|---:|---:|---:|---:|---:|
-| Legacy row-batch insert 10k (retired) | 120.93 µs | 352.11 µs | 440.19 µs | **110.41 µs** | 278.08 µs | 166.75 µs |
-| Prepared iteration 10k | 8.12 µs | 7.83 µs | 9.35 µs | **7.69 µs** | 11.96 µs | 17.29 µs |
-| Prepared iteration 100k | 81.21 µs | 78.88 µs | 93.65 µs | **77.62 µs** | 120.08 µs | 174.30 µs |
-| Spawn/random despawn 1k | **45.37 µs** | 46.34 µs | 103.05 µs | 67.47 µs | 112.41 µs | 107.42 µs |
-| Gameplay frame (new canonical) | pending public rerun | pending | pending | pending | pending | pending |
+- 10 Comparable rows
+- 20 Random Fragmentation rows
+- 6 Gameplay Scenario rows: full frame plus five phases
+- 1 Diagnostic row
 
-See the [benchmark documentation](benches/BENCHMARKS.md) for the complete workload
-list, all recorded rows, environment, compiler configuration, and methodology.
+Fixed Sequence Access and API-candidate selection are local experiments and do
+not run in the GitHub performance workflow. See the
+[benchmark documentation](benches/BENCHMARKS.md) for the complete workload
+contract, report format, and reproduction commands.
 
 
 ## Workspace
