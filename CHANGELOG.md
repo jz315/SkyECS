@@ -4,23 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
-- Allow distinct Rust `TypeId` values to share a registered type name, expose
-  all ambiguous matches, and keep opaque dynamic names unique.
-- Validate Compare-ECS gameplay after each phase and checksum Velocity,
-  Damage, Regen, and Cooldown values in addition to component presence.
-- Keep prepared-query hot match lists limited to currently active archetype
-  storages while retaining incremental signature matching.
-- Return explicit errors for over-wide dynamic bundles and queries, and store
-  long-running elapsed time totals as `f64`.
-- Make schedule panic recovery and shutdown attempt every command/state
-  cleanup, preserve the first panic, and guarantee teardown at-most-once.
-- Reuse prepared entity-view route tables across pure row churn via a dedicated
-  column-base epoch, with explicit route-table shrink and diagnostics.
-- Strengthen Compare-ECS gameplay and random-access contracts with entity
-  identity, full component-shape, checkpoint, and observable AI-state checks.
-- Require release contract validation before publication benchmark runs.
-
-## [0.2.0] - 2026-07-22
+## [0.2.0] - 2026-07-27
 
 - Renamed the bound random-access types to `EntityAccessor` and
   `EntityAccessorMut`; the former `ComponentAccessor` names are removed.
@@ -28,14 +12,31 @@ All notable changes to this project are documented here.
   plans for fixed entity sequences, strict validation, and duplicate rejection
   for mutable access.
 - Added reusable tuple-capable `PreparedEntityView`, with optional-component
-  semantics and bind-time pointer refresh for structurally changing worlds.
+  semantics and route-table reuse across pure row churn.
 - Added scheduler-native `EntityView<Q>` for prepared tuple lookup by entity ID
   inside ordinary systems.
+- Added a dedicated column-base epoch, explicit route-table shrinking, and
+  route-cache diagnostics while preserving live `ChunkId` values.
+- Allowed distinct Rust `TypeId` values to share a registered type name, expose
+  all ambiguous matches, and keep opaque dynamic names unique.
+- Kept prepared-query hot match lists limited to currently active archetype
+  storages while retaining incremental signature matching.
+- Returned explicit errors for over-wide dynamic bundles and queries, and stored
+  long-running elapsed time totals as `f64`.
+- Made schedule panic recovery and shutdown attempt every command/state
+  cleanup, preserve the first panic, and guarantee teardown at-most-once.
 - Restored comparable five-phase gameplay diagnostics and aligned Flecs with
   the per-frame `TargetSlot` data flow used by every other adapter.
+- Strengthened Compare-ECS gameplay and random-access contracts with entity
+  identity, full component-shape, per-phase checkpoints, and observable
+  Velocity, Damage, Regen, Cooldown, and AI-state checks.
+- Required release contract validation before publication benchmark runs.
 - Separated crate-owned API experiments from the canonical Compare-ECS target,
-  split EntityId and fixed-sequence access contracts, and reclassified native
-  bulk construction as a scenario workload.
+  split EntityId and fixed-sequence access contracts, and kept fixed-sequence
+  access out of the formal GitHub benchmark.
+- Kept bulk construction in the Comparable family, starting every adapter from
+  neutral component columns and timing complete engine-native batch
+  construction and insertion.
 
 ## [0.1.3] - 2026-07-18
 
