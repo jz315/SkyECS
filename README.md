@@ -76,24 +76,23 @@ For larger workloads, replace serial iteration with `par_for_each` or
 
 ## Benchmarks
 
-[GitHub Actions run 30179149116](https://github.com/jz315/SkyECS/actions/runs/30179149116)
+[GitHub Actions run 30210139416](https://github.com/jz315/SkyECS/actions/runs/30210139416)
 
 | Test | Scale / Mode | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Entity construction | Individual 10K | **303.595 µs** | 579.261 µs† | 674.912 µs | 587.618 µs | 926.500 µs† | 1.923 ms |
-| Entity construction | Bulk construction 10K | N/A | N/A | N/A | N/A | N/A | N/A |
-| Entity operations | Spawn/despawn 1K | 53.246 µs | **47.814 µs** | 103.659 µs | 63.135 µs | 111.841 µs | 165.636 µs |
-| Entity operations | Add/remove component 1K | 108.509 µs | 109.488 µs | 161.058 µs | 142.036 µs | 222.387 µs | **74.846 µs** |
-| EntityId random access | Hot 10K | 17.827 µs | **16.669 µs** | 45.692 µs | 41.246 µs | 27.244 µs | 20.631 µs |
-| EntityId random access | Warm 100K | **300.135 µs** | 301.431 µs | 871.652 µs | 710.293 µs | 486.573 µs | 426.576 µs |
-| Prepared iteration | 10K | 8.173 µs | 8.188 µs | 9.674 µs | **8.100 µs** | 13.144 µs | 18.206 µs |
-| Prepared iteration | 100K | **81.144 µs** | 81.885 µs | 99.576 µs | 82.122 µs | 134.350 µs | 184.842 µs |
-| Prepared iteration | 1M | 832.267 µs | 855.464 µs | 1.112 ms† | **829.999 µs** | 1.360 ms | 1.865 ms |
-| Fragmented iteration | 26 × 400 | 1.160 µs | 4.459 µs | 7.750 µs | 1.265 µs | 988.421 ns | **923.137 ns** |
-| Gameplay | Full frame | **121.092 µs** | 147.955 µs | 211.859 µs | 140.657 µs | 189.282 µs | 328.011 µs |
+| Entity construction | Individual 10K | **276.147 µs** | 580.473 µs | 812.098 µs | 746.055 µs | 883.430 µs | 1.216 ms |
+| Entity construction | Bulk construction 10K | 97.557 µs† | **85.942 µs**† | 522.206 µs† | 113.279 µs† | 327.816 µs | 478.557 µs |
+| Entity operations | Spawn/despawn 1K | 52.233 µs | **46.841 µs** | 104.725 µs | 69.633 µs | 111.703 µs | 112.621 µs |
+| Entity operations | Add/remove component 1K | 107.321 µs | 109.014 µs | 164.131 µs | 135.085 µs | 219.504 µs | **51.248 µs** |
+| EntityId random access | Hot 10K | 16.628 µs | **15.982 µs** | 44.384 µs | 37.963 µs | 23.440 µs | 20.246 µs |
+| EntityId random access | Warm 100K | 304.531 µs | **299.879 µs** | 901.731 µs | 694.855 µs | 453.338 µs | 457.975 µs |
+| Prepared iteration | 10K | 7.819 µs | 7.773 µs | 9.327 µs | **7.471 µs** | 12.136 µs | 17.657 µs |
+| Prepared iteration | 100K | 77.263 µs | 78.032 µs | 93.822 µs | **75.782 µs** | 119.623 µs | 176.043 µs |
+| Prepared iteration | 1M | **910.881 µs**† | 954.929 µs† | 1.086 ms† | 971.924 µs† | 1.258 ms | 1.794 ms |
+| Fragmented iteration | 26 × 400 | 1.051 µs | 4.254 µs | 6.844 µs | 1.169 µs | 859.694 ns | **812.176 ns** |
+| Gameplay | Full frame | **121.191 µs** | 146.026 µs | 212.210 µs | 138.926 µs | 183.532 µs | 326.138 µs |
 
-Lower is faster; `†` marks a noisy shared-runner result and `N/A` marks the
-withdrawn bulk result pending a new formal run. See the
+Lower is faster; `†` marks a noisy shared-runner result. See the
 [benchmark documentation](benches/BENCHMARKS.md) for the complete 37-row
 report, workload contract, and reproduction commands.
 
