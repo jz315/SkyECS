@@ -252,6 +252,15 @@ table for individual versus bulk construction.
   GitHub Actions run, then immediately presents the four official sections.
   Do not add a run-metadata table. Commit, contracts, runner, toolchain, and raw
   distributions remain available through the Actions run and its artifact.
+- The root README keeps a compact snapshot from the latest completed formal
+  run: all ten Comparable rows plus the Gameplay full-frame row, in that order.
+  Do not add Random Fragmentation, Gameplay phase, Heavy Compute, or
+  Fixed-Sequence rows to the README. Link to the complete benchmark document
+  instead.
+- The English and Chinese benchmark documents record the complete 37-row
+  formal report from the same run: 10 Comparable, 20 Random Fragmentation,
+  6 Gameplay Scenario, and 1 Diagnostic. Keep their values, bold winners,
+  noise marks, and N/A cells synchronized.
 - Use the engine column order `Sky`, `hecs`, `Bevy`, `Flecs C`, `FreeCS`,
   `Shipyard` in every table. Lower is faster; bold only the lowest median in a
   row, mark noisy cells with `†`, and render unsupported or unfinished cells as

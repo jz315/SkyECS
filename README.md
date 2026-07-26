@@ -76,19 +76,25 @@ For larger workloads, replace serial iteration with `par_for_each` or
 
 ## Benchmarks
 
-The formal [Compare-ECS workflow](https://github.com/jz315/SkyECS/actions/workflows/benchmarks.yml)
-measures Sky, hecs, Bevy ECS, Flecs C, FreeCS, and Shipyard through equivalent
-public APIs. Each report has a fixed 37-row layout:
+[GitHub Actions run 30179149116](https://github.com/jz315/SkyECS/actions/runs/30179149116)
 
-- 10 Comparable rows
-- 20 Random Fragmentation rows
-- 6 Gameplay Scenario rows: full frame plus five phases
-- 1 Diagnostic row
+| Test | Scale / Mode | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Entity construction | Individual 10K | **303.595 µs** | 579.261 µs† | 674.912 µs | 587.618 µs | 926.500 µs† | 1.923 ms |
+| Entity construction | Native bulk 10K | 98.401 µs† | **13.407 µs** | 381.477 µs | 90.245 µs† | 294.031 µs | 186.128 µs† |
+| Entity operations | Spawn/despawn 1K | 53.246 µs | **47.814 µs** | 103.659 µs | 63.135 µs | 111.841 µs | 165.636 µs |
+| Entity operations | Add/remove component 1K | 108.509 µs | 109.488 µs | 161.058 µs | 142.036 µs | 222.387 µs | **74.846 µs** |
+| EntityId random access | Hot 10K | 17.827 µs | **16.669 µs** | 45.692 µs | 41.246 µs | 27.244 µs | 20.631 µs |
+| EntityId random access | Warm 100K | **300.135 µs** | 301.431 µs | 871.652 µs | 710.293 µs | 486.573 µs | 426.576 µs |
+| Prepared iteration | 10K | 8.173 µs | 8.188 µs | 9.674 µs | **8.100 µs** | 13.144 µs | 18.206 µs |
+| Prepared iteration | 100K | **81.144 µs** | 81.885 µs | 99.576 µs | 82.122 µs | 134.350 µs | 184.842 µs |
+| Prepared iteration | 1M | 832.267 µs | 855.464 µs | 1.112 ms† | **829.999 µs** | 1.360 ms | 1.865 ms |
+| Fragmented iteration | 26 × 400 | 1.160 µs | 4.459 µs | 7.750 µs | 1.265 µs | 988.421 ns | **923.137 ns** |
+| Gameplay | Full frame | **121.092 µs** | 147.955 µs | 211.859 µs | 140.657 µs | 189.282 µs | 328.011 µs |
 
-Fixed Sequence Access and API-candidate selection are local experiments and do
-not run in the GitHub performance workflow. See the
-[benchmark documentation](benches/BENCHMARKS.md) for the complete workload
-contract, report format, and reproduction commands.
+Lower is faster; `†` marks a noisy shared-runner result. See the
+[benchmark documentation](benches/BENCHMARKS.md) for the complete 37-row
+report, workload contract, and reproduction commands.
 
 
 ## Workspace
