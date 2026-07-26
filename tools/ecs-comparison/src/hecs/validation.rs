@@ -1,5 +1,7 @@
 use super::dense_iteration::world_with_entities;
-use super::entity_insertion::{insert_native_bulk, native_bulk_context, prepared_insert_world};
+use super::entity_insertion::{
+    bulk_construction_context, insert_bulk_from_columns, prepared_insert_world,
+};
 use super::fragmented_iteration::fragmented_world;
 use super::mixed_frame::{mixed_world, run_mixed_frame};
 use super::random_fragmented_iteration::{
@@ -37,13 +39,16 @@ pub fn validate_contract() {
 fn validate_construction() {
     let construction_inputs = distinct_suite_bundles(8);
     {
-        let mut context = native_bulk_context(crate::common::suite_columns_from_bundles(
+        let mut context = bulk_construction_context(crate::common::suite_columns_from_bundles(
             &construction_inputs,
         ));
         assert_eq!(context.world.len(), 0);
-        assert!(context.batch.is_some());
-        insert_native_bulk(&mut context);
-        assert!(context.batch.is_none());
+        assert_eq!(context.columns.0.len(), construction_inputs.len());
+        insert_bulk_from_columns(&mut context);
+        assert!(context.columns.0.is_empty());
+        assert!(context.columns.1.is_empty());
+        assert!(context.columns.2.is_empty());
+        assert!(context.columns.3.is_empty());
         assert_eq!(context.world.len(), construction_inputs.len() as u32);
         let mut actual = context
             .world

@@ -16,7 +16,7 @@ mod validation;
 
 pub use dense_iteration::{bench_iteration, bench_iteration_1m, bench_iteration_large};
 use entity_insertion::*;
-pub use entity_insertion::{bench_native_bulk, bench_single_insert};
+pub use entity_insertion::{bench_bulk_construction, bench_single_insert};
 pub use fragmented_iteration::bench_fragmented_iteration;
 pub use gameplay_frame::{bench_gameplay_frame, bench_gameplay_phases, validate_gameplay_contract};
 pub use heavy_compute::bench_heavy_compute;

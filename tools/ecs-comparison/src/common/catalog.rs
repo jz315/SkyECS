@@ -110,7 +110,7 @@ const fn random_without_freecs(
 
 pub const CANONICAL_BENCHMARKS: [BenchmarkSpec; 37] = [
     fixed("entity_construction/single_insert_10k", 10_000),
-    fixed("entity_construction/insert_10k", 10_000),
+    fixed("entity_construction/bulk_from_columns_10k", 10_000),
     fixed("prepared_iteration/simple_10k", 10_000),
     fixed("prepared_iteration_large/simple_100k", 100_000),
     fixed("prepared_iteration_1m/simple_1m", 1_000_000),
@@ -244,9 +244,10 @@ mod tests {
             Some(BenchmarkClass::GameplayScenario)
         );
         assert_eq!(
-            benchmark_class("entity_construction/insert_10k/sky"),
+            benchmark_class("entity_construction/bulk_from_columns_10k/sky"),
             Some(BenchmarkClass::Comparable)
         );
+        assert!(benchmark_spec("entity_construction/insert_10k").is_none());
         assert_eq!(
             CANONICAL_BENCHMARKS
                 .iter()

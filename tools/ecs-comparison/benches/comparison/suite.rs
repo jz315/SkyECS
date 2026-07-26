@@ -30,7 +30,7 @@ pub(crate) fn bench_construction(c: &mut Criterion) {
     let mut group = benchmark_group(c, "entity_construction");
     for engine in engine_order() {
         dispatch!(engine, bench_single_insert, &mut group);
-        dispatch!(engine, bench_native_bulk, &mut group);
+        dispatch!(engine, bench_bulk_construction, &mut group);
     }
     group.finish();
 }

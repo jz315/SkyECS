@@ -31,8 +31,8 @@ The GitHub Compare-ECS benchmark has four publication sections in this fixed
 order. Do not move a workload between sections merely to simplify the report.
 
 1. **Comparable** contains exactly these operation families:
-   - Entity construction: repeated single-entity construction at 10K and each
-     engine's fastest public native-bulk construction at 10K.
+   - Entity construction: repeated single-entity construction at 10K and bulk
+     construction from four neutral component columns at 10K.
    - Entity operations: spawn/despawn 1K and add/remove component 1K.
    - Sky-authored EntityId random access: hot 10K and warm 100K.
    - Prepared iteration: 10K, 100K, and 1M.
@@ -44,7 +44,7 @@ order. Do not move a workload between sections merely to simplify the report.
    similar wording to the benchmark name.
 3. **Gameplay Scenario** contains only the canonical gameplay workload:
    full frame, iteration, AI source lookup, target Position lookup, status
-   transition, and projectile recycle. Native bulk construction and
+   transition, and projectile recycle. Bulk construction and
    fixed-sequence access are not scenarios.
 4. **Diagnostic** contains heavy compute and any future explicitly diagnostic
    probes. Diagnostics do not participate in comparative wins.
@@ -74,7 +74,7 @@ for the exact operation and workload semantics. "Idiomatic", "simple", or
 
 - Enumerate all plausible public API candidates before adding or materially
   changing a workload. Include cached/prepared queries, component views or
-  accessors, native bulk operations, and batch structural operations when the
+  accessors, bulk-construction paths, and batch structural operations when the
   engine exposes them.
 - Compare candidates with the same fixture, mutation kernel, checksum, setup
   boundary, compiler flags, and completion semantics. Run four
@@ -101,14 +101,14 @@ universally fastest for an engine. They describe the required paths in the
 current harness; the evidence state determines whether a result may be
 published.
 
-| Adapter | Dense/prepared iteration | Entity/random access | Native bulk construction |
+| Adapter | Dense/prepared iteration | Entity/random access | Bulk construction from columns |
 |---|---|---|---|
 | Sky | `PreparedQuery::for_each_chunk_fn` for the simple dense kernel; gameplay retains the closure form because the provisional function winner did not clear the full-frame gate | `EntityAccessor<T>::get` for comparable EntityId access; `PreparedEntityAccess<T>::iter` for the local fixed-sequence experiment; `PreparedEntityView<Q>::get/get_mut` for arbitrary multi-component items | `World::spawn_columns` with prepared component columns |
-| hecs | Provisional: 10K/100K use `World::query_mut().into_iter_batched(u32::MAX)`; 1M uses prepared matching `Archetype::get` columns. Publication remains uncertified until the candidate bench is repeated on the publication target | `PreparedQuery::view_mut(...).get` / `get_mut` | `World::spawn_column_batch` with a completed `ColumnBatch` |
-| Flecs C | prepared `ecs_query_t` with `ecs_query_iter` / `ecs_query_next` and direct `ecs_field` columns | `ecs_ref_init_id` in permitted stable-identity setup plus `ecs_ref_get_id`; otherwise `ecs_get_id` / `ecs_get_mut_id`. Gameplay must use the latter because it reads `TargetSlot` and builds the target list each frame | `ecs_bulk_init` with sorted component IDs and prepared columns |
-| Bevy ECS | reusable `QueryState::iter_mut` | reusable `QueryState::get_manual` / `get_mut` | `World::spawn_batch` with prepared bundles |
-| Shipyard | borrowed `ViewMut`/`View` tuple with `IntoIter::iter` | borrowed `View<T>` / `ViewMut<T>` with `Get::get` | `World::bulk_add_entity` with prepared bundles |
-| FreeCS | warmed `World::for_each_mut(mask, ...)` | generated typed component getters such as `get_position` / `get_cooldown_mut` | `World::spawn_batch` with prepared component columns |
+| hecs | Provisional: 10K/100K use `World::query_mut().into_iter_batched(u32::MAX)`; 1M uses prepared matching `Archetype::get` columns. Publication remains uncertified until the candidate bench is repeated on the publication target | `PreparedQuery::view_mut(...).get` / `get_mut` | build and fill `ColumnBatch` in timing, then `World::spawn_column_batch` |
+| Flecs C | prepared `ecs_query_t` with `ecs_query_iter` / `ecs_query_next` and direct `ecs_field` columns | `ecs_ref_init_id` in permitted stable-identity setup plus `ecs_ref_get_id`; otherwise `ecs_get_id` / `ecs_get_mut_id`. Gameplay must use the latter because it reads `TargetSlot` and builds the target list each frame | build the per-batch descriptor in timing, then `ecs_bulk_init` |
+| Bevy ECS | reusable `QueryState::iter_mut` | reusable `QueryState::get_manual` / `get_mut` | drain neutral columns into `World::spawn_batch` |
+| Shipyard | borrowed `ViewMut`/`View` tuple with `IntoIter::iter` | borrowed `View<T>` / `ViewMut<T>` with `Get::get` | drain neutral columns into `World::bulk_add_entity` |
+| FreeCS | warmed `World::for_each_mut(mask, ...)` | generated typed component getters such as `get_position` / `get_cooldown_mut` | drain neutral columns inside `World::spawn_batch` |
 
 | Adapter | Gameplay component changes | Gameplay entity recycle |
 |---|---|---|
@@ -128,8 +128,8 @@ published.
 | Shipyard | borrowed `View<TargetSlot>` / `ViewMut<Cooldown>` tuple and `Get::get` (uncertified) | borrowed `View<Position>` and `Get::get` (uncertified) |
 | FreeCS | generated `get_target_slot` / `get_cooldown_mut` (uncertified) | generated `get_position` (uncertified) |
 
-The native-bulk construction workload has contract tests and explicit native
-prepared inputs.
+The bulk-construction workload has contract tests and starts every adapter from
+the same four neutral component columns.
 Sky API experiments live in `crates/sky_ecs/benches`; the canonical comparison
 contains only the selected paths and never chooses an API on a shared runner.
 Re-run `SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs_comparison --bench
@@ -202,27 +202,37 @@ reproduced with `cargo bench -p sky_ecs --bench random_access`.
 
 ## Entity Construction
 
-Repeated single-entity construction at 10K and native-bulk construction at 10K
-belong to the same Comparable Entity Construction family. Present them next to
-each other in one table. Native bulk measures each engine's fastest public bulk
-capability from an empty schema-prepared world and a fully prepared
-engine-native input batch.
+Repeated single-entity construction at 10K and bulk construction at 10K belong
+to the same Comparable Entity Construction family. Present them next to each
+other in one table. Bulk construction starts from an empty schema-prepared
+World and the same four neutral component `Vec`s for every adapter.
 
-| Adapter | Public path | Prepared input |
+Source-value generation and source-`Vec` allocation are setup work. The timed
+region must include every per-batch engine-native allocation, conversion,
+fill/finalize operation, insertion call, and required iterator/commit work.
+Consume source columns with `drain(..)` so their allocation is released with
+the benchmark context outside timing. A completed `hecs::ColumnBatch`, prepared
+bundle vector, or equivalent final engine storage must never be built before
+entering the timed region.
+
+| Adapter | Timed public path | Input at timing boundary |
 |---|---|---|
 | Sky | `World::spawn_columns` | four component `Vec`s |
-| hecs | `World::spawn_column_batch` | completed `hecs::ColumnBatch` |
-| Flecs C | `ecs_bulk_init` | sorted IDs and four C++ vectors |
-| Bevy ECS | `World::spawn_batch` | `Vec<SuiteBundle>` |
-| Shipyard | `World::bulk_add_entity` | `Vec<SuiteBundle>` |
-| FreeCS | `World::spawn_batch` | four consumed component columns |
+| hecs | `ColumnBatchType` + `into_batch` + all writers + `build` + `World::spawn_column_batch` | four component `Vec`s |
+| Flecs C | per-batch column mapping + `ecs_bulk_init` | four C++ component vectors |
+| Bevy ECS | drain zipped bundles into `World::spawn_batch` | four component `Vec`s |
+| Shipyard | drain zipped bundles into `World::bulk_add_entity` | four component `Vec`s |
+| FreeCS | `World::spawn_batch` with timed column writes | four component `Vec`s |
 
 Destroy the benchmark context after timing. Explicitly exhaust or drop returned
 iterators inside the measured closure when that action completes insertion.
 Keep `single_insert_10k` as the repeated single-spawn row and display it as
 "Individual construction 10K" or "逐实体构建 10K" so readers do not mistake
-the name for a single-entity benchmark. Do not add a separate derived speedup
-table for individual versus bulk construction.
+the name for a single-entity benchmark. Use
+`entity_construction/bulk_from_columns_10k` for the bulk row. Do not retain,
+publish, or move the former prebuilt-native-batch commit benchmark into a local
+or Diagnostic suite. Do not add a separate derived speedup table for individual
+versus bulk construction.
 
 ## Adapter and Native-Code Boundaries
 

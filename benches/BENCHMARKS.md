@@ -10,7 +10,7 @@ formal adapter uses the fastest supported path certified for that workload.
 | Test | Scale / Mode | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---|---:|---:|---:|---:|---:|---:|
 | Entity construction | Individual 10K | **303.595 µs** | 579.261 µs† | 674.912 µs | 587.618 µs | 926.500 µs† | 1.923 ms |
-| Entity construction | Native bulk 10K | 98.401 µs† | **13.407 µs** | 381.477 µs | 90.245 µs† | 294.031 µs | 186.128 µs† |
+| Entity construction | Bulk construction 10K | N/A | N/A | N/A | N/A | N/A | N/A |
 | Entity operations | Spawn/despawn 1K | 53.246 µs | **47.814 µs** | 103.659 µs | 63.135 µs | 111.841 µs | 165.636 µs |
 | Entity operations | Add/remove component 1K | 108.509 µs | 109.488 µs | 161.058 µs | 142.036 µs | 222.387 µs | **74.846 µs** |
 | EntityId random access | Hot 10K | 17.827 µs | **16.669 µs** | 45.692 µs | 41.246 µs | 27.244 µs | 20.631 µs |
@@ -100,3 +100,7 @@ cargo compare-ecs-publish
 The publisher runs release contracts before Criterion. Raw distributions,
 environment metadata, contracts, and compiler information remain in the linked
 GitHub Actions artifact.
+
+The Bulk construction timing contract now starts from neutral component columns
+and builds each engine-native batch inside the timed region. The former
+prebuilt-batch result is withdrawn pending a new complete formal run.

@@ -114,17 +114,21 @@ pub fn suite_columns_from_bundles(bundles: &[SuiteBundle]) -> SuiteColumns {
     (transforms, positions, rotations, velocities)
 }
 
-pub fn suite_columns_into_bundles(columns: SuiteColumns) -> Vec<SuiteBundle> {
+pub fn drain_suite_columns(
+    columns: &mut SuiteColumns,
+) -> impl ExactSizeIterator<Item = SuiteBundle> + '_ {
     let (transforms, positions, rotations, velocities) = columns;
+    assert_eq!(positions.len(), transforms.len());
+    assert_eq!(rotations.len(), transforms.len());
+    assert_eq!(velocities.len(), transforms.len());
     transforms
-        .into_iter()
-        .zip(positions)
-        .zip(rotations)
-        .zip(velocities)
+        .drain(..)
+        .zip(positions.drain(..))
+        .zip(rotations.drain(..))
+        .zip(velocities.drain(..))
         .map(|(((transform, position), rotation), velocity)| {
             (transform, position, rotation, velocity)
         })
-        .collect()
 }
 
 /// Construction-contract input with a different value in every row and column.

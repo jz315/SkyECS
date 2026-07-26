@@ -81,7 +81,7 @@ For larger workloads, replace serial iteration with `par_for_each` or
 | Test | Scale / Mode | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---|---:|---:|---:|---:|---:|---:|
 | Entity construction | Individual 10K | **303.595 µs** | 579.261 µs† | 674.912 µs | 587.618 µs | 926.500 µs† | 1.923 ms |
-| Entity construction | Native bulk 10K | 98.401 µs† | **13.407 µs** | 381.477 µs | 90.245 µs† | 294.031 µs | 186.128 µs† |
+| Entity construction | Bulk construction 10K | N/A | N/A | N/A | N/A | N/A | N/A |
 | Entity operations | Spawn/despawn 1K | 53.246 µs | **47.814 µs** | 103.659 µs | 63.135 µs | 111.841 µs | 165.636 µs |
 | Entity operations | Add/remove component 1K | 108.509 µs | 109.488 µs | 161.058 µs | 142.036 µs | 222.387 µs | **74.846 µs** |
 | EntityId random access | Hot 10K | 17.827 µs | **16.669 µs** | 45.692 µs | 41.246 µs | 27.244 µs | 20.631 µs |
@@ -92,7 +92,8 @@ For larger workloads, replace serial iteration with `par_for_each` or
 | Fragmented iteration | 26 × 400 | 1.160 µs | 4.459 µs | 7.750 µs | 1.265 µs | 988.421 ns | **923.137 ns** |
 | Gameplay | Full frame | **121.092 µs** | 147.955 µs | 211.859 µs | 140.657 µs | 189.282 µs | 328.011 µs |
 
-Lower is faster; `†` marks a noisy shared-runner result. See the
+Lower is faster; `†` marks a noisy shared-runner result and `N/A` marks the
+withdrawn bulk result pending a new formal run. See the
 [benchmark documentation](benches/BENCHMARKS.md) for the complete 37-row
 report, workload contract, and reproduction commands.
 

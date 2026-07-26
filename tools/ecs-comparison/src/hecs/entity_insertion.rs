@@ -5,12 +5,12 @@ pub(super) fn prepared_insert_world() -> World {
     World::new()
 }
 
-pub(super) struct NativeBulkContext {
+pub(super) struct BulkConstructionContext {
     pub world: World,
-    pub batch: Option<ColumnBatch>,
+    pub columns: SuiteColumns,
 }
 
-pub(super) fn build_column_batch(columns: SuiteColumns) -> ColumnBatch {
+pub(super) fn build_column_batch(columns: &mut SuiteColumns) -> ColumnBatch {
     let (transforms, positions, rotations, velocities) = columns;
     let count = transforms.len();
     assert_eq!(positions.len(), count);
@@ -25,25 +25,25 @@ pub(super) fn build_column_batch(columns: SuiteColumns) -> ColumnBatch {
     let builder = batch_type.into_batch(count as u32);
     {
         let mut writer = builder.writer::<TransformComponent>().unwrap();
-        for value in transforms {
+        for value in transforms.drain(..) {
             assert!(writer.push(value).is_ok());
         }
     }
     {
         let mut writer = builder.writer::<PositionComponent>().unwrap();
-        for value in positions {
+        for value in positions.drain(..) {
             assert!(writer.push(value).is_ok());
         }
     }
     {
         let mut writer = builder.writer::<RotationComponent>().unwrap();
-        for value in rotations {
+        for value in rotations.drain(..) {
             assert!(writer.push(value).is_ok());
         }
     }
     {
         let mut writer = builder.writer::<VelocityComponent>().unwrap();
-        for value in velocities {
+        for value in velocities.drain(..) {
             assert!(writer.push(value).is_ok());
         }
     }
@@ -52,23 +52,23 @@ pub(super) fn build_column_batch(columns: SuiteColumns) -> ColumnBatch {
         .expect("all native batch columns are complete")
 }
 
-pub(super) fn native_bulk_context(columns: SuiteColumns) -> NativeBulkContext {
-    NativeBulkContext {
+pub(super) fn bulk_construction_context(columns: SuiteColumns) -> BulkConstructionContext {
+    BulkConstructionContext {
         world: prepared_insert_world(),
-        batch: Some(build_column_batch(columns)),
+        columns,
     }
 }
 
-pub(super) fn insert_native_bulk(context: &mut NativeBulkContext) {
-    let batch = context.batch.take().expect("native batch is consumed once");
+pub(super) fn insert_bulk_from_columns(context: &mut BulkConstructionContext) {
+    let batch = build_column_batch(&mut context.columns);
     drop(context.world.spawn_column_batch(batch));
 }
-pub fn bench_native_bulk(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("insert_10k/hecs", |b| {
+pub fn bench_bulk_construction(group: &mut BenchmarkGroup<'_, WallTime>) {
+    group.bench_function("bulk_from_columns_10k/hecs", |b| {
         b.iter_batched_ref(
-            || native_bulk_context(suite_columns(SIMPLE_ENTITY_COUNT)),
+            || bulk_construction_context(suite_columns(SIMPLE_ENTITY_COUNT)),
             |context| {
-                insert_native_bulk(context);
+                insert_bulk_from_columns(context);
                 black_box(&context.world);
             },
             BatchSize::SmallInput,

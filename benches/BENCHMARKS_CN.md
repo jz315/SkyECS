@@ -10,7 +10,7 @@ Compare-ECS 使用语义等价的公开 API 测量六个 ECS 库。每一种正�
 | 测试 | 规模/方式 | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---|---:|---:|---:|---:|---:|---:|
 | 实体构建 | 逐实体构建 10K | **303.595 µs** | 579.261 µs† | 674.912 µs | 587.618 µs | 926.500 µs† | 1.923 ms |
-| 实体构建 | Native bulk 10K | 98.401 µs† | **13.407 µs** | 381.477 µs | 90.245 µs† | 294.031 µs | 186.128 µs† |
+| 实体构建 | Bulk construction 10K | N/A | N/A | N/A | N/A | N/A | N/A |
 | 实体操作 | Spawn/despawn 1K | 53.246 µs | **47.814 µs** | 103.659 µs | 63.135 µs | 111.841 µs | 165.636 µs |
 | 实体操作 | Add/remove component 1K | 108.509 µs | 109.488 µs | 161.058 µs | 142.036 µs | 222.387 µs | **74.846 µs** |
 | EntityId 随机访问 | Hot 10K | 17.827 µs | **16.669 µs** | 45.692 µs | 41.246 µs | 27.244 µs | 20.631 µs |
@@ -99,3 +99,6 @@ cargo compare-ecs-publish
 
 Publisher 会在 Criterion 前执行 release contracts。原始分布、环境、
 contracts 和编译器信息保留在上方链接对应的 GitHub Actions artifact 中。
+
+Bulk construction 的计时合同已经更新为从统一组件列开始，并在计时区内构建
+各引擎的原生 batch。旧预构建 batch 数据已撤销，等待新的完整正式测试。

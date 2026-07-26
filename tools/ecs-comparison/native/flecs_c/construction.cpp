@@ -119,7 +119,12 @@ Context* create_context() {
     return context;
 }
 
-const ecs_entity_t* insert_bulk(Context& context, std::size_t entity_count) {
+const ecs_entity_t* insert_bulk_from_columns(
+    Context& context,
+    std::size_t entity_count) {
+    // Rebuild the per-batch native column mapping inside the measured path.
+    // Component registration and source-column generation remain setup work.
+    prepare_bulk_columns(context);
     ecs_bulk_desc_t descriptor{};
     descriptor.count = static_cast<std::int32_t>(entity_count);
     std::copy(context.bulk_ids.begin(), context.bulk_ids.end(), descriptor.ids);
@@ -147,8 +152,9 @@ ecs_entity_t insert_one(
     return entity;
 }
 
-std::uint64_t bulk_insert_10k(Context& context) {
-    const ecs_entity_t* entities = insert_bulk(context, ENTITY_COUNT);
+std::uint64_t bulk_from_columns_10k(Context& context) {
+    const ecs_entity_t* entities =
+        insert_bulk_from_columns(context, ENTITY_COUNT);
     return entities[ENTITY_COUNT - 1];
 }
 
@@ -229,8 +235,8 @@ bool validate_bulk() {
     }
     bool valid = has_no_workload_entities(*context);
     assign_distinct_input(*context, CONTRACT_ENTITY_COUNT);
-    prepare_bulk_columns(*context);
-    const ecs_entity_t* entities = insert_bulk(*context, CONTRACT_ENTITY_COUNT);
+    const ecs_entity_t* entities =
+        insert_bulk_from_columns(*context, CONTRACT_ENTITY_COUNT);
     valid = valid && entities != nullptr;
     for (std::size_t index = 0; valid && index < CONTRACT_ENTITY_COUNT; ++index) {
         valid = entity_matches_input(*context, entities[index], index);
@@ -276,8 +282,8 @@ void sky_flecs_c_insert_delete(void* context) {
     delete static_cast<ConstructionContext*>(context);
 }
 
-std::uint64_t sky_flecs_c_bulk_insert(void* context) {
-    return sky_ecs_bench::flecs_c::construction::bulk_insert_10k(
+std::uint64_t sky_flecs_c_bulk_from_columns(void* context) {
+    return sky_ecs_bench::flecs_c::construction::bulk_from_columns_10k(
         *static_cast<ConstructionContext*>(context));
 }
 

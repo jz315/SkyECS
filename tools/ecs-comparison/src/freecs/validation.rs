@@ -1,7 +1,7 @@
 use super::dense_iteration::world_with_entities;
 use super::entity_insertion::{
-    insert_native_bulk, native_bulk_context, prepared_insert_world, spawn_suite_bundle, World,
-    A_MASK, B_MASK, C_MASK, DATA_MASK, D_MASK, E_MASK, F_MASK, G_MASK, HEALTH_MASK, H_MASK,
+    bulk_construction_context, insert_bulk_from_columns, prepared_insert_world, spawn_suite_bundle,
+    World, A_MASK, B_MASK, C_MASK, DATA_MASK, D_MASK, E_MASK, F_MASK, G_MASK, HEALTH_MASK, H_MASK,
     MOVE_MASK, POSITION_MASK, SUITE_MASK, TAG_A_MASK, TAG_B_MASK, TAG_C_MASK, TAG_D_MASK,
     TAG_E_MASK, TAG_F_MASK, TAG_G_MASK, TAG_H_MASK,
 };
@@ -40,11 +40,11 @@ pub fn validate_contract() {
 fn validate_construction() {
     let construction_bundles = distinct_suite_bundles(8);
     {
-        let mut context = native_bulk_context(crate::common::suite_columns_from_bundles(
+        let mut context = bulk_construction_context(crate::common::suite_columns_from_bundles(
             &construction_bundles,
         ));
         assert_eq!(context.world.entity_count(), 0);
-        insert_native_bulk(&mut context);
+        insert_bulk_from_columns(&mut context);
         assert_eq!(context.entities.len(), construction_bundles.len());
         assert!(context.columns.0.is_empty());
         assert!(context.columns.1.is_empty());

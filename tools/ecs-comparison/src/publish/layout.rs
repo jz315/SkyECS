@@ -17,9 +17,9 @@ const COMPARABLE_ROWS: [DisplayRow; 10] = [
         variant: "Individual 10K",
     },
     DisplayRow {
-        family: "entity_construction/insert_10k",
+        family: "entity_construction/bulk_from_columns_10k",
         test: "Entity construction",
-        variant: "Native bulk 10K",
+        variant: "Bulk construction 10K",
     },
     DisplayRow {
         family: "entity_ops/spawn_despawn_1k",
@@ -432,6 +432,8 @@ mod tests {
         assert!(markdown.contains("## Random Fragmentation"));
         assert!(markdown.contains("## Gameplay Scenario"));
         assert!(markdown.contains("| Entity construction | Individual 10K |"));
+        assert!(markdown.contains("| Entity construction | Bulk construction 10K |"));
+        assert!(!markdown.contains("Native bulk"));
         assert!(markdown.contains("| Full frame |"));
         assert!(markdown.contains("N/A"));
         assert!(!markdown.contains("Fixed Sequence"));

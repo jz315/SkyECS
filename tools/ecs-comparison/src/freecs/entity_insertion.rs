@@ -94,21 +94,21 @@ pub(super) fn prepared_insert_world() -> World {
     World::default()
 }
 
-pub(super) struct NativeBulkContext {
+pub(super) struct BulkConstructionContext {
     pub world: World,
     pub columns: SuiteColumns,
     pub entities: Vec<Entity>,
 }
 
-pub(super) fn native_bulk_context(columns: SuiteColumns) -> NativeBulkContext {
-    NativeBulkContext {
+pub(super) fn bulk_construction_context(columns: SuiteColumns) -> BulkConstructionContext {
+    BulkConstructionContext {
         world: prepared_insert_world(),
         columns,
         entities: Vec::new(),
     }
 }
 
-pub(super) fn insert_native_bulk(context: &mut NativeBulkContext) {
+pub(super) fn insert_bulk_from_columns(context: &mut BulkConstructionContext) {
     let count = context.columns.0.len();
     assert_eq!(context.columns.1.len(), count);
     assert_eq!(context.columns.2.len(), count);
@@ -157,12 +157,12 @@ pub(super) fn spawn_suite_bundle(world: &mut World, bundle: SuiteBundle) -> Enti
         .pop()
         .expect("FreeCS should return the spawned entity")
 }
-pub fn bench_native_bulk(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.bench_function("insert_10k/freecs", |b| {
+pub fn bench_bulk_construction(group: &mut BenchmarkGroup<'_, WallTime>) {
+    group.bench_function("bulk_from_columns_10k/freecs", |b| {
         b.iter_batched_ref(
-            || native_bulk_context(suite_columns(SIMPLE_ENTITY_COUNT)),
+            || bulk_construction_context(suite_columns(SIMPLE_ENTITY_COUNT)),
             |context| {
-                insert_native_bulk(context);
+                insert_bulk_from_columns(context);
                 black_box(&context.entities);
                 black_box(&context.world);
             },
