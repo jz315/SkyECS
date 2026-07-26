@@ -17,8 +17,9 @@ All notable changes to this project are documented here.
   inside ordinary systems.
 - Added a dedicated column-base epoch, explicit route-table shrinking, and
   route-cache diagnostics while preserving live `ChunkId` values.
-- Allowed distinct Rust `TypeId` values to share a registered type name, expose
-  all ambiguous matches, and keep opaque dynamic names unique.
+- Published `sky_type` 0.1.2, allowing distinct Rust `TypeId` values to share a
+  registered type name, exposing all ambiguous matches, and keeping opaque
+  dynamic names unique.
 - Kept prepared-query hot match lists limited to currently active archetype
   storages while retaining incremental signature matching.
 - Returned explicit errors for over-wide dynamic bundles and queries, and stored
