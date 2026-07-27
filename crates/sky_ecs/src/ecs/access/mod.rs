@@ -1,4 +1,5 @@
 mod entity;
+mod entity_records;
 mod entity_view;
 mod prepared;
 mod routes;
@@ -9,4 +10,5 @@ pub use entity_view::EntityViewCacheStats;
 pub use entity_view::{BoundEntityView, BoundEntityViewMut, PreparedEntityView};
 pub use prepared::{PrepareAccessError, PreparedEntityAccess, PreparedEntityAccessMut};
 
+pub(crate) use entity_records::EntityRouteView;
 pub(crate) use entity_view::EntityViewCache;

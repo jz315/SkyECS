@@ -1,3 +1,4 @@
+use super::entity_records::EntityRouteView;
 use crate::ecs::{component_type, EntityId, World};
 use core::ptr::NonNull;
 
@@ -48,11 +49,11 @@ impl<T: 'static> ComponentRoutes<T> {
     #[inline(always)]
     pub(super) fn resolve(
         &self,
-        world: &World,
+        entity_routes: EntityRouteView<'_>,
         entity: EntityId,
     ) -> Result<NonNull<T>, ResolveError> {
-        let route = world
-            .entity_route(entity)
+        let route = entity_routes
+            .resolve(entity)
             .ok_or(ResolveError::InvalidEntity)?;
 
         let column = unsafe {

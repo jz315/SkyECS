@@ -1,7 +1,7 @@
+use super::entity_records::EntityRouteView;
 use super::routes::ComponentRoutes;
 use crate::ecs::{EntityId, World};
 use core::marker::PhantomData;
-use core::ptr::NonNull;
 
 /// A read-only component accessor bound to one [`World`].
 ///
@@ -15,14 +15,14 @@ use core::ptr::NonNull;
 /// [`World::prepare_access`]. For occasional lookups, prefer [`World::get`].
 #[must_use = "entity accessors do nothing until get is called"]
 pub struct EntityAccessor<'w, T> {
-    world: &'w World,
+    entity_routes: EntityRouteView<'w>,
     routes: ComponentRoutes<T>,
 }
 
 impl<'w, T: 'static> EntityAccessor<'w, T> {
     pub(crate) fn new(world: &'w World) -> Self {
         Self {
-            world,
+            entity_routes: EntityRouteView::new(world),
             routes: ComponentRoutes::new(world),
         }
     }
@@ -33,7 +33,7 @@ impl<'w, T: 'static> EntityAccessor<'w, T> {
     /// archetype does not contain `T`.
     #[inline(always)]
     pub fn get(&self, entity: EntityId) -> Option<&'w T> {
-        let pointer = self.routes.resolve(self.world, entity).ok()?;
+        let pointer = self.routes.resolve(self.entity_routes, entity).ok()?;
         Some(unsafe {
             // The pointer was resolved from this live, immutably borrowed
             // World and therefore remains initialized and stable for 'w.
@@ -51,18 +51,18 @@ impl<'w, T: 'static> EntityAccessor<'w, T> {
 /// the accessor.
 #[must_use = "entity accessors do nothing until get_mut is called"]
 pub struct EntityAccessorMut<'w, T> {
-    world: NonNull<World>,
+    entity_routes: EntityRouteView<'w>,
     routes: ComponentRoutes<T>,
     marker: PhantomData<&'w mut World>,
 }
 
 impl<'w, T: 'static> EntityAccessorMut<'w, T> {
     pub(crate) fn new(world: &'w mut World) -> Self {
+        let entity_routes = EntityRouteView::new(world);
         let routes = ComponentRoutes::new(world);
-        let world = NonNull::from(world);
 
         Self {
-            world,
+            entity_routes,
             routes,
             marker: PhantomData,
         }
@@ -74,12 +74,7 @@ impl<'w, T: 'static> EntityAccessorMut<'w, T> {
     /// archetype does not contain `T`.
     #[inline(always)]
     pub fn get_mut(&mut self, entity: EntityId) -> Option<&mut T> {
-        let world = unsafe {
-            // `marker` retains the exclusive World borrow for 'w, so the World
-            // remains alive and no safe structural operation can run.
-            self.world.as_ref()
-        };
-        let pointer = self.routes.resolve(world, entity).ok()?;
+        let pointer = self.routes.resolve(self.entity_routes, entity).ok()?;
 
         Some(unsafe {
             // The exclusive accessor borrow prevents another component

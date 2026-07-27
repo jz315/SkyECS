@@ -65,6 +65,26 @@ fn queue_spawn(mut commands: Commands<'_>) {
     commands.spawn((Position(7.0),));
 }
 
+struct StableEntity(EntityId);
+
+#[derive(Default)]
+struct StableEntityObservations(usize);
+
+fn queue_entity_record_growth(mut commands: Commands<'_>) {
+    for value in 0..128 {
+        commands.spawn((Position(value as f32),));
+    }
+}
+
+fn observe_stable_entity_after_growth(
+    target: Res<StableEntity>,
+    positions: EntityView<&'static Position>,
+    mut observations: ResMut<StableEntityObservations>,
+) {
+    assert_eq!(positions.get(target.0), Some(&Position(3.0)));
+    observations.0 += 1;
+}
+
 #[test]
 fn typed_system_reads_and_writes_components() {
     let mut world = World::new();
@@ -226,6 +246,27 @@ fn commands_apply_at_stage_boundary() {
     assert_eq!(system.commands.last_discarded, 0);
     assert_eq!(system.commands.total_enqueued, 1);
     assert_eq!(system.commands.total_applied, 1);
+}
+
+#[test]
+fn scheduled_entity_view_reacquires_records_after_stage_commands() {
+    let mut world = World::new();
+    let stable = world.spawn((Position(3.0),));
+    world.insert_resource(StableEntity(stable));
+    world.insert_resource(StableEntityObservations::default());
+    world.stage(Update).add(queue_entity_record_growth);
+    world
+        .stage(PostUpdate)
+        .add(observe_stable_entity_after_growth);
+
+    world.tick_with_delta(0.0).unwrap();
+    world.tick_with_delta(0.0).unwrap();
+
+    assert_eq!(world.entity_count(), 257);
+    assert_eq!(
+        world.get_resource::<StableEntityObservations>().unwrap().0,
+        2
+    );
 }
 
 #[test]

@@ -69,6 +69,16 @@ pub(crate) struct EntityRecord {
 
 impl EntityRecord {
     #[inline(always)]
+    pub(crate) fn resolve(records: &[Self], entity: EntityId) -> Option<EntityRoute> {
+        let record = records.get(entity.index() as usize)?;
+        if record.generation != entity.generation() {
+            return None;
+        }
+
+        record.route()
+    }
+
+    #[inline(always)]
     pub(crate) fn vacant(generation: u32) -> Self {
         Self {
             generation,

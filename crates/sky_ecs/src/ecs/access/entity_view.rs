@@ -1,9 +1,11 @@
+use super::entity_records::EntityRouteView;
+use crate::ecs::entity::EntityRoute;
 use crate::ecs::{
     resolve_column_ptr, EntityId, PreparedCache, QueryDescriptor, QuerySpec, ReadOnlyQuerySpec,
     World,
 };
 use core::marker::PhantomData;
-use core::ptr::{self, NonNull};
+use core::ptr;
 use std::sync::Arc;
 
 /// Diagnostic counters for a prepared entity-view route cache.
@@ -103,12 +105,7 @@ impl<Q: QuerySpec> EntityViewCache<Q> {
     }
 
     #[inline(always)]
-    pub(crate) fn row<'a>(
-        &'a self,
-        world: &World,
-        entity: EntityId,
-    ) -> Option<(&'a [*mut u8], usize)> {
-        let route = world.entity_route(entity)?;
+    pub(crate) fn row(&self, route: EntityRoute) -> Option<(&[*mut u8], usize)> {
         let route_index = route.chunk_id.index();
         if unsafe {
             // SAFETY: prepare sizes matched_routes to this World's complete
@@ -181,7 +178,7 @@ impl<Q: QuerySpec> PreparedEntityView<Q> {
     pub fn bind_mut<'s, 'w>(&'s mut self, world: &'w mut World) -> BoundEntityViewMut<'s, 'w, Q> {
         self.cache.prepare(world);
         BoundEntityViewMut {
-            world: NonNull::from(world),
+            entity_routes: EntityRouteView::new(world),
             cache: &self.cache,
             world_marker: PhantomData,
         }
@@ -194,7 +191,7 @@ impl<Q: ReadOnlyQuerySpec> PreparedEntityView<Q> {
     pub fn bind<'s, 'w>(&'s mut self, world: &'w World) -> BoundEntityView<'s, 'w, Q> {
         self.cache.prepare(world);
         BoundEntityView {
-            world,
+            entity_routes: EntityRouteView::new(world),
             cache: &self.cache,
         }
     }
@@ -203,7 +200,7 @@ impl<Q: ReadOnlyQuerySpec> PreparedEntityView<Q> {
 /// A read-only prepared entity view bound to one world.
 #[must_use = "bound entity views do nothing until get is called"]
 pub struct BoundEntityView<'s, 'w, Q> {
-    world: &'w World,
+    entity_routes: EntityRouteView<'w>,
     cache: &'s EntityViewCache<Q>,
 }
 
@@ -225,7 +222,8 @@ impl<Q: ReadOnlyQuerySpec> BoundEntityView<'_, '_, Q> {
     /// ```
     #[inline(always)]
     pub fn get<'a>(&'a self, entity: EntityId) -> Option<Q::Item<'a>> {
-        let (pointers, entity_index) = self.cache.row(self.world, entity)?;
+        let route = self.entity_routes.resolve(entity)?;
+        let (pointers, entity_index) = self.cache.row(route)?;
         Some(unsafe {
             // SAFETY: prepare wrote the descriptor-matched columns for this
             // live route. The shared bound World prevents pointer relocation
@@ -238,7 +236,7 @@ impl<Q: ReadOnlyQuerySpec> BoundEntityView<'_, '_, Q> {
 /// An exclusive prepared entity view bound to one world.
 #[must_use = "bound mutable entity views do nothing until get_mut is called"]
 pub struct BoundEntityViewMut<'s, 'w, Q> {
-    world: NonNull<World>,
+    entity_routes: EntityRouteView<'w>,
     cache: &'s EntityViewCache<Q>,
     world_marker: PhantomData<&'w mut World>,
 }
@@ -263,13 +261,8 @@ impl<Q: QuerySpec> BoundEntityViewMut<'_, '_, Q> {
     /// ```
     #[inline(always)]
     pub fn get_mut<'a>(&'a mut self, entity: EntityId) -> Option<Q::Item<'a>> {
-        let world = unsafe {
-            // SAFETY: world_marker retains the exclusive World borrow. This
-            // temporary shared access is used only to copy route metadata and
-            // ends before any component reference is constructed.
-            self.world.as_ref()
-        };
-        let (pointers, entity_index) = self.cache.row(world, entity)?;
+        let route = self.entity_routes.resolve(entity)?;
+        let (pointers, entity_index) = self.cache.row(route)?;
         Some(unsafe {
             // SAFETY: bind_mut exclusively borrows the World, prepare wrote
             // every descriptor-matched pointer, and this method's mutable
@@ -323,6 +316,35 @@ mod tests {
         let second = world.spawn((Position(2),));
         assert!(world.despawn(first));
         assert_eq!(prepared.bind(&world).get(second), Some(&Position(2)));
+        assert_eq!(prepared.cache_stats().rebuild_count, 1);
+    }
+
+    #[test]
+    fn bind_reacquires_reallocated_entity_records_without_rebuilding_routes() {
+        let mut world = World::new();
+        let first = world.spawn((Position(1),));
+        let mut prepared = PreparedEntityView::<&Position>::new();
+
+        let initial_records = {
+            let bound = prepared.bind(&world);
+            assert_eq!(bound.get(first), Some(&Position(1)));
+            bound.entity_routes.as_ptr()
+        };
+        let initial_column_base_epoch = world.column_base_epoch();
+        assert_eq!(prepared.cache_stats().rebuild_count, 1);
+
+        let newest = loop {
+            let entity = world.spawn((Position(2),));
+            if EntityRouteView::new(&world).as_ptr() != initial_records {
+                break entity;
+            }
+        };
+
+        assert_eq!(world.column_base_epoch(), initial_column_base_epoch);
+        let bound = prepared.bind(&world);
+        assert_ne!(bound.entity_routes.as_ptr(), initial_records);
+        assert_eq!(bound.get(first), Some(&Position(1)));
+        assert_eq!(bound.get(newest), Some(&Position(2)));
         assert_eq!(prepared.cache_stats().rebuild_count, 1);
     }
 

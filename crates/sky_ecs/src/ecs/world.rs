@@ -352,12 +352,12 @@ impl World {
 
     #[inline(always)]
     pub(crate) fn entity_route(&self, entity: EntityId) -> Option<EntityRoute> {
-        let record = self.entities.get(entity.index() as usize)?;
-        if record.generation != entity.generation() {
-            return None;
-        }
+        EntityRecord::resolve(&self.entities, entity)
+    }
 
-        record.route()
+    #[inline(always)]
+    pub(crate) fn entity_records(&self) -> &[EntityRecord] {
+        &self.entities
     }
 
     #[inline(always)]

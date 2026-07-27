@@ -1,7 +1,7 @@
 use super::access::AccessSet;
 use super::cell::{SystemParamContext, UnsafeWorldCell};
 use super::stage::ScheduleError;
-use crate::ecs::access::EntityViewCache;
+use crate::ecs::access::{EntityRouteView, EntityViewCache};
 use crate::ecs::query::{
     count_matches, matches_nothing, par_for_each, par_for_each_chunk,
     par_for_each_chunk_with_entities, par_for_each_with_entity, prepare_job_cache,
@@ -475,18 +475,11 @@ where
 /// structurally frozen stage execution and retained across frames.
 #[must_use = "entity views do nothing until get or get_mut is called"]
 pub struct EntityView<'w, Q: QuerySpec> {
-    world: UnsafeWorldCell<'w>,
+    entity_routes: EntityRouteView<'w>,
     cache: &'w EntityViewCache<Q>,
 }
 
 impl<Q: QuerySpec> EntityView<'_, Q> {
-    #[inline(always)]
-    fn world(&self) -> &World {
-        // SAFETY: EntityView is constructed only by SystemParam::get for the
-        // live scheduler invocation and cannot outlive that invocation.
-        unsafe { self.world.world() }
-    }
-
     /// Returns all requested components for a live matching entity.
     ///
     /// The returned item is tied to this mutable view borrow, so safe code
@@ -504,7 +497,8 @@ impl<Q: QuerySpec> EntityView<'_, Q> {
     /// ```
     #[inline(always)]
     pub fn get_mut<'a>(&'a mut self, entity: EntityId) -> Option<Q::Item<'a>> {
-        let (pointers, entity_index) = self.cache.row(self.world(), entity)?;
+        let route = self.entity_routes.resolve(entity)?;
+        let (pointers, entity_index) = self.cache.row(route)?;
         Some(unsafe {
             // SAFETY: scheduler preparation resolved Q's descriptor-matched
             // columns, the registered access set grants this system every
@@ -522,7 +516,8 @@ impl<Q: ReadOnlyQuerySpec> EntityView<'_, Q> {
     /// `Some(None)` or `Some((None, None))` when optional components are absent.
     #[inline(always)]
     pub fn get<'a>(&'a self, entity: EntityId) -> Option<Q::Item<'a>> {
-        let (pointers, entity_index) = self.cache.row(self.world(), entity)?;
+        let route = self.entity_routes.resolve(entity)?;
+        let (pointers, entity_index) = self.cache.row(route)?;
         Some(unsafe {
             // SAFETY: scheduler preparation resolved Q's descriptor-matched
             // columns and registered read access keeps them live and shared
@@ -565,8 +560,14 @@ where
         state: &'w mut Self::State,
         _context: SystemParamContext<'w>,
     ) -> Self::Item<'w> {
+        let entity_routes = EntityRouteView::new(unsafe {
+            // SAFETY: the scheduler constructs this parameter for one live
+            // invocation while World structure is frozen. The returned slice
+            // is read-only and cannot outlive that invocation.
+            world.world()
+        });
         EntityView {
-            world,
+            entity_routes,
             cache: &state.cache,
         }
     }

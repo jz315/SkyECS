@@ -1,3 +1,4 @@
+use super::entity_records::EntityRouteView;
 use super::routes::{ComponentRoutes, ResolveError};
 use crate::ecs::{EntityId, World};
 use core::fmt;
@@ -72,12 +73,13 @@ fn prepare_pointers<T: 'static>(
     world: &World,
     entities: &[EntityId],
 ) -> Result<Box<[NonNull<T>]>, PrepareAccessError> {
+    let entity_routes = EntityRouteView::new(world);
     let routes = ComponentRoutes::<T>::new(world);
     let mut pointers = Vec::with_capacity(entities.len());
     for (index, &entity) in entities.iter().enumerate() {
         pointers.push(
             routes
-                .resolve(world, entity)
+                .resolve(entity_routes, entity)
                 .map_err(|error| resolve_error(index, entity, error))?,
         );
     }
@@ -88,6 +90,7 @@ fn prepare_unique_pointers<T: 'static>(
     world: &World,
     entities: &[EntityId],
 ) -> Result<Box<[NonNull<T>]>, PrepareAccessError> {
+    let entity_routes = EntityRouteView::new(world);
     let routes = ComponentRoutes::<T>::new(world);
     let mut pointers = Vec::with_capacity(entities.len());
     let mut first_indices = FxHashMap::default();
@@ -95,7 +98,7 @@ fn prepare_unique_pointers<T: 'static>(
 
     for (index, &entity) in entities.iter().enumerate() {
         let pointer = routes
-            .resolve(world, entity)
+            .resolve(entity_routes, entity)
             .map_err(|error| resolve_error(index, entity, error))?;
         if let Some(&first_index) = first_indices.get(&entity) {
             return Err(PrepareAccessError::DuplicateEntity {
