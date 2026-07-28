@@ -169,7 +169,7 @@ fn certify() {
             PositionCandidate::PreparedEntityAccessor,
             PositionCandidate::PreparedEntityView,
         ],
-        PositionCandidate::EntityAccessor,
+        PositionCandidate::PreparedEntityAccessor,
         measure_position_candidate,
     );
     let incumbent = FrameCandidateSelection::PRODUCTION;

@@ -35,7 +35,7 @@ impl FrameCandidateSelection {
     pub const PRODUCTION: Self = Self {
         iteration: IterationCandidate::Closure,
         ai: AiCandidate::PreparedEntityView,
-        position: PositionCandidate::EntityAccessor,
+        position: PositionCandidate::PreparedEntityAccessor,
     };
 }
 

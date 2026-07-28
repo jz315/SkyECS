@@ -1,0 +1,666 @@
+{
+  "metadata": {
+    "source_revision": "f10021d800e909b0a691b4d2069d2a15e701a3c0",
+    "cpu": "Intel64 Family 6 Model 151 Stepping 2, GenuineIntel",
+    "os": "windows-x86_64",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: x86_64-pc-windows-msvc\nrelease: 1.96.0\nLLVM version: 22.1.2",
+    "rustflags": "",
+    "profile": "bench",
+    "command": "SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs_comparison --bench api_candidates --features api-experiments -- sky"
+  },
+  "contract": "canonical 65,536-entity, 32+-shape, 256-frame five-phase gameplay trace; only the selected phase is timed",
+  "iteration": {
+    "incumbent": "chunk closure",
+    "comparisons": [
+      {
+        "first": "chunk closure",
+        "second": "chunk function",
+        "rounds": [
+          {
+            "first_ns": 46129.296875,
+            "second_ns": 47529.296875,
+            "second_ba_ns": 44534.765625,
+            "first_ba_ns": 56846.875,
+            "ratio": 1.1130416986036067
+          },
+          {
+            "first_ns": 43141.796875,
+            "second_ns": 41579.296875,
+            "second_ba_ns": 39482.03125,
+            "first_ba_ns": 63387.890625,
+            "ratio": 1.2906662400485074
+          },
+          {
+            "first_ns": 45507.8125,
+            "second_ns": 52429.296875,
+            "second_ba_ns": 39509.765625,
+            "first_ba_ns": 53062.890625,
+            "ratio": 1.0796902732959786
+          },
+          {
+            "first_ns": 39126.953125,
+            "second_ns": 50678.125,
+            "second_ba_ns": 60882.421875,
+            "first_ba_ns": 41827.734375,
+            "ratio": 0.7283061151052422
+          },
+          {
+            "first_ns": 55448.828125,
+            "second_ns": 42098.046875,
+            "second_ba_ns": 55441.796875,
+            "first_ba_ns": 38359.765625,
+            "ratio": 0.9546288083486223
+          },
+          {
+            "first_ns": 46448.046875,
+            "second_ns": 41952.34375,
+            "second_ba_ns": 52961.328125,
+            "first_ba_ns": 57418.75,
+            "ratio": 1.0956025823649223
+          },
+          {
+            "first_ns": 39610.15625,
+            "second_ns": 47136.328125,
+            "second_ba_ns": 48073.046875,
+            "first_ba_ns": 43003.515625,
+            "ratio": 0.8670148979157063
+          },
+          {
+            "first_ns": 40816.796875,
+            "second_ns": 62708.59375,
+            "second_ba_ns": 41967.1875,
+            "first_ba_ns": 40273.4375,
+            "ratio": 0.7903334194420559
+          },
+          {
+            "first_ns": 41636.71875,
+            "second_ns": 41337.890625,
+            "second_ba_ns": 38573.828125,
+            "first_ba_ns": 55903.515625,
+            "ratio": 1.2081956901771247
+          },
+          {
+            "first_ns": 39542.578125,
+            "second_ns": 38223.4375,
+            "second_ba_ns": 55145.3125,
+            "first_ba_ns": 38671.484375,
+            "ratio": 0.8517433277700477
+          },
+          {
+            "first_ns": 38869.53125,
+            "second_ns": 44282.421875,
+            "second_ba_ns": 44073.828125,
+            "first_ba_ns": 46437.109375,
+            "ratio": 0.9616812998570501
+          },
+          {
+            "first_ns": 55184.375,
+            "second_ns": 59940.625,
+            "second_ba_ns": 58612.890625,
+            "first_ba_ns": 38595.703125,
+            "ratio": 0.7786106488467347
+          }
+        ],
+        "decision": "order_neutral_median_fallback",
+        "winner": "chunk closure",
+        "median_ratio": 0.9581550541028362
+      }
+    ],
+    "condorcet": "chunk closure",
+    "selected": "chunk closure"
+  },
+  "ai": {
+    "incumbent": "PreparedEntityView tuple",
+    "comparisons": [
+      {
+        "first": "World get pair",
+        "second": "split accessors",
+        "rounds": [
+          {
+            "first_ns": 47568.75,
+            "second_ns": 15196.09375,
+            "second_ba_ns": 18752.734375,
+            "first_ba_ns": 66157.03125,
+            "ratio": 3.323154941656994
+          },
+          {
+            "first_ns": 47514.84375,
+            "second_ns": 21419.53125,
+            "second_ba_ns": 14631.640625,
+            "first_ba_ns": 46660.9375,
+            "ratio": 2.6597443121596545
+          },
+          {
+            "first_ns": 46941.015625,
+            "second_ns": 19626.171875,
+            "second_ba_ns": 15819.140625,
+            "first_ba_ns": 56373.046875,
+            "ratio": 2.919461502697355
+          },
+          {
+            "first_ns": 47523.4375,
+            "second_ns": 15324.21875,
+            "second_ba_ns": 15803.515625,
+            "first_ba_ns": 52338.28125,
+            "ratio": 3.2047755987593143
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "split accessors",
+        "median_ratio": 3.062118550728335
+      },
+      {
+        "first": "World get pair",
+        "second": "PreparedEntityView tuple",
+        "rounds": [
+          {
+            "first_ns": 64294.921875,
+            "second_ns": 20044.140625,
+            "second_ba_ns": 13812.5,
+            "first_ba_ns": 47860.15625,
+            "ratio": 3.3338459377551954
+          },
+          {
+            "first_ns": 65812.890625,
+            "second_ns": 12367.96875,
+            "second_ba_ns": 11992.1875,
+            "first_ba_ns": 49616.015625,
+            "ratio": 4.69210833890097
+          },
+          {
+            "first_ns": 66070.703125,
+            "second_ns": 23389.0625,
+            "second_ba_ns": 16372.65625,
+            "first_ba_ns": 88130.859375,
+            "ratio": 3.8994422034945053
+          },
+          {
+            "first_ns": 97027.734375,
+            "second_ns": 16924.21875,
+            "second_ba_ns": 18705.46875,
+            "first_ba_ns": 51407.03125,
+            "ratio": 3.969360964103979
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "PreparedEntityView tuple",
+        "median_ratio": 3.934401583799242
+      },
+      {
+        "first": "split accessors",
+        "second": "PreparedEntityView tuple",
+        "rounds": [
+          {
+            "first_ns": 19858.59375,
+            "second_ns": 12145.3125,
+            "second_ba_ns": 11409.765625,
+            "first_ba_ns": 23361.328125,
+            "ratio": 1.829701743374235
+          },
+          {
+            "first_ns": 14697.265625,
+            "second_ns": 16516.015625,
+            "second_ba_ns": 12467.96875,
+            "first_ba_ns": 16810.9375,
+            "ratio": 1.0953773169773162
+          },
+          {
+            "first_ns": 20102.734375,
+            "second_ns": 14090.234375,
+            "second_ba_ns": 17080.46875,
+            "first_ba_ns": 16579.296875,
+            "ratio": 1.1767971829046247
+          },
+          {
+            "first_ns": 16089.453125,
+            "second_ns": 11296.875,
+            "second_ba_ns": 13921.875,
+            "first_ba_ns": 23598.046875,
+            "ratio": 1.5537482212692637
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "PreparedEntityView tuple",
+        "median_ratio": 1.3652727020869442
+      }
+    ],
+    "condorcet": "PreparedEntityView tuple",
+    "selected": "PreparedEntityView tuple"
+  },
+  "position": {
+    "incumbent": "EntityAccessor",
+    "comparisons": [
+      {
+        "first": "World get",
+        "second": "EntityAccessor",
+        "rounds": [
+          {
+            "first_ns": 28813.671875,
+            "second_ns": 15557.03125,
+            "second_ba_ns": 15778.125,
+            "first_ba_ns": 38502.734375,
+            "ratio": 2.125954823118521
+          },
+          {
+            "first_ns": 29629.6875,
+            "second_ns": 15344.921875,
+            "second_ba_ns": 18823.046875,
+            "first_ba_ns": 31102.734375,
+            "ratio": 1.7862223474043
+          },
+          {
+            "first_ns": 31849.21875,
+            "second_ns": 24053.125,
+            "second_ba_ns": 16825.78125,
+            "first_ba_ns": 39937.890625,
+            "ratio": 1.7728360737086317
+          },
+          {
+            "first_ns": 29412.890625,
+            "second_ns": 16110.546875,
+            "second_ba_ns": 18150.78125,
+            "first_ba_ns": 28972.265625,
+            "ratio": 1.707093388345481
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "EntityAccessor",
+        "median_ratio": 1.7795292105564657
+      },
+      {
+        "first": "World get",
+        "second": "PreparedEntityAccessor",
+        "rounds": [
+          {
+            "first_ns": 40684.375,
+            "second_ns": 10777.734375,
+            "second_ba_ns": 13057.03125,
+            "first_ba_ns": 44842.1875,
+            "ratio": 3.6005700095208937
+          },
+          {
+            "first_ns": 48128.125,
+            "second_ns": 15708.984375,
+            "second_ba_ns": 20982.421875,
+            "first_ba_ns": 29351.953125,
+            "ratio": 2.0702181538649134
+          },
+          {
+            "first_ns": 34208.59375,
+            "second_ns": 11239.0625,
+            "second_ba_ns": 15225.0,
+            "first_ba_ns": 29689.0625,
+            "ratio": 2.4362517211417183
+          },
+          {
+            "first_ns": 27281.640625,
+            "second_ns": 11701.171875,
+            "second_ba_ns": 10180.078125,
+            "first_ba_ns": 27237.109375,
+            "ratio": 2.4976151180803603
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "PreparedEntityAccessor",
+        "median_ratio": 2.4669334196110393
+      },
+      {
+        "first": "World get",
+        "second": "PreparedEntityView",
+        "rounds": [
+          {
+            "first_ns": 32145.3125,
+            "second_ns": 21352.734375,
+            "second_ba_ns": 17576.5625,
+            "first_ba_ns": 40338.28125,
+            "ratio": 1.8587620660004716
+          },
+          {
+            "first_ns": 39131.640625,
+            "second_ns": 11583.984375,
+            "second_ba_ns": 17486.328125,
+            "first_ba_ns": 39445.3125,
+            "ratio": 2.7604725662239487
+          },
+          {
+            "first_ns": 37018.359375,
+            "second_ns": 15214.0625,
+            "second_ba_ns": 19130.859375,
+            "first_ba_ns": 35189.0625,
+            "ratio": 2.1155465906662823
+          },
+          {
+            "first_ns": 43474.609375,
+            "second_ns": 23049.609375,
+            "second_ba_ns": 22792.578125,
+            "first_ba_ns": 42844.921875,
+            "ratio": 1.8829509672328624
+          }
+        ],
+        "decision": "clear_2_percent_band",
+        "winner": "PreparedEntityView",
+        "median_ratio": 1.9992487789495723
+      },
+      {
+        "first": "EntityAccessor",
+        "second": "PreparedEntityAccessor",
+        "rounds": [
+          {
+            "first_ns": 13236.71875,
+            "second_ns": 10847.65625,
+            "second_ba_ns": 11433.59375,
+            "first_ba_ns": 11556.640625,
+            "ratio": 1.1105717934456405
+          },
+          {
+            "first_ns": 12019.140625,
+            "second_ns": 10441.40625,
+            "second_ba_ns": 11004.296875,
+            "first_ba_ns": 12387.109375,
+            "ratio": 1.1383113037165034
+          },
+          {
+            "first_ns": 13582.03125,
+            "second_ns": 11330.078125,
+            "second_ba_ns": 16158.203125,
+            "first_ba_ns": 14325.78125,
+            "ratio": 1.0309284776379075
+          },
+          {
+            "first_ns": 12901.171875,
+            "second_ns": 11701.171875,
+            "second_ba_ns": 19135.9375,
+            "first_ba_ns": 11797.65625,
+            "ratio": 0.8244662804451921
+          },
+          {
+            "first_ns": 11492.578125,
+            "second_ns": 11086.328125,
+            "second_ba_ns": 11384.375,
+            "first_ba_ns": 18591.40625,
+            "ratio": 1.3011171225865588
+          },
+          {
+            "first_ns": 12405.46875,
+            "second_ns": 11544.921875,
+            "second_ba_ns": 13473.4375,
+            "first_ba_ns": 14755.078125,
+            "ratio": 1.084782426391665
+          },
+          {
+            "first_ns": 13753.125,
+            "second_ns": 21450.0,
+            "second_ba_ns": 16182.8125,
+            "first_ba_ns": 19145.3125,
+            "ratio": 0.8709460934153131
+          },
+          {
+            "first_ns": 20100.0,
+            "second_ns": 11017.96875,
+            "second_ba_ns": 11260.15625,
+            "first_ba_ns": 12078.125,
+            "ratio": 1.3988618044972014
+          },
+          {
+            "first_ns": 16576.953125,
+            "second_ns": 17108.984375,
+            "second_ba_ns": 11343.75,
+            "first_ba_ns": 12469.921875,
+            "ratio": 1.0320334715009227
+          },
+          {
+            "first_ns": 14237.890625,
+            "second_ns": 14592.578125,
+            "second_ba_ns": 11524.21875,
+            "first_ba_ns": 11801.171875,
+            "ratio": 0.9995709679107777
+          },
+          {
+            "first_ns": 11042.578125,
+            "second_ns": 12589.84375,
+            "second_ba_ns": 14679.296875,
+            "first_ba_ns": 12189.0625,
+            "ratio": 0.8534097401297628
+          },
+          {
+            "first_ns": 12669.53125,
+            "second_ns": 10889.84375,
+            "second_ba_ns": 12150.0,
+            "first_ba_ns": 12209.375,
+            "ratio": 1.0812547461228672
+          }
+        ],
+        "decision": "order_neutral_median_fallback",
+        "winner": "PreparedEntityAccessor",
+        "median_ratio": 1.056644108811895
+      },
+      {
+        "first": "EntityAccessor",
+        "second": "PreparedEntityView",
+        "rounds": [
+          {
+            "first_ns": 10746.09375,
+            "second_ns": 11150.0,
+            "second_ba_ns": 12645.703125,
+            "first_ba_ns": 11445.703125,
+            "ratio": 0.9339801074731847
+          },
+          {
+            "first_ns": 11471.484375,
+            "second_ns": 12646.875,
+            "second_ba_ns": 17553.125,
+            "first_ba_ns": 12016.40625,
+            "ratio": 0.7880037321430435
+          },
+          {
+            "first_ns": 13034.765625,
+            "second_ns": 16117.1875,
+            "second_ba_ns": 22476.171875,
+            "first_ba_ns": 16093.359375,
+            "ratio": 0.7609728576436875
+          },
+          {
+            "first_ns": 20328.90625,
+            "second_ns": 20445.3125,
+            "second_ba_ns": 19877.34375,
+            "first_ba_ns": 20417.96875,
+            "ratio": 1.01061845177656
+          },
+          {
+            "first_ns": 12481.25,
+            "second_ns": 12963.671875,
+            "second_ba_ns": 14056.640625,
+            "first_ba_ns": 12864.0625,
+            "ratio": 0.9386708385420174
+          },
+          {
+            "first_ns": 11564.0625,
+            "second_ns": 14603.515625,
+            "second_ba_ns": 12287.5,
+            "first_ba_ns": 12259.765625,
+            "ratio": 0.8888650367648462
+          },
+          {
+            "first_ns": 19535.546875,
+            "second_ns": 12075.390625,
+            "second_ba_ns": 12618.359375,
+            "first_ba_ns": 15294.140625,
+            "ratio": 1.4003070839606506
+          },
+          {
+            "first_ns": 11158.203125,
+            "second_ns": 15397.65625,
+            "second_ba_ns": 20665.625,
+            "first_ba_ns": 12295.703125,
+            "ratio": 0.6566322875455614
+          },
+          {
+            "first_ns": 11791.015625,
+            "second_ns": 11370.3125,
+            "second_ba_ns": 11358.59375,
+            "first_ba_ns": 12062.5,
+            "ratio": 1.0494114216635149
+          },
+          {
+            "first_ns": 11700.78125,
+            "second_ns": 11596.875,
+            "second_ba_ns": 14344.53125,
+            "first_ba_ns": 17360.15625,
+            "ratio": 1.105021114338231
+          },
+          {
+            "first_ns": 19251.171875,
+            "second_ns": 13271.484375,
+            "second_ba_ns": 13716.40625,
+            "first_ba_ns": 13173.828125,
+            "ratio": 1.1803333072373532
+          },
+          {
+            "first_ns": 15591.796875,
+            "second_ns": 14015.234375,
+            "second_ba_ns": 10905.859375,
+            "first_ba_ns": 17780.859375,
+            "ratio": 1.34677277534847
+          }
+        ],
+        "decision": "order_neutral_median_fallback",
+        "winner": "EntityAccessor",
+        "median_ratio": 0.9746446451592887
+      },
+      {
+        "first": "PreparedEntityAccessor",
+        "second": "PreparedEntityView",
+        "rounds": [
+          {
+            "first_ns": 13771.09375,
+            "second_ns": 13709.375,
+            "second_ba_ns": 12589.84375,
+            "first_ba_ns": 12422.265625,
+            "ratio": 0.9955558416971005
+          },
+          {
+            "first_ns": 13303.515625,
+            "second_ns": 11919.53125,
+            "second_ba_ns": 12206.640625,
+            "first_ba_ns": 11608.203125,
+            "ratio": 1.0302391367351569
+          },
+          {
+            "first_ns": 11058.203125,
+            "second_ns": 14405.46875,
+            "second_ba_ns": 12465.625,
+            "first_ba_ns": 12738.28125,
+            "ratio": 0.8856802737059762
+          },
+          {
+            "first_ns": 14803.125,
+            "second_ns": 16773.828125,
+            "second_ba_ns": 18458.203125,
+            "first_ba_ns": 16997.265625,
+            "ratio": 0.9014786157022417
+          },
+          {
+            "first_ns": 19420.703125,
+            "second_ns": 21847.65625,
+            "second_ba_ns": 11547.65625,
+            "first_ba_ns": 10913.671875,
+            "ratio": 0.916576187650117
+          },
+          {
+            "first_ns": 12265.234375,
+            "second_ns": 11402.734375,
+            "second_ba_ns": 12177.734375,
+            "first_ba_ns": 11416.796875,
+            "ratio": 1.004204840988468
+          },
+          {
+            "first_ns": 10751.953125,
+            "second_ns": 13998.4375,
+            "second_ba_ns": 19667.96875,
+            "first_ba_ns": 22975.0,
+            "ratio": 0.9472222808436004
+          },
+          {
+            "first_ns": 19349.609375,
+            "second_ns": 18908.203125,
+            "second_ba_ns": 16895.3125,
+            "first_ba_ns": 17571.875,
+            "ratio": 1.0316607538009714
+          },
+          {
+            "first_ns": 14560.9375,
+            "second_ns": 16145.3125,
+            "second_ba_ns": 11464.0625,
+            "first_ba_ns": 12198.828125,
+            "ratio": 0.9796280790773887
+          },
+          {
+            "first_ns": 10967.578125,
+            "second_ns": 11616.796875,
+            "second_ba_ns": 21798.4375,
+            "first_ba_ns": 15787.109375,
+            "ratio": 0.8268958210284407
+          },
+          {
+            "first_ns": 13976.171875,
+            "second_ns": 12095.3125,
+            "second_ba_ns": 13240.234375,
+            "first_ba_ns": 12106.640625,
+            "ratio": 1.0278969056925795
+          },
+          {
+            "first_ns": 18317.578125,
+            "second_ns": 21805.46875,
+            "second_ba_ns": 11157.8125,
+            "first_ba_ns": 11498.4375,
+            "ratio": 0.9304246282912967
+          }
+        ],
+        "decision": "order_neutral_median_fallback",
+        "winner": "PreparedEntityAccessor",
+        "median_ratio": 0.9634251799604945
+      }
+    ],
+    "condorcet": "PreparedEntityAccessor",
+    "selected": "PreparedEntityAccessor"
+  },
+  "full_frame": {
+    "first": "production",
+    "second": "proposed",
+    "rounds": [
+      {
+        "first_ns": 77956.640625,
+        "second_ns": 79112.109375,
+        "second_ba_ns": 79905.859375,
+        "first_ba_ns": 130154.296875,
+        "ratio": 1.266907822307265
+      },
+      {
+        "first_ns": 86393.75,
+        "second_ns": 78505.078125,
+        "second_ba_ns": 83525.78125,
+        "first_ba_ns": 105055.859375,
+        "ratio": 1.1765006033880958
+      },
+      {
+        "first_ns": 94546.484375,
+        "second_ns": 88749.609375,
+        "second_ba_ns": 114693.75,
+        "first_ba_ns": 116040.625,
+        "ratio": 1.0381846911177126
+      },
+      {
+        "first_ns": 87150.390625,
+        "second_ns": 81460.9375,
+        "second_ba_ns": 86038.671875,
+        "first_ba_ns": 143425.390625,
+        "ratio": 1.3354454072460176
+      }
+    ],
+    "decision": "clear_2_percent_band",
+    "winner": "proposed",
+    "median_ratio": 1.2217042128476803
+  },
+  "accepted": true,
+  "selected": "Closure | PreparedEntityView | PreparedEntityAccessor"
+}

@@ -1,7 +1,7 @@
 use crate::common::*;
 use criterion::{measurement::WallTime, BenchmarkGroup};
 use sky_ecs::dynamic::{DynamicBundle, WorldDynamicExt};
-use sky_ecs::{EntityId, PreparedEntityView, PreparedQuery, World};
+use sky_ecs::{EntityId, PreparedEntityAccessor, PreparedEntityView, PreparedQuery, World};
 use std::collections::HashSet;
 
 #[cfg(feature = "api-experiments")]
@@ -24,6 +24,7 @@ pub(super) struct SkyGameplayWorld {
     allies: PreparedQuery<(&'static mut Health, &'static Regen)>,
     lifetimes: PreparedQuery<(&'static mut Lifetime, Option<&'static VelocityComponent>)>,
     ai: PreparedEntityView<(&'static TargetSlot, &'static mut Cooldown)>,
+    positions: PreparedEntityAccessor<PositionComponent>,
     ai_lookup_checksum: u64,
     cooldown_trace_checksum: u64,
 }
@@ -71,6 +72,7 @@ impl SkyGameplayWorld {
             allies,
             lifetimes,
             ai: PreparedEntityView::new(),
+            positions: PreparedEntityAccessor::new(),
             ai_lookup_checksum: 0,
             cooldown_trace_checksum: 0,
         }
@@ -124,7 +126,7 @@ impl SkyGameplayWorld {
     }
 
     pub(super) fn run_target_position_phase(&mut self, frame: &GameplayFrame) {
-        let positions = self.world.accessor::<PositionComponent>();
+        let positions = self.positions.bind(&self.world);
         for ((&slot, &target), &target_slot) in frame
             .ai_slots
             .iter()

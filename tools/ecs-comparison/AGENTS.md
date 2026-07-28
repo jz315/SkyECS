@@ -103,7 +103,7 @@ published.
 
 | Adapter | Dense/prepared iteration | Entity/random access | Bulk construction from columns |
 |---|---|---|---|
-| Sky | `PreparedQuery::for_each_chunk_fn` for the simple dense kernel; gameplay retains the closure form because the provisional function winner did not clear the full-frame gate | `EntityAccessor<T>::get` for comparable EntityId access; `PreparedEntityAccess<T>::iter` for the local fixed-sequence experiment; `PreparedEntityView<Q>::get/get_mut` for arbitrary multi-component items | `World::spawn_columns` with prepared component columns |
+| Sky | `PreparedQuery::for_each_chunk_fn` for the simple dense kernel; gameplay retains the closure form | `EntityAccessor<T>::get` for comparable EntityId access; `PreparedEntityAccess<T>::iter` for the local fixed-sequence experiment; `PreparedEntityAccessor<T>::get` for reusable single-component items; `PreparedEntityView<Q>::get/get_mut` for arbitrary multi-component items | `World::spawn_columns` with prepared component columns |
 | hecs | Provisional: 10K/100K use `World::query_mut().into_iter_batched(u32::MAX)`; 1M uses prepared matching `Archetype::get` columns. Publication remains uncertified until the candidate bench is repeated on the publication target | `PreparedQuery::view_mut(...).get` / `get_mut` | build and fill `ColumnBatch` in timing, then `World::spawn_column_batch` |
 | Flecs C | prepared `ecs_query_t` with `ecs_query_iter` / `ecs_query_next` and direct `ecs_field` columns | `ecs_ref_init_id` in permitted stable-identity setup plus `ecs_ref_get_id`; otherwise `ecs_get_id` / `ecs_get_mut_id`. Gameplay must use the latter because it reads `TargetSlot` and builds the target list each frame | build the per-batch descriptor in timing, then `ecs_bulk_init` |
 | Bevy ECS | reusable `QueryState::iter_mut` | reusable `QueryState::get_manual` / `get_mut` | drain neutral columns into `World::spawn_batch` |
@@ -121,7 +121,7 @@ published.
 
 | Adapter | Gameplay AI source | Gameplay target Position |
 |---|---|---|
-| Sky | `PreparedEntityView<(&TargetSlot, &mut Cooldown)>`; canonical winner on `f5d1a33` | `EntityAccessor<Position>::get`; canonical winner on `f5d1a33` |
+| Sky | `PreparedEntityView<(&TargetSlot, &mut Cooldown)>`; canonical winner on `f10021d` | `PreparedEntityAccessor<Position>::get`; canonical winner on `f10021d` |
 | hecs | `PreparedQuery<(&TargetSlot, &mut Cooldown)>::view_mut().get_mut` (uncertified) | `PreparedQuery<&Position>::view_mut().get` (uncertified) |
 | Flecs C | per-frame `ecs_get_id(TargetSlot)` plus `ecs_get_mut_id(Cooldown)` (uncertified) | `ecs_get_id(Position)` over the generated target list (uncertified) |
 | Bevy ECS | reusable tuple `QueryState::get_mut` (uncertified) | reusable `QueryState::get_manual` (uncertified) |
@@ -137,13 +137,12 @@ api_candidates --features api-experiments -- sky` on a clean publication target 
 relevant workload, toolchain, or storage changes. This command records raw
 AB/BA rounds and the full-frame gate; the ordinary command runs Criterion's
 candidate groups.
-The `f5d1a33` Windows x86-64 recertification retained the production
-combination `Closure | PreparedEntityView | EntityAccessor`. Typed entity
-fetches made the AI tuple view a clear winner over split accessors. The
-function iteration and prepared Position paths were only provisional winners;
-their combined full-frame median ratio was `1.00895`, below the 2% acceptance
-gate. Raw rounds are stored in
-`benches/certifications/sky-gameplay-api.windows-x86_64.f5d1a33.json`.
+The `f10021d` Windows x86-64 recertification selected
+`Closure | PreparedEntityView | PreparedEntityAccessor`. The reusable
+single-component accessor was the Position Condorcet winner, and the proposed
+combination cleared all four full-frame AB/BA rounds with a `1.22170` median
+production/proposed ratio. Raw rounds are stored in
+`benches/certifications/sky-gameplay-api.windows-x86_64.f10021d.json`.
 All other gameplay rows remain `uncertified` until phase-specific
 candidate comparisons cover every plausible API; therefore new gameplay-frame
 numbers are diagnostic and must not be published yet.
