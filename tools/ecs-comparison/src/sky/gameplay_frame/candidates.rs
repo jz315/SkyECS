@@ -1,5 +1,5 @@
 use super::*;
-use sky_ecs::PreparedEntityView;
+use sky_ecs::{PreparedEntityAccessor, PreparedEntityView};
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
@@ -20,6 +20,7 @@ pub enum AiCandidate {
 pub enum PositionCandidate {
     WorldGet,
     EntityAccessor,
+    PreparedEntityAccessor,
     PreparedEntityView,
 }
 
@@ -40,6 +41,7 @@ impl FrameCandidateSelection {
 
 struct CandidateWorld {
     inner: SkyGameplayWorld,
+    position_accessor: PreparedEntityAccessor<PositionComponent>,
     position_view: PreparedEntityView<&'static PositionComponent>,
 }
 
@@ -47,6 +49,7 @@ impl CandidateWorld {
     fn new(trace: &GameplayTrace) -> Self {
         Self {
             inner: SkyGameplayWorld::new(trace),
+            position_accessor: PreparedEntityAccessor::new(),
             position_view: PreparedEntityView::new(),
         }
     }
@@ -155,6 +158,23 @@ impl CandidateWorld {
                 }
             }
             PositionCandidate::EntityAccessor => self.inner.run_target_position_phase(frame),
+            PositionCandidate::PreparedEntityAccessor => {
+                let positions = self.position_accessor.bind(&self.inner.world);
+                for ((&slot, &entity), &target_slot) in frame
+                    .ai_slots
+                    .iter()
+                    .zip(&self.inner.target_entities)
+                    .zip(&self.inner.target_slots)
+                {
+                    let position = positions.get(entity).unwrap();
+                    self.inner.ai_lookup_checksum = gameplay_ai_lookup_checksum(
+                        self.inner.ai_lookup_checksum,
+                        slot,
+                        target_slot,
+                        position,
+                    );
+                }
+            }
             PositionCandidate::PreparedEntityView => {
                 let positions = self.position_view.bind(&self.inner.world);
                 for ((&slot, &entity), &target_slot) in frame

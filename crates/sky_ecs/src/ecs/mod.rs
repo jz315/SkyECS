@@ -5,6 +5,7 @@
 //! - [`World`] — the central container for entities, components, and resources.
 //! - [`EntityId`] — a generational handle to a live entity.
 //! - [`EntityAccessor`] / [`EntityAccessorMut`] — bound random-access fast paths.
+//! - [`PreparedEntityAccessor`] — reusable single-component random-access routes.
 //! - [`PreparedEntityAccess`] / [`PreparedEntityAccessMut`] — direct access for a
 //!   validated fixed entity sequence.
 //! - [`PreparedEntityView`] — reusable prepared tuple access for arbitrary
@@ -40,8 +41,10 @@ mod unwind;
 mod world;
 
 pub use access::{
-    BoundEntityView, BoundEntityViewMut, EntityAccessor, EntityAccessorMut, EntityViewCacheStats,
-    PrepareAccessError, PreparedEntityAccess, PreparedEntityAccessMut, PreparedEntityView,
+    BoundEntityAccessor, BoundEntityAccessorMut, BoundEntityView, BoundEntityViewMut,
+    EntityAccessor, EntityAccessorCacheStats, EntityAccessorMut, EntityViewCacheStats,
+    PrepareAccessError, PreparedEntityAccess, PreparedEntityAccessMut, PreparedEntityAccessor,
+    PreparedEntityView,
 };
 pub use bundle::Bundle;
 pub use chunk_route::RouteTableStats;

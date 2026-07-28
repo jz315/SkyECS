@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Added `PreparedEntityAccessor<T>` for reusable single-component access by
+  arbitrary entity ID without rebuilding its chunk-route table on every bind.
+
 ## [0.2.0] - 2026-07-27
 
 - Renamed the bound random-access types to `EntityAccessor` and

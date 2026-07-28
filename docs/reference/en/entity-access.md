@@ -9,6 +9,9 @@ Module: `sky_ecs`
 ```rust
 pub struct EntityAccessor<'w, T> { /* private fields */ }
 pub struct EntityAccessorMut<'w, T> { /* private fields */ }
+pub struct PreparedEntityAccessor<T> { /* private fields */ }
+pub struct BoundEntityAccessor<'s, 'w, T> { /* private fields */ }
+pub struct BoundEntityAccessorMut<'s, 'w, T> { /* private fields */ }
 pub struct PreparedEntityAccess<'w, T> { /* private fields */ }
 pub struct PreparedEntityAccessMut<'w, T> { /* private fields */ }
 pub struct PreparedEntityView<Q> { /* private fields */ }
@@ -28,6 +31,7 @@ pub enum PrepareAccessError {
 ```
 
 `EntityAccessor<T>` is the immediate general-purpose path for arbitrary entity IDs.
+`PreparedEntityAccessor<T>` retains the single-component route table across binds.
 `PreparedEntityAccess<T>` resolves one fixed sequence up front and is the batch path for
 repeated ordered access.
 `PreparedEntityView<Q>` prepares one or more query components by chunk route and keeps
@@ -45,6 +49,30 @@ that allocation reusable across structurally changing frames.
 All four values retain the corresponding World borrow for their lifetime. Safe structural
 mutation therefore cannot invalidate cached routes or pointers while an accessor/plan is live.
 There is no hidden World-owned prepared-access cache and no per-item epoch refresh.
+
+## `PreparedEntityAccessor`
+
+```rust
+let mut prepared = PreparedEntityAccessor::<Position>::new();
+
+for frame in frames {
+    update_targets(frame);
+    let positions = prepared.bind(&world);
+    for entity in frame.targets {
+        use_position(positions.get(entity)?);
+    }
+}
+```
+
+`bind` and `bind_mut` reacquire the current entity-record slice every time, while retaining
+the component route allocation and resolved column bases. Pure row churn therefore needs no
+route rebuild. Switching Worlds, chunk creation or retirement, route reuse, tiny promotion,
+clear, and explicit route-table shrinking rebuild the cache through the column-base epoch.
+
+The shared bound accessor returns `&T`; the exclusive bound accessor returns `&mut T` tied to
+its current mutable borrow. Every lookup still validates the supplied entity generation and
+reports `None` for a stale ID or an entity without `T`. `cache_stats()` exposes rebuild and
+route-slot diagnostics.
 
 ## `PreparedEntityView`
 
@@ -132,8 +160,10 @@ Let `R` be the World chunk-route slot count and `N` the input length.
 
 | Operation | Complexity / allocation |
 |---|---|
-| `accessor*` construction | O(R + matching chunks), one boxed route table. |
+| `accessor*` construction | O(R + matching chunks), one route-table allocation. |
 | `EntityAccessor*::get*` | O(1), no allocation. |
+| `PreparedEntityAccessor::bind*` | O(1) while the column-base epoch is unchanged; otherwise O(R + matching chunks). |
+| Bound prepared accessor `get*` | O(1), no allocation and one entity-route validation. |
 | `prepare_access` | O(R + matching chunks + N), one boxed pointer array. |
 | `prepare_access_mut` | Expected O(R + matching chunks + N), one pointer array plus a temporary hash table for duplicate detection. |
 | Prepared `get*` | O(1), no allocation. |

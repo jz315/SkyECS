@@ -1,5 +1,5 @@
 use criterion::Criterion;
-use sky_ecs::{EntityId, PreparedEntityView, PreparedQuery, World};
+use sky_ecs::{EntityId, PreparedEntityAccessor, PreparedEntityView, PreparedQuery, World};
 use std::hint::black_box;
 use std::time::Duration;
 
@@ -25,6 +25,7 @@ pub(crate) struct GameplayFixture {
     targets: Vec<EntityId>,
     movement: PreparedQuery<(&'static mut Position, &'static Velocity)>,
     ai: PreparedEntityView<(&'static TargetSlot, &'static mut Cooldown)>,
+    position_accessor: PreparedEntityAccessor<Position>,
     positions: PreparedEntityView<&'static Position>,
     checksum: u64,
 }
@@ -50,6 +51,7 @@ impl GameplayFixture {
             targets: Vec::with_capacity(AI_COUNT),
             movement: PreparedQuery::new(),
             ai: PreparedEntityView::new(),
+            position_accessor: PreparedEntityAccessor::new(),
             positions: PreparedEntityView::new(),
             checksum: 0,
         }
@@ -112,6 +114,14 @@ impl GameplayFixture {
 
     pub(crate) fn positions_accessor(&mut self) {
         let positions = self.world.accessor::<Position>();
+        for &entity in &self.targets {
+            let position = positions.get(entity).unwrap();
+            self.checksum = self.checksum.wrapping_add(position.0.to_bits() as u64);
+        }
+    }
+
+    pub(crate) fn positions_prepared_accessor(&mut self) {
+        let positions = self.position_accessor.bind(&self.world);
         for &entity in &self.targets {
             let position = positions.get(entity).unwrap();
             self.checksum = self.checksum.wrapping_add(position.0.to_bits() as u64);
@@ -198,6 +208,10 @@ fn bench_positions(criterion: &mut Criterion) {
         ),
         ("entity_accessor", GameplayFixture::positions_accessor),
         (
+            "prepared_entity_accessor",
+            GameplayFixture::positions_prepared_accessor,
+        ),
+        (
             "prepared_entity_view",
             GameplayFixture::positions_prepared_entity_view,
         ),
@@ -222,6 +236,7 @@ fn bench_frame(criterion: &mut Criterion) {
             frame_world_get as fn(&mut GameplayFixture),
         ),
         ("split_accessor_path", frame_split_accessors),
+        ("prepared_accessor_path", frame_prepared_accessor),
         ("all_prepared_views", frame_prepared_views),
         ("selected_production_path", frame_production),
     ] {
@@ -261,6 +276,12 @@ fn frame_prepared_views(fixture: &mut GameplayFixture) {
     fixture.iteration_closure();
     fixture.ai_prepared_entity_view();
     fixture.positions_prepared_entity_view();
+}
+
+fn frame_prepared_accessor(fixture: &mut GameplayFixture) {
+    fixture.iteration_closure();
+    fixture.ai_prepared_entity_view();
+    fixture.positions_prepared_accessor();
 }
 
 fn frame_production(fixture: &mut GameplayFixture) {

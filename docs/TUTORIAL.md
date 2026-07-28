@@ -176,6 +176,8 @@ fn slow_selected(
 - Use chunk iteration when slices help batching or vectorization.
 - Use `PreparedQuery` only when code must explicitly own a reusable plan.
 - Use `get` / `get_mut` for occasional access by `EntityId`.
+- Use `PreparedEntityAccessor<T>` for repeated single-component arbitrary-ID
+  access across phases or frames.
 - Use `EntityView<Q>` for repeated arbitrary-ID tuple access inside a system.
 - Batch or defer structural changes instead of interleaving them with queries.
 

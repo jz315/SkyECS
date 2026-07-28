@@ -42,6 +42,7 @@ impl Candidate for PositionCandidate {
         match self {
             Self::WorldGet => "World get",
             Self::EntityAccessor => "EntityAccessor",
+            Self::PreparedEntityAccessor => "PreparedEntityAccessor",
             Self::PreparedEntityView => "PreparedEntityView",
         }
     }
@@ -122,6 +123,10 @@ pub fn run(criterion: &mut Criterion) {
         ("position_world_get", PositionCandidate::WorldGet),
         ("position_accessor", PositionCandidate::EntityAccessor),
         (
+            "position_prepared_accessor",
+            PositionCandidate::PreparedEntityAccessor,
+        ),
+        (
             "position_prepared_view",
             PositionCandidate::PreparedEntityView,
         ),
@@ -161,6 +166,7 @@ fn certify() {
         [
             PositionCandidate::WorldGet,
             PositionCandidate::EntityAccessor,
+            PositionCandidate::PreparedEntityAccessor,
             PositionCandidate::PreparedEntityView,
         ],
         PositionCandidate::EntityAccessor,

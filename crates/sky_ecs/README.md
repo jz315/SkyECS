@@ -74,6 +74,23 @@ The accessor resolves matching component columns once and keeps a read-only
 borrow of the world while it is alive. Use `World::get` for occasional lookups,
 or when the world must be structurally changed between accesses.
 
+When the same component is accessed by changing entity IDs across many frames,
+retain its route table and bind it for each access phase:
+
+```rust
+let mut prepared_positions = sky_ecs::PreparedEntityAccessor::<Position>::new();
+
+for frame in frames {
+    let positions = prepared_positions.bind(&world);
+    for entity in frame.targets {
+        use_position(positions.get(entity));
+    }
+}
+```
+
+Binding reacquires live entity records but reuses component column routes until
+the World reports a column-base change.
+
 When the same fixed entity order is reused, prepare its component addresses
 once and iterate the resulting direct access plan:
 

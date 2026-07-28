@@ -1,5 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use sky_ecs::{EntityId, EntityView, PreparedEntityView, Res, ResMut, Update, World};
+use sky_ecs::{
+    EntityId, EntityView, PreparedEntityAccessor, PreparedEntityView, Res, ResMut, Update, World,
+};
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
@@ -163,5 +165,54 @@ fn bench_entity_views(criterion: &mut Criterion) {
     prepare.finish();
 }
 
-criterion_group!(benches, bench_entity_views);
+fn bench_single_component_accessors(criterion: &mut Criterion) {
+    let mut group = criterion.benchmark_group("entity_accessor_api_10k");
+    group
+        .warm_up_time(Duration::from_millis(500))
+        .measurement_time(Duration::from_secs(2))
+        .sample_size(30);
+
+    group.bench_function("one_shot_entity_accessor", |bencher| {
+        let (world, order) = fixture();
+        bencher.iter(|| {
+            let targets = world.accessor::<TargetSlot>();
+            let checksum = order.iter().fold(0_u64, |checksum, &entity| {
+                checksum.wrapping_add(targets.get(entity).unwrap().0 as u64)
+            });
+            black_box(checksum);
+        });
+    });
+
+    group.bench_function("prepared_entity_accessor", |bencher| {
+        let (world, order) = fixture();
+        let mut prepared = PreparedEntityAccessor::<TargetSlot>::new();
+        bencher.iter(|| {
+            let targets = prepared.bind(&world);
+            let checksum = order.iter().fold(0_u64, |checksum, &entity| {
+                checksum.wrapping_add(targets.get(entity).unwrap().0 as u64)
+            });
+            black_box(checksum);
+        });
+    });
+
+    group.bench_function("prepared_entity_view", |bencher| {
+        let (world, order) = fixture();
+        let mut prepared = PreparedEntityView::<&TargetSlot>::new();
+        bencher.iter(|| {
+            let targets = prepared.bind(&world);
+            let checksum = order.iter().fold(0_u64, |checksum, &entity| {
+                checksum.wrapping_add(targets.get(entity).unwrap().0 as u64)
+            });
+            black_box(checksum);
+        });
+    });
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_entity_views,
+    bench_single_component_accessors
+);
 criterion_main!(benches);

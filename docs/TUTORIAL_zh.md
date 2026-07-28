@@ -171,6 +171,8 @@ fn slow_selected(
 - 批处理或向量化需要切片时使用 chunk 遍历。
 - 只有代码必须显式持有可复用计划时才使用 `PreparedQuery`。
 - 偶发的 `EntityId` 访问使用 `get` / `get_mut`。
+- 跨 phase 或跨帧重复按任意 ID 访问单一组件时使用
+  `PreparedEntityAccessor<T>`。
 - system 内重复按任意 ID 取得 tuple 时使用 `EntityView<Q>`。
 - 结构变更应批量或延迟执行，不要与查询交错。
 

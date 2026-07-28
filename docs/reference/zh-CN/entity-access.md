@@ -9,6 +9,9 @@
 ```rust
 pub struct EntityAccessor<'w, T> { /* 私有字段 */ }
 pub struct EntityAccessorMut<'w, T> { /* 私有字段 */ }
+pub struct PreparedEntityAccessor<T> { /* 私有字段 */ }
+pub struct BoundEntityAccessor<'s, 'w, T> { /* 私有字段 */ }
+pub struct BoundEntityAccessorMut<'s, 'w, T> { /* 私有字段 */ }
 pub struct PreparedEntityAccess<'w, T> { /* 私有字段 */ }
 pub struct PreparedEntityAccessMut<'w, T> { /* 私有字段 */ }
 pub struct PreparedEntityView<Q> { /* 私有字段 */ }
@@ -28,6 +31,7 @@ pub enum PrepareAccessError {
 ```
 
 `EntityAccessor<T>` 是面向任意 Entity ID 的即时通用访问路径。
+`PreparedEntityAccessor<T>` 在多次 bind 之间保留单组件 route table。
 `PreparedEntityAccess<T>` 预先解析一段固定序列，是重复、有序批量访问路径。
 `PreparedEntityView<Q>` 按 chunk route 准备一个或多个查询组件，并在结构持续变化的帧之间
 复用其分配。
@@ -44,6 +48,29 @@ pub enum PrepareAccessError {
 四种返回值都会在自身生命周期内保留对应的 World borrow，因此安全代码无法在它们存活时
 执行使缓存路由或指针失效的结构变更。实现没有隐藏的 World 级 prepared cache，也不会在每个
 元素上做 epoch 刷新。
+
+## `PreparedEntityAccessor`
+
+```rust
+let mut prepared = PreparedEntityAccessor::<Position>::new();
+
+for frame in frames {
+    update_targets(frame);
+    let positions = prepared.bind(&world);
+    for entity in frame.targets {
+        use_position(positions.get(entity)?);
+    }
+}
+```
+
+`bind` 和 `bind_mut` 每次都会重新取得当前 EntityRecord slice，同时复用组件 route
+allocation 和已解析的列基址。因此纯 row churn 不会重建 route；切换 World、chunk
+创建或退休、route 复用、tiny promotion、clear 和显式 route-table 收缩会通过
+column-base epoch 触发重建。
+
+共享 bound accessor 返回 `&T`；独占版本返回绑定到当前可变借用的 `&mut T`。每次
+lookup 仍会验证 Entity generation；ID 过期或实体缺少 `T` 时返回 `None`。
+`cache_stats()` 提供重建次数与 route slot 诊断。
 
 ## `PreparedEntityView`
 
@@ -126,8 +153,10 @@ pub fn get_mut(&mut self, entity: EntityId) -> Option<&mut T>;
 
 | 操作 | 复杂度 / 分配 |
 |---|---|
-| `accessor*` 构造 | O(R + 匹配 chunk 数)，分配一张 boxed route table。 |
+| `accessor*` 构造 | O(R + 匹配 chunk 数)，分配一张 route table。 |
 | `EntityAccessor*::get*` | O(1)，不分配。 |
+| `PreparedEntityAccessor::bind*` | column-base epoch 不变时为 O(1)；否则为 O(R + 匹配 chunk 数)。 |
+| Bound prepared accessor `get*` | O(1)，不分配，只验证一次 entity route。 |
 | `prepare_access` | O(R + 匹配 chunk 数 + N)，分配一个 boxed pointer array。 |
 | `prepare_access_mut` | 期望 O(R + 匹配 chunk 数 + N)，另有用于重复检测的临时 hash table。 |
 | Prepared `get*` | O(1)，不分配。 |
