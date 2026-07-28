@@ -121,7 +121,7 @@ published.
 
 | Adapter | Gameplay AI source | Gameplay target Position |
 |---|---|---|
-| Sky | `PreparedEntityView<(&TargetSlot, &mut Cooldown)>`; canonical winner on `f10021d` | `PreparedEntityAccessor<Position>::get`; canonical winner on `f10021d` |
+| Sky | `PreparedEntityView<(&TargetSlot, &mut Cooldown)>`; canonical winner confirmed on `45128af` | `PreparedEntityAccessor<Position>::get`; canonical winner confirmed on `45128af` |
 | hecs | `PreparedQuery<(&TargetSlot, &mut Cooldown)>::view_mut().get_mut` (uncertified) | `PreparedQuery<&Position>::view_mut().get` (uncertified) |
 | Flecs C | per-frame `ecs_get_id(TargetSlot)` plus `ecs_get_mut_id(Cooldown)` (uncertified) | `ecs_get_id(Position)` over the generated target list (uncertified) |
 | Bevy ECS | reusable tuple `QueryState::get_mut` (uncertified) | reusable `QueryState::get_manual` (uncertified) |
@@ -137,12 +137,13 @@ api_candidates --features api-experiments -- sky` on a clean publication target 
 relevant workload, toolchain, or storage changes. This command records raw
 AB/BA rounds and the full-frame gate; the ordinary command runs Criterion's
 candidate groups.
-The `f10021d` Windows x86-64 recertification selected
-`Closure | PreparedEntityView | PreparedEntityAccessor`. The reusable
-single-component accessor was the Position Condorcet winner, and the proposed
-combination cleared all four full-frame AB/BA rounds with a `1.22170` median
-production/proposed ratio. Raw rounds are stored in
-`benches/certifications/sky-gameplay-api.windows-x86_64.f10021d.json`.
+The `45128af` Windows x86-64 recertification retained
+`Closure | PreparedEntityView | PreparedEntityAccessor`. The tuple view and
+reusable single-component accessor remained the AI and Position Condorcet
+winners. The iteration function won only the order-neutral median fallback,
+and its proposed full frame did not clear the 2% gate, so the production
+closure remained selected. Raw rounds are stored in
+`benches/certifications/sky-gameplay-api.windows-x86_64.45128af.json`.
 All other gameplay rows remain `uncertified` until phase-specific
 candidate comparisons cover every plausible API; therefore new gameplay-frame
 numbers are diagnostic and must not be published yet.
