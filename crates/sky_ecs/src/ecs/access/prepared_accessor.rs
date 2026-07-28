@@ -1,6 +1,6 @@
 use super::entity_records::EntityRouteView;
 use super::routes::{refresh_component_routes, resolve_component_route};
-use crate::ecs::{EntityId, World};
+use crate::ecs::{component_type, ComponentType, EntityId, World};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use std::sync::Arc;
@@ -18,22 +18,27 @@ pub struct EntityAccessorCacheStats {
 ///
 /// Unlike [`EntityAccessor`](super::EntityAccessor), this plan retains its
 /// route-table allocation and resolved component bases across binds. It
-/// rebuilds only after switching Worlds or when the World reports that
-/// component column bases changed.
+/// rebuilds only after switching Worlds, when `T` column bases change, or when
+/// the World's route-table shape changes. Backing changes for unrelated
+/// components do not invalidate the plan.
 #[must_use = "prepared entity accessors do nothing until they are bound"]
 pub struct PreparedEntityAccessor<T> {
+    component: ComponentType,
     columns: Vec<Option<NonNull<T>>>,
     cached_world: Option<Arc<()>>,
-    cached_column_base_epoch: Option<u64>,
+    cached_component_column_base_epoch: Option<u64>,
+    cached_route_table_epoch: Option<u64>,
     rebuild_count: u64,
 }
 
-impl<T> Default for PreparedEntityAccessor<T> {
+impl<T: 'static> Default for PreparedEntityAccessor<T> {
     fn default() -> Self {
         Self {
+            component: component_type::<T>(),
             columns: Vec::new(),
             cached_world: None,
-            cached_column_base_epoch: None,
+            cached_component_column_base_epoch: None,
+            cached_route_table_epoch: None,
             rebuild_count: 0,
         }
     }
@@ -98,13 +103,19 @@ impl<T: 'static> PreparedEntityAccessor<T> {
             .cached_world
             .as_ref()
             .is_some_and(|cached| Arc::ptr_eq(cached, world.cache_token()));
-        if same_world && self.cached_column_base_epoch == Some(world.column_base_epoch()) {
+        let component_column_base_epoch = world.component_column_base_epoch(&self.component);
+        let route_table_epoch = world.route_table_epoch();
+        if same_world
+            && self.cached_component_column_base_epoch == Some(component_column_base_epoch)
+            && self.cached_route_table_epoch == Some(route_table_epoch)
+        {
             return;
         }
 
-        refresh_component_routes(&mut self.columns, world);
+        refresh_component_routes(&mut self.columns, world, &self.component);
         self.cached_world = Some(Arc::clone(world.cache_token()));
-        self.cached_column_base_epoch = Some(world.column_base_epoch());
+        self.cached_component_column_base_epoch = Some(component_column_base_epoch);
+        self.cached_route_table_epoch = Some(route_table_epoch);
         self.rebuild_count = self
             .rebuild_count
             .checked_add(1)
@@ -243,6 +254,42 @@ mod tests {
         assert_ne!(bound.entity_routes.as_ptr(), initial_records);
         assert_eq!(bound.get(newest), Some(&Position(2)));
         assert_eq!(prepared.cache_stats().rebuild_count, 1);
+    }
+
+    #[test]
+    fn unrelated_promotion_does_not_rebuild_component_routes() {
+        let mut world = World::new();
+        let position = world.spawn((Position(1),));
+        world.spawn((Velocity(1),));
+        let mut prepared = PreparedEntityAccessor::<Position>::new();
+        assert_eq!(prepared.bind(&world).get(position), Some(&Position(1)));
+
+        let route_slots = world.chunk_route_slot_count();
+        let velocity = crate::ecs::component_type::<Velocity>();
+        let initial_velocity_epoch = world.component_column_base_epoch(&velocity);
+        while world.component_column_base_epoch(&velocity) == initial_velocity_epoch {
+            world.spawn((Velocity(2),));
+        }
+
+        assert_eq!(world.chunk_route_slot_count(), route_slots);
+        assert_eq!(prepared.bind(&world).get(position), Some(&Position(1)));
+        assert_eq!(prepared.cache_stats().rebuild_count, 1);
+    }
+
+    #[test]
+    fn unrelated_route_growth_resizes_for_missing_component_lookups() {
+        let mut world = World::new();
+        let position = world.spawn((Position(1),));
+        let mut prepared = PreparedEntityAccessor::<Position>::new();
+        assert_eq!(prepared.bind(&world).get(position), Some(&Position(1)));
+
+        let velocity = world.spawn((Velocity(2),));
+        assert!(prepared.bind(&world).get(velocity).is_none());
+        assert_eq!(prepared.cache_stats().rebuild_count, 2);
+        assert_eq!(
+            prepared.cache_stats().route_slots,
+            world.chunk_route_slot_count()
+        );
     }
 
     #[test]

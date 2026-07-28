@@ -89,7 +89,8 @@ for frame in frames {
 ```
 
 Binding reacquires live entity records but reuses component column routes until
-the World reports a column-base change.
+`Position` column bases or the route-table shape changes. Backing changes in
+unrelated archetypes do not rebuild this cache.
 
 When the same fixed entity order is reused, prepare its component addresses
 once and iterate the resulting direct access plan:
@@ -133,9 +134,10 @@ for entity in entities {
 }
 ```
 
-Binding refreshes component pointers after structural changes while reusing
-the prepared route-table allocations. Each lookup validates the entity route
-once and returns the complete tuple.
+Binding refreshes component pointers when a queried component's column bases or
+the route-table shape changes, while reusing the prepared allocations. Unrelated
+archetype churn does not rebuild the view. Each lookup validates the entity
+route once and returns the complete tuple.
 
 ## Queries
 

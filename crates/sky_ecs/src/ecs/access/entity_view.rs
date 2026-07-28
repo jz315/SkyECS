@@ -39,8 +39,9 @@ impl<Q: EntityFetchSpec> PreparedEntityView<Q> {
 
     /// Binds this plan exclusively to `world`.
     ///
-    /// Binding refreshes component bases after the World reports a column-base
-    /// change; otherwise the existing route table is reused.
+    /// Binding refreshes component bases after a queried component's bases or
+    /// the World's route-table shape changes; otherwise the existing route
+    /// table is reused. Unrelated archetype backing changes do not rebuild it.
     ///
     /// ```compile_fail
     /// use sky_ecs::{PreparedEntityView, World};
@@ -160,6 +161,9 @@ mod tests {
     #[derive(Clone, Copy, Debug, PartialEq)]
     struct Velocity(u32);
 
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct Marker(u32);
+
     #[allow(dead_code)]
     struct Large([u8; 4 * 1024]);
 
@@ -197,6 +201,51 @@ mod tests {
         assert!(world.despawn(first));
         assert_eq!(prepared.bind(&world).get(second), Some(&Position(2)));
         assert_eq!(prepared.cache_stats().rebuild_count, 1);
+    }
+
+    #[test]
+    fn unrelated_promotion_does_not_rebuild_query_routes() {
+        let mut world = World::new();
+        let entity = world.spawn((Position(1), Velocity(2)));
+        world.spawn((Marker(1),));
+        let mut prepared = PreparedEntityView::<(&Position, &Velocity)>::new();
+        assert_eq!(
+            prepared.bind(&world).get(entity),
+            Some((&Position(1), &Velocity(2)))
+        );
+
+        let route_slots = world.chunk_route_slot_count();
+        let marker = crate::ecs::component_type::<Marker>();
+        let initial_marker_epoch = world.component_column_base_epoch(&marker);
+        while world.component_column_base_epoch(&marker) == initial_marker_epoch {
+            world.spawn((Marker(2),));
+        }
+
+        assert_eq!(world.chunk_route_slot_count(), route_slots);
+        assert_eq!(
+            prepared.bind(&world).get(entity),
+            Some((&Position(1), &Velocity(2)))
+        );
+        assert_eq!(prepared.cache_stats().rebuild_count, 1);
+    }
+
+    #[test]
+    fn optional_only_view_rebuilds_when_route_slots_grow() {
+        let mut world = World::new();
+        let position = world.spawn((Position(1),));
+        let mut prepared = PreparedEntityView::<Option<&Position>>::new();
+        assert_eq!(
+            prepared.bind(&world).get(position),
+            Some(Some(&Position(1)))
+        );
+
+        let velocity = world.spawn((Velocity(2),));
+        assert_eq!(prepared.bind(&world).get(velocity), Some(None));
+        assert_eq!(prepared.cache_stats().rebuild_count, 2);
+        assert_eq!(
+            prepared.cache_stats().route_slots,
+            world.chunk_route_slot_count()
+        );
     }
 
     #[test]

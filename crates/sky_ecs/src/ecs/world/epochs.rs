@@ -1,9 +1,11 @@
 use super::*;
+use rustc_hash::FxHashMap;
 
 #[derive(Default)]
 pub(super) struct StorageEpochs {
     chunk_set: u64,
     column_base: u64,
+    component_column_bases: FxHashMap<usize, u64>,
     row_layout: u64,
     active_storage: u64,
 }
@@ -64,6 +66,11 @@ impl Drop for ChunkSetEpochGuard<'_> {
         }
         if self.storage.column_base_version() != self.initial_column_base_version {
             self.epochs.column_base = self.next_column_base_epoch;
+            for component in &self.storage.archetype.components {
+                self.epochs
+                    .component_column_bases
+                    .insert(component.id(), self.next_column_base_epoch);
+            }
         }
         let active_now = !self.storage.chunks.is_empty();
         if active_now != self.initial_active {
@@ -100,6 +107,11 @@ impl World {
             .expect("world column-base epoch exhausted");
     }
 
+    #[inline]
+    pub(super) fn clear_component_column_base_epochs(&mut self) {
+        self.storage_epochs.component_column_bases.clear();
+    }
+
     #[inline(always)]
     pub(super) fn bump_active_storage_epoch(&mut self) {
         self.storage_epochs.active_storage = self
@@ -119,9 +131,24 @@ impl World {
         self.storage_epochs.row_layout
     }
 
+    #[cfg(test)]
     #[inline(always)]
     pub(crate) fn column_base_epoch(&self) -> u64 {
         self.storage_epochs.column_base
+    }
+
+    #[inline(always)]
+    pub(crate) fn component_column_base_epoch(&self, component: &ComponentType) -> u64 {
+        self.storage_epochs
+            .component_column_bases
+            .get(&component.id())
+            .copied()
+            .unwrap_or(0)
+    }
+
+    #[inline(always)]
+    pub(crate) fn route_table_epoch(&self) -> u64 {
+        self.chunk_directory.epoch()
     }
 
     #[inline(always)]
@@ -132,11 +159,17 @@ impl World {
 
 #[cfg(test)]
 mod tests {
-    use super::World;
+    use super::{component_type, World};
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[derive(Clone, Copy)]
     struct Position;
+
+    #[derive(Clone, Copy)]
+    struct Velocity;
+
+    #[derive(Clone, Copy)]
+    struct Marker;
 
     #[test]
     fn chunk_set_epoch_ignores_in_chunk_row_churn() {
@@ -174,6 +207,71 @@ mod tests {
         assert_eq!(world.column_base_epoch(), after_first + 1);
         world.clear();
         assert_eq!(world.column_base_epoch(), after_first + 2);
+    }
+
+    #[test]
+    fn component_column_base_epochs_ignore_unrelated_storage() {
+        let mut world = World::new();
+        let position = component_type::<Position>();
+        let velocity = component_type::<Velocity>();
+
+        let position_entity = world.spawn((Position,));
+        let position_epoch = world.component_column_base_epoch(&position);
+        assert_ne!(position_epoch, 0);
+        assert_eq!(world.component_column_base_epoch(&velocity), 0);
+
+        let velocity_entity = world.spawn((Velocity,));
+        let velocity_epoch = world.component_column_base_epoch(&velocity);
+        assert!(velocity_epoch > position_epoch);
+        assert_eq!(world.component_column_base_epoch(&position), position_epoch);
+
+        assert!(world.despawn(velocity_entity));
+        assert!(world.component_column_base_epoch(&velocity) > velocity_epoch);
+        assert_eq!(world.component_column_base_epoch(&position), position_epoch);
+        assert!(world.despawn(position_entity));
+    }
+
+    #[test]
+    fn route_table_epoch_tracks_slot_shape_but_not_reuse() {
+        let mut world = World::new();
+        assert_eq!(world.route_table_epoch(), 0);
+
+        let position = world.spawn((Position,));
+        assert_eq!(world.route_table_epoch(), 1);
+        let same_chunk = world.spawn((Position,));
+        assert_eq!(world.route_table_epoch(), 1);
+
+        let velocity = world.spawn((Velocity,));
+        assert_eq!(world.route_table_epoch(), 2);
+        assert!(world.despawn(velocity));
+        assert_eq!(world.route_table_epoch(), 2);
+
+        let marker = world.spawn((Marker,));
+        assert_eq!(world.route_table_epoch(), 2);
+        assert!(world.despawn(marker));
+        assert_eq!(world.route_table_epoch(), 2);
+
+        let before_shrink = world.route_table_stats();
+        let after_shrink = world.shrink_route_tables();
+        assert!(after_shrink.route_slots < before_shrink.route_slots);
+        assert_eq!(world.route_table_epoch(), 3);
+
+        assert!(world.despawn(same_chunk));
+        assert!(world.despawn(position));
+        world.clear();
+        assert_eq!(world.route_table_epoch(), 4);
+    }
+
+    #[test]
+    fn bulk_spawn_paths_advance_the_route_table_epoch() {
+        let mut batch_world = World::new();
+        batch_world.spawn_batch([(Position,), (Position,)]);
+        assert_eq!(batch_world.route_table_epoch(), 1);
+
+        let mut column_world = World::new();
+        let mut columns = (vec![Position, Position],);
+        column_world.spawn_columns(&mut columns).unwrap();
+        assert_eq!(column_world.route_table_epoch(), 1);
     }
 
     #[test]

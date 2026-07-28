@@ -6,6 +6,8 @@ All notable changes to this project are documented here.
 
 - Added `PreparedEntityAccessor<T>` for reusable single-component access by
   arbitrary entity ID without rebuilding its chunk-route table on every bind.
+- Scoped prepared entity-route invalidation to the components in each access
+  plan, so unrelated archetype backing changes no longer rebuild its cache.
 
 ## [0.2.0] - 2026-07-27
 

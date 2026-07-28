@@ -64,9 +64,10 @@ for frame in frames {
 ```
 
 `bind` 和 `bind_mut` 每次都会重新取得当前 EntityRecord slice，同时复用组件 route
-allocation 和已解析的列基址。因此纯 row churn 不会重建 route；切换 World、chunk
-创建或退休、route 复用、tiny promotion、clear 和显式 route-table 收缩会通过
-column-base epoch 触发重建。
+allocation 和已解析的列基址。因此纯 row churn 不会重建 route。切换 World、包含 `T`
+的 chunk 创建/退休或 tiny promotion 改变 `T` 的列基址，以及 route table 尾部增长、
+clear 或显式收缩时会重建。与 `T` 无关的 archetype 结构变化不会使缓存失效，除非它扩展
+了 route table。
 
 共享 bound accessor 返回 `&T`；独占版本返回绑定到当前可变借用的 `&mut T`。每次
 lookup 仍会验证 Entity generation；ID 过期或实体缺少 `T` 时返回 `None`。
@@ -81,10 +82,11 @@ let (target, cooldown) = view.get_mut(entity)?;
 ```
 
 `bind` 接受只读 `QuerySpec`；`bind_mut` 支持共享、可变、tuple 和 optional 参数。
-World 的 column-base epoch 未变化时，bind 直接复用组件列基址；chunk 创建/退休、route
-复用、tiny promotion、clear 或显式收缩 route table 后才重建，普通 row churn 不会重建。
-`cache_stats()` 可查看重建次数和 route slot。每次 `get`/`get_mut` 只验证一次
-generation/route，然后从同一 route 构造完整查询项。此 API 暂不支持 filter。
+`Q` 中各组件的 column-base epoch 与 route-table 形状均未变化时，bind 直接复用组件
+列基址。查询组件发生 chunk 创建/退休、route 复用或 tiny promotion，以及 clear、
+route table 尾部增长或显式收缩时会重建；普通 row churn 和不涉及 `Q` 中组件的 backing
+变化不会重建。`cache_stats()` 可查看重建次数和 route slot。每次 `get`/`get_mut`
+只验证一次 generation/route，然后从同一 route 构造完整查询项。此 API 暂不支持 filter。
 
 仅含 optional 参数的查询会区分“活实体缺少组件”和“无效实体”：
 `PreparedEntityView<Option<&A>>::get` 对前者返回 `Some(None)`，对后者返回 `None`。
@@ -155,13 +157,13 @@ pub fn get_mut(&mut self, entity: EntityId) -> Option<&mut T>;
 |---|---|
 | `accessor*` 构造 | O(R + 匹配 chunk 数)，分配一张 route table。 |
 | `EntityAccessor*::get*` | O(1)，不分配。 |
-| `PreparedEntityAccessor::bind*` | column-base epoch 不变时为 O(1)；否则为 O(R + 匹配 chunk 数)。 |
+| `PreparedEntityAccessor::bind*` | `T` 的 column-base epoch 与 route-table epoch 不变时为 O(1)；否则为 O(R + 匹配 chunk 数)。 |
 | Bound prepared accessor `get*` | O(1)，不分配，只验证一次 entity route。 |
 | `prepare_access` | O(R + 匹配 chunk 数 + N)，分配一个 boxed pointer array。 |
 | `prepare_access_mut` | 期望 O(R + 匹配 chunk 数 + N)，另有用于重复检测的临时 hash table。 |
 | Prepared `get*` | O(1)，不分配。 |
 | Prepared `iter*` | O(N)，遍历期间不分配，也不逐项检查 entity/route/component。 |
-| `PreparedEntityView::bind*` | column-base epoch 不变时 O(1)，否则 O(R + 匹配 chunk 数 × 查询宽度)。 |
+| `PreparedEntityView::bind*` | 查询组件的 column-base epoch 与 route-table epoch 不变时，缓存验证为 O(查询宽度)；否则 O(R + 匹配 chunk 数 × 查询宽度)。 |
 | Bound entity-view `get*` | O(查询宽度)，不分配，只验证一次实体 route。 |
 
 ## 最小示例

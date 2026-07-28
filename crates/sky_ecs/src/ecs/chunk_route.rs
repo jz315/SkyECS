@@ -61,9 +61,23 @@ impl ChunkDirectoryEntry {
 pub(crate) struct ChunkDirectory {
     entries: Vec<ChunkDirectoryEntry>,
     free: Vec<u32>,
+    epoch: u64,
 }
 
 impl ChunkDirectory {
+    #[inline]
+    fn bump_epoch(&mut self) {
+        self.epoch = self
+            .epoch
+            .checked_add(1)
+            .expect("world route-table epoch exhausted");
+    }
+
+    #[inline(always)]
+    pub(crate) fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
     pub(crate) fn stats(&self) -> RouteTableStats {
         RouteTableStats {
             live_chunk_routes: self.entries.len() - self.free.len(),
@@ -80,6 +94,7 @@ impl ChunkDirectory {
         if self.entries.len() != old_len {
             let new_len = self.entries.len();
             self.free.retain(|&id| (id as usize) < new_len);
+            self.bump_epoch();
         }
         self.entries.shrink_to_fit();
         self.free.shrink_to_fit();
@@ -122,6 +137,7 @@ impl ChunkDirectory {
             );
             let raw_id = self.entries.len() as u32;
             self.entries.push(entry);
+            self.bump_epoch();
             raw_id
         };
 
@@ -157,6 +173,7 @@ impl ChunkDirectory {
     }
 
     pub(crate) fn clear(&mut self) {
+        self.bump_epoch();
         self.entries.clear();
         self.free.clear();
     }

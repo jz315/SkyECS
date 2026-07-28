@@ -401,9 +401,7 @@ impl World {
     /// after a temporary loading peak whose chunks occupied the tail of the
     /// route table.
     pub fn shrink_route_tables(&mut self) -> RouteTableStats {
-        if self.chunk_directory.shrink_tail() {
-            self.bump_column_base_epoch();
-        }
+        self.chunk_directory.shrink_tail();
         self.chunk_directory.stats()
     }
 
@@ -418,6 +416,7 @@ impl World {
         self.bump_column_base_epoch();
         self.bump_active_storage_epoch();
         self.bump_archetype_epoch();
+        self.clear_component_column_base_epochs();
         let mut drop_panic = None;
 
         // Drop every component under an unwind boundary, then mark each chunk

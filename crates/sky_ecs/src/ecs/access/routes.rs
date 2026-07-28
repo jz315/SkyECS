@@ -15,8 +15,9 @@ pub(super) struct ComponentRoutes<T> {
 
 impl<T: 'static> ComponentRoutes<T> {
     pub(super) fn new(world: &World) -> Self {
+        let component = component_type::<T>();
         let mut columns = Vec::new();
-        refresh_component_routes(&mut columns, world);
+        refresh_component_routes(&mut columns, world, &component);
         Self {
             columns: columns.into_boxed_slice(),
         }
@@ -57,12 +58,12 @@ impl<T: 'static> ComponentRoutes<T> {
 pub(super) fn refresh_component_routes<T: 'static>(
     columns: &mut Vec<Option<NonNull<T>>>,
     world: &World,
+    component: &crate::ecs::ComponentType,
 ) {
-    let component = component_type::<T>();
     columns.resize_with(world.chunk_route_slot_count(), || None);
     columns.fill(None);
 
-    if let Some(postings) = world.component_posting(&component) {
+    if let Some(postings) = world.component_posting(component) {
         for posting_index in 0..postings.len() {
             let entry = postings
                 .entry(posting_index)

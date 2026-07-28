@@ -66,8 +66,10 @@ for frame in frames {
 
 `bind` and `bind_mut` reacquire the current entity-record slice every time, while retaining
 the component route allocation and resolved column bases. Pure row churn therefore needs no
-route rebuild. Switching Worlds, chunk creation or retirement, route reuse, tiny promotion,
-clear, and explicit route-table shrinking rebuild the cache through the column-base epoch.
+route rebuild. The cache rebuilds after switching Worlds, after a chunk or tiny promotion
+changes a `T` column base, or after the route-table shape changes through tail growth, clear,
+or explicit shrinking. Structural changes in archetypes that do not contain `T` do not
+invalidate the cached `T` routes unless they grow the route table.
 
 The shared bound accessor returns `&T`; the exclusive bound accessor returns `&mut T` tied to
 its current mutable borrow. Every lookup still validates the supplied entity generation and
@@ -83,11 +85,13 @@ let (target, cooldown) = view.get_mut(entity)?;
 ```
 
 `bind` accepts a read-only `QuerySpec`; `bind_mut` accepts shared, mutable, tuple, and
-optional parameters. Binding reuses component bases while the World's column-base epoch is
-unchanged. Chunk creation/retirement, route reuse, tiny promotion, clear, and explicit route
-shrink rebuild the cache; ordinary row churn does not. `cache_stats()` exposes rebuild and
-route-slot diagnostics. Each `get` or `get_mut` performs one generation/route lookup and builds
-the complete query item from that route. Filters are intentionally not part of this API.
+optional parameters. Binding reuses component bases while the per-component epochs for `Q`
+and the route-table shape are unchanged. A queried component's chunk creation, retirement,
+route reuse, or tiny promotion rebuilds the cache, as do clear and route-table tail growth or
+shrink. Ordinary row churn and backing changes that affect no component in `Q` do not rebuild
+it. `cache_stats()` exposes rebuild and route-slot diagnostics. Each `get` or `get_mut`
+performs one generation/route lookup and builds the complete query item from that route.
+Filters are intentionally not part of this API.
 
 An optional-only query distinguishes a valid entity with missing components from an invalid
 entity: `PreparedEntityView<Option<&A>>::get` returns `Some(None)` for the former and `None`
@@ -162,13 +166,13 @@ Let `R` be the World chunk-route slot count and `N` the input length.
 |---|---|
 | `accessor*` construction | O(R + matching chunks), one route-table allocation. |
 | `EntityAccessor*::get*` | O(1), no allocation. |
-| `PreparedEntityAccessor::bind*` | O(1) while the column-base epoch is unchanged; otherwise O(R + matching chunks). |
+| `PreparedEntityAccessor::bind*` | O(1) while the `T` column-base and route-table epochs are unchanged; otherwise O(R + matching chunks). |
 | Bound prepared accessor `get*` | O(1), no allocation and one entity-route validation. |
 | `prepare_access` | O(R + matching chunks + N), one boxed pointer array. |
 | `prepare_access_mut` | Expected O(R + matching chunks + N), one pointer array plus a temporary hash table for duplicate detection. |
 | Prepared `get*` | O(1), no allocation. |
 | Prepared `iter*` | O(N), no allocation during iteration and no entity/route/component checks per item. |
-| `PreparedEntityView::bind*` | O(1) while the column-base epoch is unchanged; otherwise O(R + matching chunks × query width). |
+| `PreparedEntityView::bind*` | O(query width) cache validation while queried column-base and route-table epochs are unchanged; otherwise O(R + matching chunks × query width). |
 | Bound entity-view `get*` | O(query width), no allocation and one entity-route validation. |
 
 ## Minimal example

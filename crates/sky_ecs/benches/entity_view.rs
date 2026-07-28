@@ -143,6 +143,85 @@ fn bench_entity_views(criterion: &mut Criterion) {
             elapsed
         });
     });
+    prepare.bench_function("unrelated_route_reuse/prepared_entity_view", |bencher| {
+        let mut world = World::new();
+        let survivor = world.spawn((TargetSlot(1),));
+        let seed = world.spawn((Wide([0; 4 * 1024]),));
+        assert!(world.despawn(seed));
+        let mut view = PreparedEntityView::<&TargetSlot>::new();
+        let _ = view.bind(&world);
+        bencher.iter_custom(|iterations| {
+            let mut elapsed = Duration::ZERO;
+            for _ in 0..iterations {
+                let temporary = world.spawn((Wide([1; 4 * 1024]),));
+                let start = Instant::now();
+                black_box(view.bind(&world).get(survivor));
+                elapsed += start.elapsed();
+                assert!(world.despawn(temporary));
+            }
+            elapsed
+        });
+    });
+    prepare.bench_function(
+        "unrelated_route_reuse/prepared_entity_accessor",
+        |bencher| {
+            let mut world = World::new();
+            let survivor = world.spawn((TargetSlot(1),));
+            let seed = world.spawn((Wide([0; 4 * 1024]),));
+            assert!(world.despawn(seed));
+            let mut accessor = PreparedEntityAccessor::<TargetSlot>::new();
+            let _ = accessor.bind(&world);
+            bencher.iter_custom(|iterations| {
+                let mut elapsed = Duration::ZERO;
+                for _ in 0..iterations {
+                    let temporary = world.spawn((Wide([1; 4 * 1024]),));
+                    let start = Instant::now();
+                    black_box(accessor.bind(&world).get(survivor));
+                    elapsed += start.elapsed();
+                    assert!(world.despawn(temporary));
+                }
+                elapsed
+            });
+        },
+    );
+    prepare.bench_function("queried_route_reuse/prepared_entity_view", |bencher| {
+        let mut world = World::new();
+        let survivor = world.spawn((TargetSlot(1),));
+        let seed = world.spawn((TargetSlot(2), Wide([0; 4 * 1024])));
+        assert!(world.despawn(seed));
+        let mut view = PreparedEntityView::<&TargetSlot>::new();
+        let _ = view.bind(&world);
+        bencher.iter_custom(|iterations| {
+            let mut elapsed = Duration::ZERO;
+            for _ in 0..iterations {
+                let temporary = world.spawn((TargetSlot(2), Wide([1; 4 * 1024])));
+                let start = Instant::now();
+                black_box(view.bind(&world).get(survivor));
+                elapsed += start.elapsed();
+                assert!(world.despawn(temporary));
+            }
+            elapsed
+        });
+    });
+    prepare.bench_function("queried_route_reuse/prepared_entity_accessor", |bencher| {
+        let mut world = World::new();
+        let survivor = world.spawn((TargetSlot(1),));
+        let seed = world.spawn((TargetSlot(2), Wide([0; 4 * 1024])));
+        assert!(world.despawn(seed));
+        let mut accessor = PreparedEntityAccessor::<TargetSlot>::new();
+        let _ = accessor.bind(&world);
+        bencher.iter_custom(|iterations| {
+            let mut elapsed = Duration::ZERO;
+            for _ in 0..iterations {
+                let temporary = world.spawn((TargetSlot(2), Wide([1; 4 * 1024])));
+                let start = Instant::now();
+                black_box(accessor.bind(&world).get(survivor));
+                elapsed += start.elapsed();
+                assert!(world.despawn(temporary));
+            }
+            elapsed
+        });
+    });
     for (name, shrink) in [("route_peak", false), ("route_peak_then_shrink", true)] {
         prepare.bench_function(format!("entity_accessor_construct/{name}"), |bencher| {
             let mut world = World::new();

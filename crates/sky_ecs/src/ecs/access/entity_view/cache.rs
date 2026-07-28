@@ -20,7 +20,8 @@ pub(crate) struct EntityViewCache<Q: EntityFetchSpec> {
     pub(super) matched_routes: Vec<u8>,
     pub(super) fetches: Vec<MaybeUninit<Q::Fetch>>,
     cached_world: Option<Arc<()>>,
-    cached_column_base_epoch: Option<u64>,
+    cached_query_column_base_epoch: Option<u64>,
+    cached_route_table_epoch: Option<u64>,
     rebuild_count: u64,
 }
 
@@ -32,7 +33,8 @@ impl<Q: EntityFetchSpec> Default for EntityViewCache<Q> {
             matched_routes: Vec::new(),
             fetches: Vec::new(),
             cached_world: None,
-            cached_column_base_epoch: None,
+            cached_query_column_base_epoch: None,
+            cached_route_table_epoch: None,
             rebuild_count: 0,
         }
     }
@@ -45,7 +47,18 @@ impl<Q: EntityFetchSpec> EntityViewCache<Q> {
             .cached_world
             .as_ref()
             .is_some_and(|cached| Arc::ptr_eq(cached, world.cache_token()));
-        if same_world && self.cached_column_base_epoch == Some(world.column_base_epoch()) {
+        let query_column_base_epoch = self
+            .descriptor
+            .components
+            .iter()
+            .map(|component| world.component_column_base_epoch(&component.ty))
+            .max()
+            .unwrap_or(0);
+        let route_table_epoch = world.route_table_epoch();
+        if same_world
+            && self.cached_query_column_base_epoch == Some(query_column_base_epoch)
+            && self.cached_route_table_epoch == Some(route_table_epoch)
+        {
             return;
         }
         self.prepared.prepare::<()>(world, &self.descriptor);
@@ -72,7 +85,8 @@ impl<Q: EntityFetchSpec> EntityViewCache<Q> {
             }
         }
         self.cached_world = Some(Arc::clone(world.cache_token()));
-        self.cached_column_base_epoch = Some(world.column_base_epoch());
+        self.cached_query_column_base_epoch = Some(query_column_base_epoch);
+        self.cached_route_table_epoch = Some(route_table_epoch);
         self.rebuild_count = self
             .rebuild_count
             .checked_add(1)
