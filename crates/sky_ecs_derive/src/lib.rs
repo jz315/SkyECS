@@ -174,24 +174,6 @@ fn expand_query_data(input: DeriveInput) -> Result<TokenStream2> {
             }
 
             #[inline(always)]
-            unsafe fn item_from_raw_parts<'__sky_world>(
-                component_ptrs: &[*mut u8],
-                entity_index: usize,
-            ) -> Self::Item<'__sky_world> {
-                unsafe {
-                    #name {
-                        #(
-                            #field_names:
-                                <#static_types as #support::QueryParam>::item_from_raw(
-                                    component_ptrs[#field_indices],
-                                    entity_index,
-                                ),
-                        )*
-                    }
-                }
-            }
-
-            #[inline(always)]
             unsafe fn for_each_entity<'__sky_world, __SkyFunc>(
                 chunk: &'__sky_world #support::Chunk,
                 component_indices: &[u8],
@@ -232,6 +214,38 @@ fn expand_query_data(input: DeriveInput) -> Result<TokenStream2> {
                         }
                     });
                 }
+            }
+        }
+
+        unsafe impl #support::EntityFetchSpec for #name<'static> {
+            type Fetch =
+                <#raw_query as #support::EntityFetchSpec>::Fetch;
+
+            #[inline(always)]
+            unsafe fn prepare_fetch(
+                chunk: &#support::Chunk,
+                component_indices: &[u8],
+            ) -> Self::Fetch {
+                unsafe {
+                    <#raw_query as #support::EntityFetchSpec>::prepare_fetch(
+                        chunk,
+                        component_indices,
+                    )
+                }
+            }
+
+            #[inline(always)]
+            unsafe fn fetch_item<'__sky_world>(
+                fetch: &Self::Fetch,
+                entity_index: usize,
+            ) -> Self::Item<'__sky_world> {
+                let #item_pattern = unsafe {
+                    <#raw_query as #support::EntityFetchSpec>::fetch_item(
+                        fetch,
+                        entity_index,
+                    )
+                };
+                #name { #(#field_names,)* }
             }
         }
 

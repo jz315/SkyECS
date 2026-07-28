@@ -11,7 +11,9 @@ use crate::ecs::query::{
     ParallelJobCache, ParallelJobSnapshot, PreparedCache, QueryDescriptor, SequentialChunk,
     SequentialChunkCache,
 };
-use crate::ecs::{Commands, EntityId, QueryFilter, QuerySpec, ReadOnlyQuerySpec, World};
+use crate::ecs::{
+    Commands, EntityFetchSpec, EntityId, QueryFilter, QuerySpec, ReadOnlyQuerySpec, World,
+};
 use std::cell::Cell;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -453,7 +455,7 @@ where
 // EntityView
 // ---------------------------------------------------------------------------
 
-pub(crate) struct EntityViewState<Q: QuerySpec> {
+pub(crate) struct EntityViewState<Q: EntityFetchSpec> {
     cache: EntityViewCache<Q>,
 }
 
@@ -463,7 +465,7 @@ pub(crate) struct EntityViewState<Q: QuerySpec> {
 // be Send before this state can be used by an ordinary system.
 unsafe impl<Q> Send for EntityViewState<Q>
 where
-    Q: QuerySpec,
+    Q: EntityFetchSpec,
     for<'a> Q::Item<'a>: Send,
 {
 }
@@ -474,12 +476,12 @@ where
 /// rather than sequential iteration. Its route table is refreshed before each
 /// structurally frozen stage execution and retained across frames.
 #[must_use = "entity views do nothing until get or get_mut is called"]
-pub struct EntityView<'w, Q: QuerySpec> {
+pub struct EntityView<'w, Q: EntityFetchSpec> {
     entity_routes: EntityRouteView<'w>,
     cache: &'w EntityViewCache<Q>,
 }
 
-impl<Q: QuerySpec> EntityView<'_, Q> {
+impl<Q: EntityFetchSpec> EntityView<'_, Q> {
     /// Returns all requested components for a live matching entity.
     ///
     /// The returned item is tied to this mutable view borrow, so safe code
@@ -498,18 +500,17 @@ impl<Q: QuerySpec> EntityView<'_, Q> {
     #[inline(always)]
     pub fn get_mut<'a>(&'a mut self, entity: EntityId) -> Option<Q::Item<'a>> {
         let route = self.entity_routes.resolve(entity)?;
-        let (pointers, entity_index) = self.cache.row(route)?;
+        let (fetch, entity_index) = self.cache.row(route)?;
         Some(unsafe {
-            // SAFETY: scheduler preparation resolved Q's descriptor-matched
-            // columns, the registered access set grants this system every
-            // required write, and the mutable view borrow prevents overlapping
-            // items from this capability.
-            Q::item_from_raw_parts(pointers, entity_index)
+            // SAFETY: scheduler preparation resolved Q's complete typed
+            // fetch, the registered access set grants every required write,
+            // and the mutable view borrow prevents overlapping items.
+            Q::fetch_item(fetch, entity_index)
         })
     }
 }
 
-impl<Q: ReadOnlyQuerySpec> EntityView<'_, Q> {
+impl<Q: EntityFetchSpec + ReadOnlyQuerySpec> EntityView<'_, Q> {
     /// Returns all requested components for a live matching entity.
     ///
     /// Optional-only queries return `Some` for any live entity, including
@@ -517,12 +518,12 @@ impl<Q: ReadOnlyQuerySpec> EntityView<'_, Q> {
     #[inline(always)]
     pub fn get<'a>(&'a self, entity: EntityId) -> Option<Q::Item<'a>> {
         let route = self.entity_routes.resolve(entity)?;
-        let (pointers, entity_index) = self.cache.row(route)?;
+        let (fetch, entity_index) = self.cache.row(route)?;
         Some(unsafe {
-            // SAFETY: scheduler preparation resolved Q's descriptor-matched
-            // columns and registered read access keeps them live and shared
-            // for this invocation.
-            Q::item_from_raw_parts(pointers, entity_index)
+            // SAFETY: scheduler preparation resolved Q's complete typed
+            // fetch and registered read access keeps it live and shared for
+            // this invocation.
+            Q::fetch_item(fetch, entity_index)
         })
     }
 }
@@ -532,7 +533,7 @@ impl<Q: ReadOnlyQuerySpec> EntityView<'_, Q> {
 // the scheduler keeps World structure frozen.
 unsafe impl<'marker, Q> SystemParam for EntityView<'marker, Q>
 where
-    Q: QuerySpec + 'static,
+    Q: EntityFetchSpec + 'static,
     for<'a> Q::Item<'a>: Send,
 {
     type State = EntityViewState<Q>;

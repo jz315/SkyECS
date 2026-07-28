@@ -1,4 +1,3 @@
-use sky_ecs::ecs::__private::{Chunk, QueryDescriptor, QuerySpec, ReadOnlyQuerySpec};
 use sky_ecs::{EntityId, PreparedEntityView, QueryData, World};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -33,64 +32,6 @@ struct Movement<'w> {
     position: &'w mut Position,
     velocity: &'w Velocity,
 }
-
-struct LegacyPosition<'w>(&'w Position);
-
-unsafe impl QuerySpec for LegacyPosition<'static> {
-    type Chunk<'w> = <&'static Position as QuerySpec>::Chunk<'w>;
-    type Item<'w> = LegacyPosition<'w>;
-
-    fn descriptor() -> QueryDescriptor {
-        <&'static Position as QuerySpec>::descriptor()
-    }
-
-    unsafe fn chunk_from_raw<'w>(chunk: &'w Chunk, component_indices: &[u8]) -> Self::Chunk<'w> {
-        unsafe { <&'static Position as QuerySpec>::chunk_from_raw(chunk, component_indices) }
-    }
-
-    unsafe fn chunk_from_raw_parts<'w>(
-        component_ptrs: &[*mut u8],
-        start: usize,
-        len: usize,
-    ) -> Self::Chunk<'w> {
-        unsafe {
-            <&'static Position as QuerySpec>::chunk_from_raw_parts(component_ptrs, start, len)
-        }
-    }
-
-    unsafe fn for_each_entity_raw_parts<'w, Func>(
-        component_ptrs: &[*mut u8],
-        start: usize,
-        len: usize,
-        f: &mut Func,
-    ) where
-        Func: FnMut(Self::Item<'w>),
-    {
-        unsafe {
-            <&'static Position as QuerySpec>::for_each_entity_raw_parts(
-                component_ptrs,
-                start,
-                len,
-                &mut |position| f(LegacyPosition(position)),
-            );
-        }
-    }
-
-    unsafe fn for_each_entity<'w, Func>(chunk: &'w Chunk, component_indices: &[u8], f: &mut Func)
-    where
-        Func: FnMut(Self::Item<'w>),
-    {
-        unsafe {
-            <&'static Position as QuerySpec>::for_each_entity(
-                chunk,
-                component_indices,
-                &mut |position| f(LegacyPosition(position)),
-            );
-        }
-    }
-}
-
-unsafe impl ReadOnlyQuerySpec for LegacyPosition<'static> {}
 
 #[test]
 fn shared_tuple_access_handles_archetypes_stale_ids_and_missing_components() {
@@ -151,15 +92,6 @@ fn mutable_and_derived_queries_fetch_one_row_directly() {
 
     assert_eq!(world.get::<Position>(first), Some(&Position(11)));
     assert_eq!(world.get::<Position>(second), Some(&Position(22)));
-}
-
-#[test]
-fn external_query_spec_uses_the_compatible_default_single_row_path() {
-    let mut world = World::new();
-    let entity = world.spawn((Position(7),));
-    let mut prepared = PreparedEntityView::<LegacyPosition>::new();
-
-    assert_eq!(prepared.bind(&world).get(entity).unwrap().0, &Position(7));
 }
 
 #[test]

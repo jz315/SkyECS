@@ -1,5 +1,5 @@
 use super::resolve_column_ptr;
-use super::{Chunk, QueryComponent, QueryDescriptor};
+use super::{Chunk, EntityFetchSpec, QueryComponent, QueryDescriptor};
 use crate::ecs::component_type;
 use core::slice;
 use smallvec::SmallVec;
@@ -14,6 +14,8 @@ use smallvec::SmallVec;
 pub unsafe trait QueryParam {
     type Slice<'w>;
     type Item<'w>;
+    /// Typed component-base representation used by arbitrary-ID lookup.
+    type EntityFetch: Copy;
 
     fn component() -> QueryComponent;
 
@@ -46,6 +48,27 @@ pub unsafe trait QueryParam {
     /// type and `index` must select an initialized in-bounds row. The caller
     /// must uphold the access mode represented by this parameter.
     unsafe fn item_from_raw<'w>(ptr: *mut u8, index: usize) -> Self::Item<'w>;
+
+    /// Converts a descriptor-matched erased column base into the typed form
+    /// retained by an entity-route cache.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be the corresponding live component column base, or null
+    /// only when this parameter is optional and the component is absent.
+    #[doc(hidden)]
+    unsafe fn prepare_entity_fetch(ptr: *mut u8) -> Self::EntityFetch;
+
+    /// Builds one item from a previously prepared typed component base.
+    ///
+    /// # Safety
+    ///
+    /// `fetch` must describe this parameter's matching live chunk and `index`
+    /// must select an initialized in-bounds row. The caller must uphold this
+    /// parameter's shared/exclusive access mode for `'w`.
+    #[doc(hidden)]
+    unsafe fn item_from_entity_fetch<'w>(fetch: &Self::EntityFetch, index: usize)
+        -> Self::Item<'w>;
 }
 
 /// Marker for query parameters that never construct mutable references.
@@ -58,6 +81,7 @@ pub unsafe trait ReadOnlyQueryParam: QueryParam {}
 unsafe impl<T: 'static> QueryParam for &T {
     type Slice<'w> = &'w [T];
     type Item<'w> = &'w T;
+    type EntityFetch = *const T;
 
     #[inline(always)]
     fn component() -> QueryComponent {
@@ -83,6 +107,21 @@ unsafe impl<T: 'static> QueryParam for &T {
         // live, aligned `T` and that shared access is permitted.
         unsafe { &*((ptr as *const T).add(index)) }
     }
+
+    #[inline(always)]
+    unsafe fn prepare_entity_fetch(ptr: *mut u8) -> Self::EntityFetch {
+        ptr.cast::<T>().cast_const()
+    }
+
+    #[inline(always)]
+    unsafe fn item_from_entity_fetch<'w>(
+        fetch: &Self::EntityFetch,
+        index: usize,
+    ) -> Self::Item<'w> {
+        // SAFETY: the EntityFetchSpec caller guarantees a live, aligned row
+        // and shared access to this typed component base.
+        unsafe { &*fetch.add(index) }
+    }
 }
 
 unsafe impl<T: 'static> ReadOnlyQueryParam for &T {}
@@ -90,6 +129,7 @@ unsafe impl<T: 'static> ReadOnlyQueryParam for &T {}
 unsafe impl<T: 'static> QueryParam for &mut T {
     type Slice<'w> = &'w mut [T];
     type Item<'w> = &'w mut T;
+    type EntityFetch = *mut T;
 
     #[inline(always)]
     fn component() -> QueryComponent {
@@ -115,11 +155,27 @@ unsafe impl<T: 'static> QueryParam for &mut T {
         // `index` and exclusive access for the yielded item.
         unsafe { &mut *((ptr as *mut T).add(index)) }
     }
+
+    #[inline(always)]
+    unsafe fn prepare_entity_fetch(ptr: *mut u8) -> Self::EntityFetch {
+        ptr.cast::<T>()
+    }
+
+    #[inline(always)]
+    unsafe fn item_from_entity_fetch<'w>(
+        fetch: &Self::EntityFetch,
+        index: usize,
+    ) -> Self::Item<'w> {
+        // SAFETY: the EntityFetchSpec caller guarantees a live, aligned row
+        // and exclusive access to this typed component base.
+        unsafe { &mut *fetch.add(index) }
+    }
 }
 
 unsafe impl<T: 'static> QueryParam for Option<&T> {
     type Slice<'w> = Option<&'w [T]>;
     type Item<'w> = Option<&'w T>;
+    type EntityFetch = *const T;
 
     #[inline(always)]
     fn component() -> QueryComponent {
@@ -147,6 +203,25 @@ unsafe impl<T: 'static> QueryParam for Option<&T> {
             Some(unsafe { &*((ptr as *const T).add(index)) })
         }
     }
+
+    #[inline(always)]
+    unsafe fn prepare_entity_fetch(ptr: *mut u8) -> Self::EntityFetch {
+        ptr.cast::<T>().cast_const()
+    }
+
+    #[inline(always)]
+    unsafe fn item_from_entity_fetch<'w>(
+        fetch: &Self::EntityFetch,
+        index: usize,
+    ) -> Self::Item<'w> {
+        if fetch.is_null() {
+            None
+        } else {
+            // SAFETY: a non-null optional fetch obeys the live shared-row
+            // contract established while the route cache was prepared.
+            Some(unsafe { &*fetch.add(index) })
+        }
+    }
 }
 
 unsafe impl<T: 'static> ReadOnlyQueryParam for Option<&T> {}
@@ -154,6 +229,7 @@ unsafe impl<T: 'static> ReadOnlyQueryParam for Option<&T> {}
 unsafe impl<T: 'static> QueryParam for Option<&mut T> {
     type Slice<'w> = Option<&'w mut [T]>;
     type Item<'w> = Option<&'w mut T>;
+    type EntityFetch = *mut T;
 
     #[inline(always)]
     fn component() -> QueryComponent {
@@ -179,6 +255,25 @@ unsafe impl<T: 'static> QueryParam for Option<&mut T> {
             // SAFETY: a non-null optional pointer identifies a live component
             // row for which the query executor holds exclusive access.
             Some(unsafe { &mut *((ptr as *mut T).add(index)) })
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn prepare_entity_fetch(ptr: *mut u8) -> Self::EntityFetch {
+        ptr.cast::<T>()
+    }
+
+    #[inline(always)]
+    unsafe fn item_from_entity_fetch<'w>(
+        fetch: &Self::EntityFetch,
+        index: usize,
+    ) -> Self::Item<'w> {
+        if fetch.is_null() {
+            None
+        } else {
+            // SAFETY: a non-null optional fetch obeys the live exclusive-row
+            // contract established while the route cache was prepared.
+            Some(unsafe { &mut *fetch.add(index) })
         }
     }
 }
@@ -229,38 +324,6 @@ pub unsafe trait QuerySpec {
         start: usize,
         len: usize,
     ) -> Self::Chunk<'w>;
-
-    /// Builds one typed item from prevalidated raw component columns.
-    ///
-    /// Built-in query specifications override this with a direct row fetch.
-    /// The default preserves compatibility for external implementations by
-    /// asking their entity visitor to yield a one-row range.
-    ///
-    /// # Safety
-    ///
-    /// Every pointer must address the corresponding descriptor column,
-    /// `entity_index` must select an initialized in-bounds row, and the caller
-    /// must uphold every declared shared/exclusive component access for `'w`.
-    #[doc(hidden)]
-    unsafe fn item_from_raw_parts<'w>(
-        component_ptrs: &[*mut u8],
-        entity_index: usize,
-    ) -> Self::Item<'w> {
-        let mut result = None;
-
-        unsafe {
-            // SAFETY: the caller supplies a valid single-row range. The
-            // QuerySpec contract requires exactly one callback for that range.
-            Self::for_each_entity_raw_parts(component_ptrs, entity_index, 1, &mut |item| {
-                assert!(
-                    result.replace(item).is_none(),
-                    "QuerySpec::for_each_entity_raw_parts yielded one row more than once"
-                );
-            });
-        }
-
-        result.expect("QuerySpec::for_each_entity_raw_parts did not yield the requested row")
-    }
 
     /// Visits a prevalidated subrange of raw component columns entity by entity.
     ///
@@ -336,16 +399,6 @@ unsafe impl<P: QueryParam> QuerySpec for P {
     }
 
     #[inline(always)]
-    unsafe fn item_from_raw_parts<'w>(
-        component_ptrs: &[*mut u8],
-        entity_index: usize,
-    ) -> Self::Item<'w> {
-        // SAFETY: the caller guarantees that slot zero belongs to P and that
-        // `entity_index` names a live row with P's declared aliasing mode.
-        unsafe { P::item_from_raw(component_ptrs[0], entity_index) }
-    }
-
-    #[inline(always)]
     unsafe fn for_each_entity<'w, Func>(chunk: &'w Chunk, component_indices: &[u8], f: &mut Func)
     where
         Func: FnMut(Self::Item<'w>),
@@ -381,6 +434,29 @@ unsafe impl<P: QueryParam> QuerySpec for P {
 }
 
 unsafe impl<P: ReadOnlyQueryParam> ReadOnlyQuerySpec for P {}
+
+unsafe impl<P: QueryParam> EntityFetchSpec for P {
+    type Fetch = P::EntityFetch;
+
+    #[inline(always)]
+    unsafe fn prepare_fetch(chunk: &Chunk, component_indices: &[u8]) -> Self::Fetch {
+        // SAFETY: the caller supplies P's descriptor-matched component index
+        // for this live chunk, including the optional sentinel when absent.
+        unsafe {
+            P::prepare_entity_fetch(P::resolve_column(
+                chunk,
+                *component_indices.get_unchecked(0),
+            ))
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn fetch_item<'w>(fetch: &Self::Fetch, entity_index: usize) -> Self::Item<'w> {
+        // SAFETY: the caller guarantees this typed base belongs to P's live
+        // matching chunk and that entity_index selects an initialized row.
+        unsafe { P::item_from_entity_fetch(fetch, entity_index) }
+    }
+}
 
 macro_rules! impl_query_spec_tuple {
     ($(($Param:ident, $base:ident, $index:tt)),+ $(,)?) => {
@@ -430,22 +506,6 @@ macro_rules! impl_query_spec_tuple {
                     (
                         $(
                             $Param::slice_from_raw(component_ptrs[$index], start, len),
-                        )+
-                    )
-                }
-            }
-
-            #[inline(always)]
-            unsafe fn item_from_raw_parts<'w>(
-                component_ptrs: &[*mut u8],
-                entity_index: usize,
-            ) -> Self::Item<'w> {
-                // SAFETY: slots correspond to their tuple parameters and the
-                // caller validated this live row and the combined aliasing.
-                unsafe {
-                    (
-                        $(
-                            $Param::item_from_raw(component_ptrs[$index], entity_index),
                         )+
                     )
                 }
@@ -505,6 +565,51 @@ macro_rules! impl_query_spec_tuple {
         }
 
         unsafe impl<$($Param: ReadOnlyQueryParam),+> ReadOnlyQuerySpec for ($($Param,)+) {}
+
+        unsafe impl<$($Param: QueryParam),+> EntityFetchSpec for ($($Param,)+) {
+            type Fetch = ($($Param::EntityFetch,)+);
+
+            #[inline(always)]
+            unsafe fn prepare_fetch(
+                chunk: &Chunk,
+                component_indices: &[u8],
+            ) -> Self::Fetch {
+                // SAFETY: every cached index belongs to its tuple parameter
+                // for this matching live chunk. Optional sentinels are
+                // converted into nullable typed bases.
+                unsafe {
+                    (
+                        $(
+                            $Param::prepare_entity_fetch(
+                                $Param::resolve_column(
+                                    chunk,
+                                    *component_indices.get_unchecked($index),
+                                ),
+                            ),
+                        )+
+                    )
+                }
+            }
+
+            #[inline(always)]
+            unsafe fn fetch_item<'w>(
+                fetch: &Self::Fetch,
+                entity_index: usize,
+            ) -> Self::Item<'w> {
+                // SAFETY: fetch contains the descriptor-matched typed bases
+                // for this live row and the caller upholds combined aliasing.
+                unsafe {
+                    (
+                        $(
+                            $Param::item_from_entity_fetch(
+                                &fetch.$index,
+                                entity_index,
+                            ),
+                        )+
+                    )
+                }
+            }
+        }
     };
 }
 

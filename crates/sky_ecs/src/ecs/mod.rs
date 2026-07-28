@@ -81,7 +81,9 @@ pub mod stage {
 #[doc(hidden)]
 pub mod __private {
     pub use super::chunk::Chunk;
-    pub use super::query::{QueryDescriptor, QueryParam, QuerySpec, ReadOnlyQuerySpec};
+    pub use super::query::{
+        EntityFetchSpec, QueryDescriptor, QueryParam, QuerySpec, ReadOnlyQuerySpec,
+    };
 }
 
 pub(crate) use archetype::*;

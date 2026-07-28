@@ -1,5 +1,6 @@
 mod bound;
 mod cache;
+mod entity_fetch;
 mod filter;
 mod parallel;
 mod param;
@@ -21,6 +22,8 @@ pub(crate) use bound::{
 };
 pub use bound::{Query, QueryMut};
 pub(crate) use cache::QueryCacheStore;
+#[doc(hidden)]
+pub use entity_fetch::EntityFetchSpec;
 pub use filter::{Any, QueryFilter, With, Without};
 pub(crate) use parallel::{
     par_for_each, par_for_each_chunk, par_for_each_chunk_with_entities, par_for_each_with_entity,

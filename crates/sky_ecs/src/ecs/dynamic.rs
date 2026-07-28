@@ -760,6 +760,57 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_query_refreshes_across_worlds_and_new_archetypes() {
+        let mut query = DynamicQuery::builder()
+            .read::<Position>()
+            .optional_read::<Velocity>()
+            .build()
+            .unwrap();
+
+        let mut first_world = World::new();
+        first_world.spawn((Position { x: 1.0, y: 2.0 }, Velocity { x: 3.0, y: 4.0 }));
+        let mut first_shapes = Vec::new();
+        query
+            .for_each_chunk(&first_world, |chunk| {
+                first_shapes.push((
+                    chunk.read::<Position>(0)?.len(),
+                    chunk.optional_read::<Velocity>(1)?.is_some(),
+                ));
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(first_shapes, vec![(1, true)]);
+
+        let mut second_world = World::new();
+        second_world.spawn((Position { x: 5.0, y: 6.0 },));
+        let mut second_shapes = Vec::new();
+        query
+            .for_each_chunk(&second_world, |chunk| {
+                second_shapes.push((
+                    chunk.read::<Position>(0)?.len(),
+                    chunk.optional_read::<Velocity>(1)?.is_some(),
+                ));
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(second_shapes, vec![(1, false)]);
+
+        second_world.spawn((Position { x: 7.0, y: 8.0 }, Velocity { x: 1.0, y: 1.0 }));
+        let mut refreshed_shapes = Vec::new();
+        query
+            .for_each_chunk(&second_world, |chunk| {
+                refreshed_shapes.push((
+                    chunk.read::<Position>(0)?.len(),
+                    chunk.optional_read::<Velocity>(1)?.is_some(),
+                ));
+                Ok(())
+            })
+            .unwrap();
+        refreshed_shapes.sort_unstable();
+        assert_eq!(refreshed_shapes, vec![(1, false), (1, true)]);
+    }
+
+    #[test]
     fn readonly_iteration_rejects_write_slots() {
         let world = World::new();
         let mut query = DynamicQuery::builder().write::<Position>().build().unwrap();
