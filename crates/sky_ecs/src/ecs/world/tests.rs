@@ -144,7 +144,7 @@ fn spawn_batch_initializes_all_component_columns() {
 
     let mut actual = Vec::new();
     let query = world.query::<(&Position, &Velocity)>();
-    query.for_each(|(position, velocity)| {
+    query.for_each(|position, velocity| {
         actual.push((*position, *velocity));
     });
     actual.sort_by(|(left, _), (right, _)| left.x.total_cmp(&right.x));
@@ -413,7 +413,7 @@ fn commands_apply_spawns_components_and_resources() {
 
     let mut count = 0usize;
     let query = world.query::<(&Position, &Velocity)>();
-    query.for_each(|(position, velocity)| {
+    query.for_each(|position, velocity| {
         count += 1;
         assert_eq!(position, &Position { x: 7.0, y: 8.0 });
         assert_eq!(velocity, &Velocity { x: 1.0, y: 2.0 });

@@ -50,7 +50,7 @@ fn main() {
 
     world
         .query_mut::<(&mut Position, &Velocity)>()
-        .for_each(|(position, velocity)| {
+        .for_each(|position, velocity| {
             position.x += velocity.x / 60.0;
             position.y += velocity.y / 60.0;
         });
@@ -159,7 +159,8 @@ Use `query_mut` when a query contains mutable component references. Use
 `PreparedQuery` when the query plan needs to be stored explicitly or reused
 across worlds.
 
-Named query items are available for wider queries:
+Named query declarations are available for wider queries. Iteration callbacks
+receive their fields as separate arguments in declaration order:
 
 ```rust
 use sky_ecs::QueryData;
@@ -170,9 +171,9 @@ struct Movement<'w> {
     velocity: &'w Velocity,
 }
 
-world.query_mut::<Movement>().for_each(|body| {
-    body.position.x += body.velocity.x;
-    body.position.y += body.velocity.y;
+world.query_mut::<Movement>().for_each(|position, velocity| {
+    position.x += velocity.x;
+    position.y += velocity.y;
 });
 ```
 
@@ -181,7 +182,7 @@ Parallel iteration uses the same query types:
 ```rust
 world
     .query_mut::<(&mut Position, &Velocity)>()
-    .par_for_each(|(position, velocity)| {
+    .par_for_each(|position, velocity| {
         position.x += velocity.x;
         position.y += velocity.y;
     });
@@ -199,7 +200,7 @@ parallel, while conflicting systems keep registration order.
 use sky_ecs::{EntityId, EntityView, Res, Time, Update, View, World};
 
 fn movement(bodies: View<(&mut Position, &Velocity)>, time: Res<Time>) {
-    bodies.for_each(|(position, velocity)| {
+    bodies.for_each(|position, velocity| {
         position.x += velocity.x * time.delta;
         position.y += velocity.y * time.delta;
     });

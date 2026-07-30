@@ -7,9 +7,9 @@ Module: `sky_ecs`
 ## Synopsis
 
 ```rust
-pub struct Query<'w, Q, Flt = ()> { /* private fields */ }
-pub struct QueryMut<'w, Q, Flt = ()> { /* private fields */ }
-pub struct PreparedQuery<Q, Flt = ()> { /* private fields */ }
+pub struct Query<'w, Q, Flt = (), Shape = Q::Arity> { /* private fields */ }
+pub struct QueryMut<'w, Q, Flt = (), Shape = Q::Arity> { /* private fields */ }
+pub struct PreparedQuery<Q, Flt = (), Shape = Q::Arity> { /* private fields */ }
 
 pub trait QueryFilter: /* sealed */ { /* hidden implementation members */ }
 pub struct With<T>(/* private */);
@@ -20,8 +20,9 @@ pub struct Any<F>(/* private */);
 Supported query parameters are `&T`, `&mut T`, `Option<&T>`, and
 `Option<&mut T>`, either alone or in tuples of up to sixteen component types.
 The same component type may not appear twice in one query, regardless of optionality or access
-mode. `#[derive(QueryData)]` provides named entity-level results; see
-[macros and types](plugins-types.md).
+mode. `#[derive(QueryData)]` provides named query declarations and named
+entity-level return values; iteration callbacks still receive one argument per
+field in declaration order. See [macros and types](plugins-types.md).
 
 ## World-bound queries
 
@@ -43,10 +44,10 @@ between recreated queries of the same `(Q, Flt)` type.
 
 | Declaration | Callback contract |
 |---|---|
-| `for_each_chunk<F>(&self, f: F)` | `F: for<'a> FnMut(Q::Chunk<'a>)` |
-| `for_each<F>(&self, f: F)` | `F: for<'a> FnMut(Q::Item<'a>)` |
-| `for_each_with_entity<F>(&self, f: F)` | `F: for<'a> FnMut(EntityId, Q::Item<'a>)` |
-| `for_each_chunk_with_entities<F>(&self, f: F)` | `F: for<'a> FnMut(&'a [EntityId], Q::Chunk<'a>)` |
+| `for_each_chunk<F>(&self, f: F)` | One component-slice argument per query parameter. |
+| `for_each<F>(&self, f: F)` | One component-reference argument per query parameter. |
+| `for_each_with_entity<F>(&self, f: F)` | `EntityId`, followed by the component-reference arguments. |
+| `for_each_chunk_with_entities<F>(&self, f: F)` | Entity-ID slice, followed by the aligned component slices. |
 | `par_for_each_chunk<F>(&self, f: F)` | Chunk is `Send`; `F: Fn(...) + Send + Sync`. |
 | `par_for_each<F>(&self, f: F)` | Item is `Send`; `F: Fn(...) + Send + Sync`. |
 | `par_for_each_with_entity<F>(&self, f: F)` | Parallel entity-ID counterpart. |
@@ -60,6 +61,12 @@ between recreated queries of the same `(Q, Flt)` type.
 `QueryMut<'w, Q, Flt>`. Sequential visitation follows dense storage order. Parallel visitation
 order is unspecified. In every chunk callback, entity and component slices have identical
 length and row alignment.
+
+Typed callbacks are expanded at compile time for query widths 1–16. For
+`(&mut Position, &Velocity)`, entity iteration therefore accepts
+`FnMut(&mut Position, &Velocity)` and chunk iteration accepts
+`FnMut(&mut [Position], &[Velocity])`. A normal function can be passed
+directly; a closure may capture state.
 
 ## `PreparedQuery`
 
@@ -90,26 +97,10 @@ Read-only `Q` accepts `&World` or `&mut World`; a `Q` containing mutable access 
 `&mut World`. The cache refreshes automatically for a different World and after relevant
 archetype/storage changes.
 
-For tuple queries of width 2–16, `PreparedQuery` also provides:
-
-```rust
-pub fn for_each_chunk_fn<W>(
-    &mut self,
-    world: W,
-    function: for<'w> fn(P0::Slice<'w>, P1::Slice<'w>, /* ... */),
-);
-
-pub fn for_each_chunk_fn_with<W, State>(
-    &mut self,
-    world: W,
-    state: &mut State,
-    function: for<'w> fn(&mut State, P0::Slice<'w>, P1::Slice<'w>, /* ... */),
-);
-```
-
-These plain-function entry points keep component slices as separate function parameters for
-alias-sensitive compute kernels. They are called once per matching chunk and do not accept
-capturing closures.
+`for_each_chunk` itself accepts both ordinary functions and capturing closures.
+Passing a reusable function keeps component slices as separate function
+parameters for alias-sensitive kernels; captured state no longer requires a
+separate API.
 
 ## Filters
 
@@ -160,7 +151,7 @@ world.spawn((Position(1.0), Velocity(2.0), Active));
 world
     .query_mut::<(&mut Position, &Velocity)>()
     .filter::<With<Active>>()
-    .for_each(|(position, velocity)| position.0 += velocity.0);
+    .for_each(|position, velocity| position.0 += velocity.0);
 ```
 
 ## See also

@@ -29,11 +29,11 @@ struct EntityLookupTargets {
 struct Trace(Vec<&'static str>);
 
 fn movement(entities: View<(&mut Position, &Velocity)>) {
-    entities.for_each(|(position, velocity)| position.0 += velocity.0);
+    entities.for_each(|position, velocity| position.0 += velocity.0);
 }
 
 fn parallel_movement(entities: ParView<(&mut Position, &Velocity)>) {
-    entities.par_for_each(|(position, velocity)| position.0 += velocity.0);
+    entities.par_for_each(|position, velocity| position.0 += velocity.0);
 }
 
 fn move_selected_entity(

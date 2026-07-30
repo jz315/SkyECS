@@ -35,7 +35,7 @@ fn bench_parallel_job_cache(c: &mut Criterion) {
 
     let mut world = populated_world();
     let mut query = PreparedQuery::<(&Position2D, &Velocity2D)>::new();
-    query.par_for_each_chunk(&mut world, |_| {});
+    query.par_for_each_chunk(&mut world, |_, _| {});
     group.bench_function("rebuild_after_spawn_despawn_100k", |b| {
         b.iter(|| {
             let entity = world.spawn((
@@ -43,8 +43,8 @@ fn bench_parallel_job_cache(c: &mut Criterion) {
                 Velocity2D { x: 1.0, y: 0.5 },
                 Active,
             ));
-            query.par_for_each_chunk(&mut world, |chunk| {
-                black_box(chunk);
+            query.par_for_each_chunk(&mut world, |positions, velocities| {
+                black_box((positions, velocities));
             });
             assert!(world.despawn(entity));
         });

@@ -88,15 +88,15 @@ impl SkyGameplayWorld {
 
     pub(super) fn run_iteration_phase(&mut self) {
         self.movement
-            .for_each_chunk(&mut self.world, |(positions, velocities)| {
+            .for_each_chunk(&mut self.world, |positions, velocities| {
                 move_chunk(positions, velocities);
             });
         self.enemies
-            .for_each_chunk(&mut self.world, |(health, damage)| {
+            .for_each_chunk(&mut self.world, |health, damage| {
                 damage_chunk(health, damage);
             });
         self.allies
-            .for_each_chunk(&mut self.world, |(health, regen)| {
+            .for_each_chunk(&mut self.world, |health, regen| {
                 regen_chunk(health, regen);
             });
         self.lifetimes
@@ -399,7 +399,7 @@ fn regen_chunk(health: &mut [Health], regen: &[Regen]) {
 }
 
 #[inline(never)]
-fn lifetime_chunk((lifetimes, velocities): (&mut [Lifetime], Option<&[VelocityComponent]>)) {
+fn lifetime_chunk(lifetimes: &mut [Lifetime], velocities: Option<&[VelocityComponent]>) {
     for lifetime in lifetimes {
         lifetime.0 = lifetime.0.saturating_sub(1);
         if lifetime.0 == 0 && velocities.is_none() {

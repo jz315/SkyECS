@@ -23,7 +23,7 @@ fn movement(
     config: Res<MovementConfig>,
     time: Res<Time>,
 ) {
-    bodies.for_each(|(position, velocity)| {
+    bodies.for_each(|position, velocity| {
         position.0 += velocity.0 * config.speed_scale * time.delta;
     });
 }

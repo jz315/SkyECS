@@ -1,5 +1,5 @@
 use super::resolve_column_ptr;
-use super::{Chunk, EntityFetchSpec, QueryComponent, QueryDescriptor};
+use super::{Arity1, Chunk, EntityFetchSpec, QueryComponent, QueryDescriptor};
 use crate::ecs::component_type;
 use core::slice;
 use smallvec::SmallVec;
@@ -292,15 +292,43 @@ unsafe impl<T: 'static> QueryParam for Option<&mut T> {
 ///
 /// Implementations must describe every component access accurately, preserve
 /// the aliasing mode of each parameter, and only construct references within
-/// the storage and lifetime represented by the supplied chunk. Implementations
-/// of [`for_each_entity_raw_parts`](Self::for_each_entity_raw_parts) must invoke
+/// the storage and lifetime represented by the supplied chunk.
+///
+/// [`Arity`](Self::Arity), [`ChunkArgs`](Self::ChunkArgs), and
+/// [`ItemArgs`](Self::ItemArgs) must describe the same query parameters, in the
+/// same order, as the descriptor. The two `into_*_args` methods must only
+/// unpack their input: they must neither duplicate nor discard component
+/// references, especially mutable references.
+///
+/// Implementations of
+/// [`for_each_entity_raw_parts`](Self::for_each_entity_raw_parts) must invoke
 /// the callback exactly once for every row in the requested range and must not
 /// invoke it for rows outside that range.
 pub unsafe trait QuerySpec {
+    /// Number of independently typed arguments exposed by iteration callbacks.
+    #[doc(hidden)]
+    type Arity;
+
     type Chunk<'w>;
     type Item<'w>;
 
+    /// Flattened callback arguments corresponding to [`Chunk`](Self::Chunk).
+    #[doc(hidden)]
+    type ChunkArgs<'w>;
+
+    /// Flattened callback arguments corresponding to [`Item`](Self::Item).
+    #[doc(hidden)]
+    type ItemArgs<'w>;
+
     fn descriptor() -> QueryDescriptor;
+
+    /// Converts a chunk value into the arguments passed to a chunk callback.
+    #[doc(hidden)]
+    fn into_chunk_args<'w>(chunk: Self::Chunk<'w>) -> Self::ChunkArgs<'w>;
+
+    /// Converts an item value into the arguments passed to an entity callback.
+    #[doc(hidden)]
+    fn into_item_args<'w>(item: Self::Item<'w>) -> Self::ItemArgs<'w>;
 
     /// Builds the typed slice view for one matching chunk.
     ///
@@ -364,8 +392,21 @@ pub unsafe trait QuerySpec {
 pub unsafe trait ReadOnlyQuerySpec: QuerySpec {}
 
 unsafe impl<P: QueryParam> QuerySpec for P {
+    type Arity = Arity1;
     type Chunk<'w> = P::Slice<'w>;
     type Item<'w> = P::Item<'w>;
+    type ChunkArgs<'w> = P::Slice<'w>;
+    type ItemArgs<'w> = P::Item<'w>;
+
+    #[inline(always)]
+    fn into_chunk_args<'w>(chunk: Self::Chunk<'w>) -> Self::ChunkArgs<'w> {
+        chunk
+    }
+
+    #[inline(always)]
+    fn into_item_args<'w>(item: Self::Item<'w>) -> Self::ItemArgs<'w> {
+        item
+    }
 
     #[inline(always)]
     fn descriptor() -> QueryDescriptor {
@@ -458,11 +499,75 @@ unsafe impl<P: QueryParam> EntityFetchSpec for P {
     }
 }
 
+macro_rules! query_arity {
+    ($A:ident) => {
+        super::Arity1
+    };
+    ($A:ident, $B:ident) => {
+        super::Arity2
+    };
+    ($A:ident, $B:ident, $C:ident) => {
+        super::Arity3
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident) => {
+        super::Arity4
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident) => {
+        super::Arity5
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident) => {
+        super::Arity6
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident, $G:ident) => {
+        super::Arity7
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident, $G:ident, $H:ident) => {
+        super::Arity8
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident, $G:ident, $H:ident, $I:ident) => {
+        super::Arity9
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident, $G:ident, $H:ident, $I:ident, $J:ident) => {
+        super::Arity10
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident, $G:ident, $H:ident, $I:ident, $J:ident, $K:ident) => {
+        super::Arity11
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident, $G:ident, $H:ident, $I:ident, $J:ident, $K:ident, $L:ident) => {
+        super::Arity12
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident, $G:ident, $H:ident, $I:ident, $J:ident, $K:ident, $L:ident, $M:ident) => {
+        super::Arity13
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident, $G:ident, $H:ident, $I:ident, $J:ident, $K:ident, $L:ident, $M:ident, $N:ident) => {
+        super::Arity14
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident, $G:ident, $H:ident, $I:ident, $J:ident, $K:ident, $L:ident, $M:ident, $N:ident, $O:ident) => {
+        super::Arity15
+    };
+    ($A:ident, $B:ident, $C:ident, $D:ident, $E:ident, $F:ident, $G:ident, $H:ident, $I:ident, $J:ident, $K:ident, $L:ident, $M:ident, $N:ident, $O:ident, $P:ident) => {
+        super::Arity16
+    };
+}
+
 macro_rules! impl_query_spec_tuple {
     ($(($Param:ident, $base:ident, $index:tt)),+ $(,)?) => {
         unsafe impl<$($Param: QueryParam),+> QuerySpec for ($($Param,)+) {
+            type Arity = query_arity!($($Param),+);
             type Chunk<'w> = ($($Param::Slice<'w>,)+);
             type Item<'w> = ($($Param::Item<'w>,)+);
+            type ChunkArgs<'w> = Self::Chunk<'w>;
+            type ItemArgs<'w> = Self::Item<'w>;
+
+            #[inline(always)]
+            fn into_chunk_args<'w>(chunk: Self::Chunk<'w>) -> Self::ChunkArgs<'w> {
+                chunk
+            }
+
+            #[inline(always)]
+            fn into_item_args<'w>(item: Self::Item<'w>) -> Self::ItemArgs<'w> {
+                item
+            }
 
             #[inline(always)]
             fn descriptor() -> QueryDescriptor {

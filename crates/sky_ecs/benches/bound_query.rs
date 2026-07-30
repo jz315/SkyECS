@@ -102,16 +102,14 @@ fn bench_bound_query(c: &mut Criterion) {
         b.iter(|| {
             bound_world
                 .query_mut::<(&mut Position2D, &Velocity2D)>()
-                .for_each(|(position, velocity)| update(position, velocity));
+                .for_each(update);
         });
     });
 
     let mut named_world = populated_world();
     group.bench_function("bound_named_for_each", |b| {
         b.iter(|| {
-            named_world
-                .query_mut::<Movement>()
-                .for_each(|item| update(item.position, item.velocity));
+            named_world.query_mut::<Movement>().for_each(update);
         });
     });
 
@@ -119,7 +117,7 @@ fn bench_bound_query(c: &mut Criterion) {
     let mut prepared = PreparedQuery::<(&mut Position2D, &Velocity2D)>::new();
     group.bench_function("prepared_tuple_for_each", |b| {
         b.iter(|| {
-            prepared.for_each(&mut prepared_world, |(position, velocity)| {
+            prepared.for_each(&mut prepared_world, |position, velocity| {
                 update(position, velocity);
             });
         });

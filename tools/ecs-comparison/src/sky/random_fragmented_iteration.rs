@@ -116,7 +116,7 @@ fn bench_random_component_4(group: &mut BenchmarkGroup<'_, WallTime>, component_
                 let mut checksum = 0_u64;
                 query.for_each_chunk_with_entities(
                     &mut world,
-                    |entities, (a_values, b_values, c_values, d_values)| {
+                    |entities, a_values, b_values, c_values, d_values| {
                         for index in 0..entities.len() {
                             let entity = entities[index];
                             checksum = add_random_fragment_checksum(
@@ -150,16 +150,14 @@ fn bench_random_component_8(group: &mut BenchmarkGroup<'_, WallTime>, component_
                 query.for_each_chunk_with_entities(
                     &mut world,
                     |entities,
-                     (
-                        a_values,
-                        b_values,
-                        c_values,
-                        d_values,
-                        e_values,
-                        f_values,
-                        g_values,
-                        h_values,
-                    )| {
+                     a_values,
+                     b_values,
+                     c_values,
+                     d_values,
+                     e_values,
+                     f_values,
+                     g_values,
+                     h_values| {
                         for index in 0..entities.len() {
                             let entity = entities[index];
                             checksum = add_random_fragment_component_8_checksum(
@@ -184,7 +182,7 @@ fn bench_random_component_8(group: &mut BenchmarkGroup<'_, WallTime>, component_
 }
 
 macro_rules! bench_random_tags {
-    ($name:ident, $terms:literal, $query:ty) => {
+    ($name:ident, $terms:literal, $query:ty, $($value:ident),+ $(,)?) => {
         fn $name(group: &mut BenchmarkGroup<'_, WallTime>, component_count: usize) {
             let suffix = if $terms == 1 { "term" } else { "terms" };
             group.bench_function(
@@ -197,7 +195,7 @@ macro_rules! bench_random_tags {
                     assert_eq!(query.count(&world), expected);
                     bencher.iter(|| {
                         let mut checksum = 0_u64;
-                        query.for_each_chunk_with_entities(&mut world, |entities, _| {
+                        query.for_each_chunk_with_entities(&mut world, |entities, $($value),+| {
                             for &entity in entities {
                                 checksum = checksum.wrapping_add(generational_entity_key(
                                     entity.index(),
@@ -213,12 +211,28 @@ macro_rules! bench_random_tags {
     };
 }
 
-bench_random_tags!(bench_random_tag_1, 1, &TagA);
-bench_random_tags!(bench_random_tag_4, 4, (&TagA, &TagB, &TagC, &TagD));
+bench_random_tags!(bench_random_tag_1, 1, &TagA, _a);
+bench_random_tags!(
+    bench_random_tag_4,
+    4,
+    (&TagA, &TagB, &TagC, &TagD),
+    _a,
+    _b,
+    _c,
+    _d,
+);
 bench_random_tags!(
     bench_random_tag_8,
     8,
-    (&TagA, &TagB, &TagC, &TagD, &TagE, &TagF, &TagG, &TagH)
+    (&TagA, &TagB, &TagC, &TagD, &TagE, &TagF, &TagG, &TagH),
+    _a,
+    _b,
+    _c,
+    _d,
+    _e,
+    _f,
+    _g,
+    _h,
 );
 
 pub fn bench_random_fragmented_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {

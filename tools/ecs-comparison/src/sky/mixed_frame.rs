@@ -45,7 +45,7 @@ fn mixed_move_step(
     world: &mut World,
     move_query: &mut PreparedQuery<(&mut PositionComponent, &VelocityComponent)>,
 ) {
-    move_query.for_each_chunk(&mut *world, |(positions, velocities)| {
+    move_query.for_each_chunk(&mut *world, |positions, velocities| {
         for (position, velocity) in positions.iter_mut().zip(velocities) {
             position.0 += velocity.0;
         }
@@ -57,13 +57,13 @@ fn mixed_health_step(
     enemy_query: &mut PreparedQuery<(&mut Health, &Damage)>,
     ally_query: &mut PreparedQuery<(&mut Health, &Regen)>,
 ) {
-    enemy_query.for_each_chunk(&mut *world, |(healths, damage)| {
+    enemy_query.for_each_chunk(&mut *world, |healths, damage| {
         for (health, damage) in healths.iter_mut().zip(damage) {
             health.0 -= damage.0;
         }
     });
 
-    ally_query.for_each_chunk(&mut *world, |(healths, regen)| {
+    ally_query.for_each_chunk(&mut *world, |healths, regen| {
         for (health, regen) in healths.iter_mut().zip(regen) {
             health.0 += regen.0;
         }
@@ -75,7 +75,7 @@ fn mixed_heavy_step(
     heavy_query: &mut PreparedQuery<(&mut PositionComponent, &TransformComponent)>,
 ) -> u64 {
     let mut checksum = 0_u64;
-    heavy_query.for_each_chunk(&mut *world, |(positions, transforms)| {
+    heavy_query.for_each_chunk(&mut *world, |positions, transforms| {
         checksum = checksum.wrapping_add(process_mixed_heavy_chunk(positions, transforms));
     });
     checksum

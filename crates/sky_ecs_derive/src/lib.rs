@@ -136,9 +136,29 @@ fn expand_query_data(input: DeriveInput) -> Result<TokenStream2> {
 
     Ok(quote! {
         unsafe impl #support::QuerySpec for #name<'static> {
+            type Arity = <#raw_query as #support::QuerySpec>::Arity;
             type Chunk<'__sky_world> =
                 <#raw_query as #support::QuerySpec>::Chunk<'__sky_world>;
             type Item<'__sky_world> = #name<'__sky_world>;
+            type ChunkArgs<'__sky_world> =
+                <#raw_query as #support::QuerySpec>::ChunkArgs<'__sky_world>;
+            type ItemArgs<'__sky_world> =
+                <#raw_query as #support::QuerySpec>::ItemArgs<'__sky_world>;
+
+            #[inline(always)]
+            fn into_chunk_args<'__sky_world>(
+                chunk: Self::Chunk<'__sky_world>,
+            ) -> Self::ChunkArgs<'__sky_world> {
+                <#raw_query as #support::QuerySpec>::into_chunk_args(chunk)
+            }
+
+            #[inline(always)]
+            fn into_item_args<'__sky_world>(
+                item: Self::Item<'__sky_world>,
+            ) -> Self::ItemArgs<'__sky_world> {
+                let #name { #(#field_names,)* } = item;
+                <#raw_query as #support::QuerySpec>::into_item_args(#item_pattern)
+            }
 
             #[inline(always)]
             fn descriptor() -> #support::QueryDescriptor {

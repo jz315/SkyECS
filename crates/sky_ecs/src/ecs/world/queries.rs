@@ -67,7 +67,7 @@ impl World {
     /// # let mut world = World::new();
     /// # world.spawn((Pos { x: 0.0, y: 0.0 }, Vel { x: 1.0, y: 0.0 }));
     /// let query = world.query::<(&Pos, &Vel)>();
-    /// query.for_each(|(pos, vel)| {
+    /// query.for_each(|pos, vel| {
     ///     let _ = (pos.x, vel.x);
     /// });
     /// ```
@@ -99,7 +99,7 @@ impl World {
     /// # let mut world = World::new();
     /// # world.spawn((Pos { x: 0.0, y: 0.0 }, Vel { x: 1.0, y: 0.0 }));
     /// let mut query = world.query_mut::<(&mut Pos, &Vel)>();
-    /// query.for_each(|(pos, vel)| {
+    /// query.for_each(|pos, vel| {
     ///     pos.x += vel.x;
     /// });
     /// ```

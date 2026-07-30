@@ -1,5 +1,10 @@
 use super::parallel;
-use super::{CachedArchetype, EntityId, QueryFilter, QuerySpec, ReadOnlyQuerySpec, World};
+use super::{
+    Args1, Args10, Args11, Args12, Args13, Args14, Args15, Args16, Args2, Args3, Args4, Args5,
+    Args6, Args7, Args8, Args9, Arity1, Arity10, Arity11, Arity12, Arity13, Arity14, Arity15,
+    Arity16, Arity2, Arity3, Arity4, Arity5, Arity6, Arity7, Arity8, Arity9, CachedArchetype,
+    EntityId, QueryFilter, QueryShapeMarker, QuerySpec, ReadOnlyQuerySpec, World,
+};
 use core::marker::PhantomData;
 use std::cell::OnceCell;
 use std::sync::Arc;
@@ -9,10 +14,10 @@ use std::sync::Arc;
 /// Create one with [`World::query`]. Filters are type-level and can be
 /// attached with [`filter`](Self::filter).
 #[must_use = "queries do nothing until they are iterated"]
-pub struct Query<'w, Q, Flt = ()> {
+pub struct Query<'w, Q: QuerySpec, Flt = (), Shape = <Q as QuerySpec>::Arity> {
     world: &'w World,
     archetypes: OnceCell<Arc<Vec<CachedArchetype>>>,
-    marker: PhantomData<fn() -> (Q, Flt)>,
+    marker: QueryShapeMarker<Q, Flt, Shape>,
 }
 
 /// A query view with exclusive access to one [`World`].
@@ -20,10 +25,10 @@ pub struct Query<'w, Q, Flt = ()> {
 /// Create one with [`World::query_mut`]. The exclusive world borrow permits
 /// mutable query parameters while keeping the bound view safe.
 #[must_use = "queries do nothing until they are iterated"]
-pub struct QueryMut<'w, Q, Flt = ()> {
+pub struct QueryMut<'w, Q: QuerySpec, Flt = (), Shape = <Q as QuerySpec>::Arity> {
     world: &'w mut World,
     archetypes: OnceCell<Arc<Vec<CachedArchetype>>>,
-    marker: PhantomData<fn() -> (Q, Flt)>,
+    marker: QueryShapeMarker<Q, Flt, Shape>,
 }
 
 #[inline(always)]
@@ -145,7 +150,7 @@ pub(crate) fn matches_nothing(world: &World, archetypes: &[CachedArchetype]) -> 
     })
 }
 
-impl<'w, Q, Flt> Query<'w, Q, Flt>
+impl<'w, Q, Flt, Shape> Query<'w, Q, Flt, Shape>
 where
     Q: ReadOnlyQuerySpec + 'static,
     Flt: QueryFilter + 'static,
@@ -160,7 +165,7 @@ where
 
     /// Invokes `f` once per matching chunk with typed component slices.
     #[inline(always)]
-    pub fn for_each_chunk<F>(&self, f: F)
+    fn for_each_chunk_impl<F>(&self, f: F)
     where
         F: for<'a> FnMut(Q::Chunk<'a>),
     {
@@ -174,7 +179,7 @@ where
     /// Processes matching chunk slices in parallel using Rayon.
     /// Chunk execution order is unspecified.
     #[inline]
-    pub fn par_for_each_chunk<F>(&self, f: F)
+    fn par_for_each_chunk_impl<F>(&self, f: F)
     where
         for<'a> Q::Chunk<'a>: Send,
         F: for<'a> Fn(Q::Chunk<'a>) + Send + Sync,
@@ -186,7 +191,7 @@ where
 
     /// Invokes `f` once for every matching entity.
     #[inline(always)]
-    pub fn for_each<F>(&self, f: F)
+    fn for_each_impl<F>(&self, f: F)
     where
         F: for<'a> FnMut(Q::Item<'a>),
     {
@@ -200,7 +205,7 @@ where
     /// Processes matching entities in parallel using stripe-sized jobs.
     /// Entity execution order is unspecified.
     #[inline]
-    pub fn par_for_each<F>(&self, f: F)
+    fn par_for_each_impl<F>(&self, f: F)
     where
         for<'a> Q::Item<'a>: Send,
         F: for<'a> Fn(Q::Item<'a>) + Send + Sync,
@@ -212,7 +217,7 @@ where
 
     /// Invokes `f` with each matching entity id and its query item.
     #[inline(always)]
-    pub fn for_each_with_entity<F>(&self, f: F)
+    fn for_each_with_entity_impl<F>(&self, f: F)
     where
         F: for<'a> FnMut(EntityId, Q::Item<'a>),
     {
@@ -225,7 +230,7 @@ where
 
     /// Parallel counterpart to [`for_each_with_entity`](Self::for_each_with_entity).
     #[inline]
-    pub fn par_for_each_with_entity<F>(&self, f: F)
+    fn par_for_each_with_entity_impl<F>(&self, f: F)
     where
         for<'a> Q::Item<'a>: Send,
         F: for<'a> Fn(EntityId, Q::Item<'a>) + Send + Sync,
@@ -237,7 +242,7 @@ where
 
     /// Invokes `f` once per chunk with aligned entity ids and component slices.
     #[inline(always)]
-    pub fn for_each_chunk_with_entities<F>(&self, f: F)
+    fn for_each_chunk_with_entities_impl<F>(&self, f: F)
     where
         F: for<'a> FnMut(&'a [EntityId], Q::Chunk<'a>),
     {
@@ -250,7 +255,7 @@ where
 
     /// Parallel counterpart to [`for_each_chunk_with_entities`](Self::for_each_chunk_with_entities).
     #[inline]
-    pub fn par_for_each_chunk_with_entities<F>(&self, f: F)
+    fn par_for_each_chunk_with_entities_impl<F>(&self, f: F)
     where
         for<'a> Q::Chunk<'a>: Send,
         F: for<'a> Fn(&'a [EntityId], Q::Chunk<'a>) + Send + Sync,
@@ -303,7 +308,7 @@ where
     }
 }
 
-impl<'w, Q, Flt> QueryMut<'w, Q, Flt>
+impl<'w, Q, Flt, Shape> QueryMut<'w, Q, Flt, Shape>
 where
     Q: QuerySpec + 'static,
     Flt: QueryFilter + 'static,
@@ -318,7 +323,7 @@ where
 
     /// Mutable-query counterpart to [`Query::for_each_chunk`].
     #[inline(always)]
-    pub fn for_each_chunk<F>(&mut self, f: F)
+    fn for_each_chunk_impl<F>(&mut self, f: F)
     where
         F: for<'a> FnMut(Q::Chunk<'a>),
     {
@@ -328,7 +333,7 @@ where
 
     /// Mutable-query counterpart to [`Query::par_for_each_chunk`].
     #[inline]
-    pub fn par_for_each_chunk<F>(&mut self, f: F)
+    fn par_for_each_chunk_impl<F>(&mut self, f: F)
     where
         for<'a> Q::Chunk<'a>: Send,
         F: for<'a> Fn(Q::Chunk<'a>) + Send + Sync,
@@ -340,7 +345,7 @@ where
 
     /// Mutable-query counterpart to [`Query::for_each`].
     #[inline(always)]
-    pub fn for_each<F>(&mut self, f: F)
+    fn for_each_impl<F>(&mut self, f: F)
     where
         F: for<'a> FnMut(Q::Item<'a>),
     {
@@ -350,7 +355,7 @@ where
 
     /// Mutable-query counterpart to [`Query::par_for_each`].
     #[inline]
-    pub fn par_for_each<F>(&mut self, f: F)
+    fn par_for_each_impl<F>(&mut self, f: F)
     where
         for<'a> Q::Item<'a>: Send,
         F: for<'a> Fn(Q::Item<'a>) + Send + Sync,
@@ -362,7 +367,7 @@ where
 
     /// Mutable-query counterpart to [`Query::for_each_with_entity`].
     #[inline(always)]
-    pub fn for_each_with_entity<F>(&mut self, f: F)
+    fn for_each_with_entity_impl<F>(&mut self, f: F)
     where
         F: for<'a> FnMut(EntityId, Q::Item<'a>),
     {
@@ -372,7 +377,7 @@ where
 
     /// Mutable-query counterpart to [`Query::par_for_each_with_entity`].
     #[inline]
-    pub fn par_for_each_with_entity<F>(&mut self, f: F)
+    fn par_for_each_with_entity_impl<F>(&mut self, f: F)
     where
         for<'a> Q::Item<'a>: Send,
         F: for<'a> Fn(EntityId, Q::Item<'a>) + Send + Sync,
@@ -384,7 +389,7 @@ where
 
     /// Mutable-query counterpart to [`Query::for_each_chunk_with_entities`].
     #[inline(always)]
-    pub fn for_each_chunk_with_entities<F>(&mut self, f: F)
+    fn for_each_chunk_with_entities_impl<F>(&mut self, f: F)
     where
         F: for<'a> FnMut(&'a [EntityId], Q::Chunk<'a>),
     {
@@ -394,7 +399,7 @@ where
 
     /// Mutable-query counterpart to [`Query::par_for_each_chunk_with_entities`].
     #[inline]
-    pub fn par_for_each_chunk_with_entities<F>(&mut self, f: F)
+    fn par_for_each_chunk_with_entities_impl<F>(&mut self, f: F)
     where
         for<'a> Q::Chunk<'a>: Send,
         F: for<'a> Fn(&'a [EntityId], Q::Chunk<'a>) + Send + Sync,
@@ -428,6 +433,272 @@ where
         )
     }
 }
+
+macro_rules! impl_bound_iteration {
+    ($Arity:ident, $Args:ident, $(($Assoc:ident, $arg:ident)),+ $(,)?) => {
+        impl<'w, Q, Flt> Query<'w, Q, Flt, $Arity>
+        where
+            Q: ReadOnlyQuerySpec<Arity = $Arity> + 'static,
+            Flt: QueryFilter + 'static,
+        {
+            #[inline(always)]
+            pub fn for_each<Func>(&self, function: Func)
+            where
+                for<'a> Q::ItemArgs<'a>: $Args,
+                Func: for<'a> FnMut($(<Q::ItemArgs<'a> as $Args>::$Assoc),+),
+            {
+                let mut function = function;
+                self.for_each_impl(move |item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each<Func>(&self, function: Func)
+            where
+                for<'a> Q::Item<'a>: Send,
+                for<'a> Q::ItemArgs<'a>: $Args + Send,
+                Func: for<'a> Fn($(<Q::ItemArgs<'a> as $Args>::$Assoc),+) + Send + Sync,
+            {
+                self.par_for_each_impl(move |item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline(always)]
+            pub fn for_each_with_entity<Func>(&self, function: Func)
+            where
+                for<'a> Q::ItemArgs<'a>: $Args,
+                Func: for<'a> FnMut(
+                    crate::ecs::EntityId,
+                    $(<Q::ItemArgs<'a> as $Args>::$Assoc),+
+                ),
+            {
+                let mut function = function;
+                self.for_each_with_entity_impl(move |entity, item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function(entity, $($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each_with_entity<Func>(&self, function: Func)
+            where
+                for<'a> Q::Item<'a>: Send,
+                for<'a> Q::ItemArgs<'a>: $Args + Send,
+                Func: for<'a> Fn(
+                    crate::ecs::EntityId,
+                    $(<Q::ItemArgs<'a> as $Args>::$Assoc),+
+                ) + Send + Sync,
+            {
+                self.par_for_each_with_entity_impl(move |entity, item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function(entity, $($arg),+);
+                });
+            }
+
+            #[inline(always)]
+            pub fn for_each_chunk<Func>(&self, function: Func)
+            where
+                for<'a> Q::ChunkArgs<'a>: $Args,
+                Func: for<'a> FnMut($(<Q::ChunkArgs<'a> as $Args>::$Assoc),+),
+            {
+                let mut function = function;
+                self.for_each_chunk_impl(move |chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each_chunk<Func>(&self, function: Func)
+            where
+                for<'a> Q::Chunk<'a>: Send,
+                for<'a> Q::ChunkArgs<'a>: $Args + Send,
+                Func: for<'a> Fn($(<Q::ChunkArgs<'a> as $Args>::$Assoc),+) + Send + Sync,
+            {
+                self.par_for_each_chunk_impl(move |chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline(always)]
+            pub fn for_each_chunk_with_entities<Func>(&self, function: Func)
+            where
+                for<'a> Q::ChunkArgs<'a>: $Args,
+                Func: for<'a> FnMut(
+                    &'a [crate::ecs::EntityId],
+                    $(<Q::ChunkArgs<'a> as $Args>::$Assoc),+
+                ),
+            {
+                let mut function = function;
+                self.for_each_chunk_with_entities_impl(move |entities, chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function(entities, $($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each_chunk_with_entities<Func>(&self, function: Func)
+            where
+                for<'a> Q::Chunk<'a>: Send,
+                for<'a> Q::ChunkArgs<'a>: $Args + Send,
+                Func: for<'a> Fn(
+                    &'a [crate::ecs::EntityId],
+                    $(<Q::ChunkArgs<'a> as $Args>::$Assoc),+
+                ) + Send + Sync,
+            {
+                self.par_for_each_chunk_with_entities_impl(move |entities, chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function(entities, $($arg),+);
+                });
+            }
+        }
+
+        impl<'w, Q, Flt> QueryMut<'w, Q, Flt, $Arity>
+        where
+            Q: QuerySpec<Arity = $Arity> + 'static,
+            Flt: QueryFilter + 'static,
+        {
+            #[inline(always)]
+            pub fn for_each<Func>(&mut self, function: Func)
+            where
+                for<'a> Q::ItemArgs<'a>: $Args,
+                Func: for<'a> FnMut($(<Q::ItemArgs<'a> as $Args>::$Assoc),+),
+            {
+                let mut function = function;
+                self.for_each_impl(move |item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each<Func>(&mut self, function: Func)
+            where
+                for<'a> Q::Item<'a>: Send,
+                for<'a> Q::ItemArgs<'a>: $Args + Send,
+                Func: for<'a> Fn($(<Q::ItemArgs<'a> as $Args>::$Assoc),+) + Send + Sync,
+            {
+                self.par_for_each_impl(move |item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline(always)]
+            pub fn for_each_with_entity<Func>(&mut self, function: Func)
+            where
+                for<'a> Q::ItemArgs<'a>: $Args,
+                Func: for<'a> FnMut(
+                    crate::ecs::EntityId,
+                    $(<Q::ItemArgs<'a> as $Args>::$Assoc),+
+                ),
+            {
+                let mut function = function;
+                self.for_each_with_entity_impl(move |entity, item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function(entity, $($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each_with_entity<Func>(&mut self, function: Func)
+            where
+                for<'a> Q::Item<'a>: Send,
+                for<'a> Q::ItemArgs<'a>: $Args + Send,
+                Func: for<'a> Fn(
+                    crate::ecs::EntityId,
+                    $(<Q::ItemArgs<'a> as $Args>::$Assoc),+
+                ) + Send + Sync,
+            {
+                self.par_for_each_with_entity_impl(move |entity, item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function(entity, $($arg),+);
+                });
+            }
+
+            #[inline(always)]
+            pub fn for_each_chunk<Func>(&mut self, function: Func)
+            where
+                for<'a> Q::ChunkArgs<'a>: $Args,
+                Func: for<'a> FnMut($(<Q::ChunkArgs<'a> as $Args>::$Assoc),+),
+            {
+                let mut function = function;
+                self.for_each_chunk_impl(move |chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each_chunk<Func>(&mut self, function: Func)
+            where
+                for<'a> Q::Chunk<'a>: Send,
+                for<'a> Q::ChunkArgs<'a>: $Args + Send,
+                Func: for<'a> Fn($(<Q::ChunkArgs<'a> as $Args>::$Assoc),+) + Send + Sync,
+            {
+                self.par_for_each_chunk_impl(move |chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline(always)]
+            pub fn for_each_chunk_with_entities<Func>(&mut self, function: Func)
+            where
+                for<'a> Q::ChunkArgs<'a>: $Args,
+                Func: for<'a> FnMut(
+                    &'a [crate::ecs::EntityId],
+                    $(<Q::ChunkArgs<'a> as $Args>::$Assoc),+
+                ),
+            {
+                let mut function = function;
+                self.for_each_chunk_with_entities_impl(move |entities, chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function(entities, $($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each_chunk_with_entities<Func>(&mut self, function: Func)
+            where
+                for<'a> Q::Chunk<'a>: Send,
+                for<'a> Q::ChunkArgs<'a>: $Args + Send,
+                Func: for<'a> Fn(
+                    &'a [crate::ecs::EntityId],
+                    $(<Q::ChunkArgs<'a> as $Args>::$Assoc),+
+                ) + Send + Sync,
+            {
+                self.par_for_each_chunk_with_entities_impl(move |entities, chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function(entities, $($arg),+);
+                });
+            }
+        }
+    };
+}
+
+for_each_query_arity!(impl_bound_iteration);
 
 impl<'w, Q> QueryMut<'w, Q>
 where
@@ -478,7 +749,7 @@ mod tests {
             .filter::<(With<Enemy>, Without<Dead>)>();
 
         assert_eq!(query.count(), 1);
-        query.for_each_with_entity(|entity, (position, velocity)| {
+        query.for_each_with_entity(|entity, position, velocity| {
             assert_eq!(entity, expected);
             assert_eq!(*position, Position(1.0));
             assert_eq!(velocity.map(|value| value.0), Some(2.0));
@@ -493,7 +764,7 @@ mod tests {
 
         world
             .query_mut::<(&mut Position, &Velocity)>()
-            .for_each(|(position, velocity)| position.0 += velocity.0);
+            .for_each(|position, velocity| position.0 += velocity.0);
 
         let mut values = Vec::new();
         world
@@ -654,7 +925,7 @@ mod tests {
 
         world
             .query_mut::<(&mut Position, &Velocity)>()
-            .par_for_each(|(position, velocity)| position.0 += velocity.0);
+            .par_for_each(|position, velocity| position.0 += velocity.0);
 
         let seen = std::sync::Mutex::new(std::collections::HashSet::new());
         let sum = std::sync::atomic::AtomicUsize::new(0);

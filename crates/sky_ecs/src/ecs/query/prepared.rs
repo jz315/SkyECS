@@ -1,8 +1,13 @@
 use super::filter::QueryFilter;
 use super::parallel;
-use super::param::{QueryParam, QuerySpec};
+use super::param::QuerySpec;
 use super::sequential::{self, SequentialChunkCache};
-use super::{EntityId, PreparedCache, QueryDescriptor, QueryWorld, World};
+use super::{
+    Args1, Args10, Args11, Args12, Args13, Args14, Args15, Args16, Args2, Args3, Args4, Args5,
+    Args6, Args7, Args8, Args9, Arity1, Arity10, Arity11, Arity12, Arity13, Arity14, Arity15,
+    Arity16, Arity2, Arity3, Arity4, Arity5, Arity6, Arity7, Arity8, Arity9, EntityId,
+    PreparedCache, QueryDescriptor, QueryShapeMarker, QueryWorld, World,
+};
 use core::marker::PhantomData;
 
 /// A typed, cached query over component data.
@@ -20,15 +25,15 @@ use core::marker::PhantomData;
 ///
 /// Iteration methods accept `&World` for read-only queries and require
 /// `&mut World` for queries that yield mutable component references.
-pub struct PreparedQuery<Q, Flt = ()> {
+pub struct PreparedQuery<Q: QuerySpec, Flt = (), Shape = <Q as QuerySpec>::Arity> {
     descriptor: QueryDescriptor,
     prepared: PreparedCache,
     parallel_jobs: parallel::ParallelJobCache,
     sequential_chunks: SequentialChunkCache,
-    marker: PhantomData<fn() -> (Q, Flt)>,
+    marker: QueryShapeMarker<Q, Flt, Shape>,
 }
 
-impl<Q: QuerySpec, Flt: QueryFilter> Default for PreparedQuery<Q, Flt> {
+impl<Q: QuerySpec, Flt: QueryFilter, Shape> Default for PreparedQuery<Q, Flt, Shape> {
     fn default() -> Self {
         Self {
             descriptor: Q::descriptor(),
@@ -40,7 +45,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> Default for PreparedQuery<Q, Flt> {
     }
 }
 
-impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
+impl<Q: QuerySpec, Flt: QueryFilter, Shape> PreparedQuery<Q, Flt, Shape> {
     /// Creates a new query plan with an initially empty cache.
     #[inline(always)]
     pub fn new() -> Self {
@@ -68,7 +73,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     /// This is the fastest iteration path — ideal for SIMD-style batch
     /// processing.
     #[inline(always)]
-    pub fn for_each_chunk<W, F>(&mut self, world: W, mut f: F)
+    fn for_each_chunk_impl<W, F>(&mut self, world: W, mut f: F)
     where
         W: QueryWorld<Q>,
         F: for<'w> FnMut(Q::Chunk<'w>),
@@ -126,7 +131,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     /// ));
     ///
     /// let mut query = sky_ecs::PreparedQuery::<(&mut Position, &Velocity)>::new();
-    /// query.par_for_each_chunk(&mut world, |(positions, velocities)| {
+    /// query.par_for_each_chunk(&mut world, |positions, velocities| {
     ///     for index in 0..positions.len() {
     ///         positions[index].x += velocities[index].x;
     ///         positions[index].y += velocities[index].y;
@@ -155,7 +160,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     /// let mut query = sky_ecs::PreparedQuery::<&mut Rc<u32>>::new();
     /// query.par_for_each_chunk(&mut world, |_values| {});
     /// ```
-    pub fn par_for_each_chunk<W, F>(&mut self, world: W, f: F)
+    fn par_for_each_chunk_impl<W, F>(&mut self, world: W, f: F)
     where
         W: QueryWorld<Q>,
         for<'w> Q::Chunk<'w>: Send,
@@ -174,7 +179,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     /// Iterates *entity-by-entity*, providing individual component
     /// references.
     #[inline(always)]
-    pub fn for_each<W, F>(&mut self, world: W, mut f: F)
+    fn for_each_impl<W, F>(&mut self, world: W, mut f: F)
     where
         W: QueryWorld<Q>,
         F: for<'w> FnMut(Q::Item<'w>),
@@ -205,7 +210,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     /// This is the ergonomic entity-level counterpart to
     /// [`par_for_each_chunk`](Self::par_for_each_chunk). Jobs are still split
     /// by contiguous storage ranges rather than scheduled once per entity.
-    pub fn par_for_each<W, F>(&mut self, world: W, f: F)
+    fn par_for_each_impl<W, F>(&mut self, world: W, f: F)
     where
         W: QueryWorld<Q>,
         for<'w> Q::Item<'w>: Send,
@@ -222,8 +227,8 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     }
 
     /// Like [`for_each`](Self::for_each), but also provides the
-    /// [`EntityId`] for each matched entity.
-    pub fn for_each_with_entity<W, F>(&mut self, world: W, mut f: F)
+    /// [`EntityId`](crate::ecs::EntityId) for each matched entity.
+    fn for_each_with_entity_impl<W, F>(&mut self, world: W, mut f: F)
     where
         W: QueryWorld<Q>,
         F: for<'w> FnMut(EntityId, Q::Item<'w>),
@@ -254,7 +259,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     }
 
     /// Parallel counterpart to [`for_each_with_entity`](Self::for_each_with_entity).
-    pub fn par_for_each_with_entity<W, F>(&mut self, world: W, f: F)
+    fn par_for_each_with_entity_impl<W, F>(&mut self, world: W, f: F)
     where
         W: QueryWorld<Q>,
         for<'w> Q::Item<'w>: Send,
@@ -272,10 +277,10 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
 
     /// Like [`for_each_chunk`](Self::for_each_chunk), but also provides
     /// the entity ID slice for each chunk.
-    pub fn for_each_chunk_with_entities<W, F>(&mut self, world: W, mut f: F)
+    fn for_each_chunk_with_entities_impl<W, F>(&mut self, world: W, mut f: F)
     where
         W: QueryWorld<Q>,
-        F: for<'w> FnMut(&[EntityId], Q::Chunk<'w>),
+        F: for<'w> FnMut(&'w [EntityId], Q::Chunk<'w>),
     {
         let world = world.as_world();
         self.prepare(world);
@@ -306,7 +311,7 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     ///
     /// Entity slices line up with the component slices for that chunk, but
     /// chunk visitation order remains unspecified.
-    pub fn par_for_each_chunk_with_entities<W, F>(&mut self, world: W, f: F)
+    fn par_for_each_chunk_with_entities_impl<W, F>(&mut self, world: W, f: F)
     where
         W: QueryWorld<Q>,
         for<'w> Q::Chunk<'w>: Send,
@@ -355,107 +360,176 @@ impl<Q: QuerySpec, Flt: QueryFilter> PreparedQuery<Q, Flt> {
     }
 }
 
-// Generate the function entry points for one tuple arity. Rust has no variadic
-// generics, so every supported query width needs a concrete inherent impl.
-macro_rules! impl_chunk_fn {
-    ($(($Param:ident, $column:ident)),+ $(,)?) => {
-        impl<$($Param: QueryParam,)+ Flt: QueryFilter> PreparedQuery<($($Param,)+), Flt> {
-            /// Visits each matching chunk through a plain function whose
-            /// component columns are separate parameters.
-            ///
-            /// This is an opt-in code-generation path for compute-heavy loops.
-            /// Unlike a tuple-valued closure, the function boundary lets Rust
-            /// preserve the `noalias` contract of mutable slice parameters.
-            ///
-            /// The query still owns matching, cache refresh and slice creation;
-            /// only the component work moves behind the function boundary. The
-            /// function is called once per matching chunk, so ordinary
-            /// [`for_each_chunk`](Self::for_each_chunk) remains preferable for
-            /// short loops where a function call can cost more than improved
-            /// alias analysis saves.
-            ///
-            /// `function` is deliberately a plain function pointer rather than an
-            /// `FnMut`. A closure would package its arguments with a capture
-            /// environment and can lose the direct-parameter alias information
-            /// this API exists to preserve. A non-capturing closure can still
-            /// coerce to the required function pointer.
+// Rust has no variadic generics or inherent-method overloading. The explicit
+// shape parameter makes these impls disjoint, while the generated `Fn` bounds
+// give closures their component types during inference.
+macro_rules! impl_prepared_iteration {
+    ($Arity:ident, $Args:ident, $(($Assoc:ident, $arg:ident)),+ $(,)?) => {
+        impl<Q, Flt> PreparedQuery<Q, Flt, $Arity>
+        where
+            Q: QuerySpec<Arity = $Arity>,
+            Flt: QueryFilter,
+        {
+            /// Visits every matching entity with one typed argument per query parameter.
             #[inline(always)]
-            pub fn for_each_chunk_fn<W>(
-                &mut self,
-                world: W,
-                function: for<'w> fn($($Param::Slice<'w>),+),
-            )
+            pub fn for_each<W, Func>(&mut self, world: W, function: Func)
             where
-                W: QueryWorld<($($Param,)+)>,
+                W: QueryWorld<Q>,
+                for<'w> Q::ItemArgs<'w>: $Args,
+                Func: for<'w> FnMut(
+                    $(<Q::ItemArgs<'w> as $Args>::$Assoc),+
+                ),
             {
-                // The public chunk iterator continues to enforce the normal
-                // QuerySpec access contract. This adapter only unpacks the
-                // tuple before crossing the plain-function boundary.
-                self.for_each_chunk(world, |($($column,)+)| {
-                    function($($column),+);
+                let mut function = function;
+                self.for_each_impl(world, move |item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function($($arg),+);
                 });
             }
 
-            /// Stateful counterpart to [`for_each_chunk_fn`](Self::for_each_chunk_fn).
-            ///
-            /// Values that a closure would normally capture are passed through
-            /// `state` explicitly. Component columns remain separate direct
-            /// function parameters, while one mutable state value is shared by
-            /// the sequential chunk visits.
+            /// Visits every matching entity in parallel.
+            #[inline]
+            pub fn par_for_each<W, Func>(&mut self, world: W, function: Func)
+            where
+                W: QueryWorld<Q>,
+                for<'w> Q::Item<'w>: Send,
+                for<'w> Q::ItemArgs<'w>: $Args + Send,
+                Func: for<'w> Fn(
+                    $(<Q::ItemArgs<'w> as $Args>::$Assoc),+
+                ) + Send + Sync,
+            {
+                self.par_for_each_impl(world, move |item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function($($arg),+);
+                });
+            }
+
+            /// Visits every matching entity with its ID and typed arguments.
             #[inline(always)]
-            pub fn for_each_chunk_fn_with<W, State>(
+            pub fn for_each_with_entity<W, Func>(&mut self, world: W, function: Func)
+            where
+                W: QueryWorld<Q>,
+                for<'w> Q::ItemArgs<'w>: $Args,
+                Func: for<'w> FnMut(
+                    crate::ecs::EntityId,
+                    $(<Q::ItemArgs<'w> as $Args>::$Assoc),+
+                ),
+            {
+                let mut function = function;
+                self.for_each_with_entity_impl(world, move |entity, item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function(entity, $($arg),+);
+                });
+            }
+
+            /// Visits every matching entity with its ID in parallel.
+            #[inline]
+            pub fn par_for_each_with_entity<W, Func>(&mut self, world: W, function: Func)
+            where
+                W: QueryWorld<Q>,
+                for<'w> Q::Item<'w>: Send,
+                for<'w> Q::ItemArgs<'w>: $Args + Send,
+                Func: for<'w> Fn(
+                    crate::ecs::EntityId,
+                    $(<Q::ItemArgs<'w> as $Args>::$Assoc),+
+                ) + Send + Sync,
+            {
+                self.par_for_each_with_entity_impl(world, move |entity, item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function(entity, $($arg),+);
+                });
+            }
+
+            /// Visits each matching chunk with one slice argument per query parameter.
+            #[inline(always)]
+            pub fn for_each_chunk<W, Func>(&mut self, world: W, function: Func)
+            where
+                W: QueryWorld<Q>,
+                for<'w> Q::ChunkArgs<'w>: $Args,
+                Func: for<'w> FnMut(
+                    $(<Q::ChunkArgs<'w> as $Args>::$Assoc),+
+                ),
+            {
+                let mut function = function;
+                self.for_each_chunk_impl(world, move |chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function($($arg),+);
+                });
+            }
+
+            /// Visits matching chunk slices in parallel.
+            #[inline]
+            pub fn par_for_each_chunk<W, Func>(&mut self, world: W, function: Func)
+            where
+                W: QueryWorld<Q>,
+                for<'w> Q::Chunk<'w>: Send,
+                for<'w> Q::ChunkArgs<'w>: $Args + Send,
+                Func: for<'w> Fn(
+                    $(<Q::ChunkArgs<'w> as $Args>::$Assoc),+
+                ) + Send + Sync,
+            {
+                self.par_for_each_chunk_impl(world, move |chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function($($arg),+);
+                });
+            }
+
+            /// Visits matching chunks with aligned entity IDs and component slices.
+            #[inline(always)]
+            pub fn for_each_chunk_with_entities<W, Func>(
                 &mut self,
                 world: W,
-                state: &mut State,
-                function: for<'w> fn(&mut State, $($Param::Slice<'w>),+),
+                function: Func,
             )
             where
-                W: QueryWorld<($($Param,)+)>,
+                W: QueryWorld<Q>,
+                for<'w> Q::ChunkArgs<'w>: $Args,
+                Func: for<'w> FnMut(
+                    &'w [crate::ecs::EntityId],
+                    $(<Q::ChunkArgs<'w> as $Args>::$Assoc),+
+                ),
             {
-                self.for_each_chunk(world, |($($column,)+)| {
-                    function(state, $($column),+);
+                let mut function = function;
+                self.for_each_chunk_with_entities_impl(world, move |entities, chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function(entities, $($arg),+);
+                });
+            }
+
+            /// Visits aligned entity IDs and component slices in parallel.
+            #[inline]
+            pub fn par_for_each_chunk_with_entities<W, Func>(
+                &mut self,
+                world: W,
+                function: Func,
+            )
+            where
+                W: QueryWorld<Q>,
+                for<'w> Q::Chunk<'w>: Send,
+                for<'w> Q::ChunkArgs<'w>: $Args + Send,
+                Func: for<'w> Fn(
+                    &'w [crate::ecs::EntityId],
+                    $(<Q::ChunkArgs<'w> as $Args>::$Assoc),+
+                ) + Send + Sync,
+            {
+                self.par_for_each_chunk_with_entities_impl(world, move |entities, chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function(entities, $($arg),+);
                 });
             }
         }
     };
 }
 
-// Starting with two columns, recursively append one parameter and emit every
-// prefix. One column has no cross-column aliasing question and already uses a
-// direct slice value, so the specialized path begins at arity two.
-macro_rules! impl_chunk_fns {
-    // All declared columns have been emitted.
-    (@grow [$($all:tt),+] []) => {};
-    // Emit the next wider tuple and retain it as the prefix for recursion.
-    (@grow [$($all:tt),+] [$next:tt $(, $rest:tt)*]) => {
-        impl_chunk_fn!($($all),+, $next);
-        impl_chunk_fns!(@grow [$($all),+, $next] [$($rest),*]);
-    };
-    // Seed the recursion with the first useful width: two component columns.
-    ($first:tt, $second:tt $(, $rest:tt)*) => {
-        impl_chunk_fn!($first, $second);
-        impl_chunk_fns!(@grow [$first, $second] [$($rest),*]);
-    };
-}
-
-impl_chunk_fns!(
-    (A, a),
-    (B, b),
-    (C, c),
-    (D, d),
-    (E, e),
-    (F, f),
-    (G, g),
-    (H, h),
-    (I, i),
-    (J, j),
-    (K, k),
-    (L, l),
-    (M, m),
-    (N, n),
-    (O, o),
-    (P, p)
-);
+for_each_query_arity!(impl_prepared_iteration);
 
 #[cfg(test)]
 mod tests {
@@ -552,7 +626,7 @@ mod tests {
         });
 
         let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        query.for_each_chunk(&mut world, |(positions, velocities)| {
+        query.for_each_chunk(&mut world, |positions, velocities| {
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x * 0.5;
                 positions[index].y += velocities[index].y * 0.5;
@@ -579,7 +653,7 @@ mod tests {
         }));
 
         let mut init = PreparedQuery::<(&mut Velocity, &mut Extra, &mut Mass)>::new();
-        init.for_each(&mut world, |(velocity, extra, mass)| {
+        init.for_each(&mut world, |velocity, extra, mass| {
             velocity.x = 2.0;
             velocity.y = 4.0;
             extra.value = 1.0;
@@ -587,7 +661,7 @@ mod tests {
         });
 
         let mut query = PreparedQuery::<(&mut Position, &Velocity, &mut Extra, &Mass)>::new();
-        query.for_each_chunk(&mut world, |(positions, velocities, extras, masses)| {
+        query.for_each_chunk(&mut world, |positions, velocities, extras, masses| {
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x * masses[index].value;
                 positions[index].y += velocities[index].y * masses[index].value;
@@ -643,7 +717,7 @@ mod tests {
             &MatchH,
         )>::new();
         assert_eq!(eight.count(&world), 1);
-        eight.for_each(&world, |(a, b, c, d, e, f, g, h)| {
+        eight.for_each(&world, |a, b, c, d, e, f, g, h| {
             assert_eq!(
                 (a.0, b.0, c.0, d.0, e.0, f.0, g.0, h.0),
                 (1, 2, 3, 4, 5, 6, 7, 8)
@@ -691,7 +765,7 @@ mod tests {
         assert_eq!(query.count(&world), 256);
         assert_eq!(query.cached_archetype_count(), 256);
         let mut sum = 0.0;
-        query.for_each(&world, |(position, velocity)| {
+        query.for_each(&world, |position, velocity| {
             sum += position.x + velocity.x;
         });
         assert_eq!(sum, 32_896.0);
@@ -722,7 +796,7 @@ mod tests {
         });
 
         let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        query.for_each(&mut world, |(position, velocity)| {
+        query.for_each(&mut world, |position, velocity| {
             position.x += velocity.x;
         });
 
@@ -752,19 +826,19 @@ mod tests {
         });
 
         let mut prepared = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        prepared.for_each(&mut world, |(position, velocity)| {
+        prepared.for_each(&mut world, |position, velocity| {
             position.x += velocity.x;
         });
         assert_eq!(prepared.cached_archetype_count(), 1);
 
         world.spawn((Position::default(), Velocity::default(), Extra::default()));
         let mut init_new = PreparedQuery::<(&mut Velocity, &mut Extra)>::new();
-        init_new.for_each(&mut world, |(velocity, extra)| {
+        init_new.for_each(&mut world, |velocity, extra| {
             velocity.x = 1.0;
             extra.value = 2.0;
         });
 
-        prepared.for_each(&mut world, |(position, velocity)| {
+        prepared.for_each(&mut world, |position, velocity| {
             position.x += velocity.x;
         });
         assert_eq!(prepared.cached_archetype_count(), 2);
@@ -835,7 +909,7 @@ mod tests {
 
         let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
         for _ in 0..3 {
-            query.for_each_chunk(&mut world, |(positions, velocities)| {
+            query.for_each_chunk(&mut world, |positions, velocities| {
                 for index in 0..positions.len() {
                     positions[index].x += velocities[index].x;
                 }
@@ -1042,7 +1116,7 @@ mod tests {
         world.spawn((Position::default(),));
 
         let mut query = PreparedQuery::<(&mut Position, &mut Position)>::new();
-        query.for_each(&mut world, |_| {});
+        query.for_each(&mut world, |_, _| {});
     }
 
     #[test]
@@ -1094,7 +1168,7 @@ mod tests {
 
         let mut entity_ids = Vec::new();
         let mut query = PreparedQuery::<(&Position, &Velocity)>::new();
-        query.for_each_chunk_with_entities(&mut world, |entities, (positions, _velocities)| {
+        query.for_each_chunk_with_entities(&mut world, |entities, positions, _velocities| {
             assert_eq!(entities.len(), positions.len());
             entity_ids.extend_from_slice(entities);
         });
@@ -1112,7 +1186,7 @@ mod tests {
         let mut with_vel = 0;
         let mut without_vel = 0;
         let mut query = PreparedQuery::<(&Position, Option<&Velocity>)>::new();
-        query.for_each(&mut world, |(pos, vel)| {
+        query.for_each(&mut world, |pos, vel| {
             if let Some(v) = vel {
                 assert_eq!(pos.x, 1.0);
                 assert_eq!(v.x, 10.0);
@@ -1140,7 +1214,7 @@ mod tests {
         world.spawn((Position { x: 3.0, y: 0.0 }, Velocity { x: 4.0, y: 0.0 }));
 
         let mut sum = 0.0;
-        query.for_each(&world, |(position, velocity)| {
+        query.for_each(&world, |position, velocity| {
             sum += position.map_or(0.0, |position| position.x);
             sum += velocity
                 .expect("With<Velocity> guarantees the optional value")
@@ -1171,7 +1245,7 @@ mod tests {
         let mut chunks_with_vel = 0;
         let mut chunks_without_vel = 0;
         let mut query = PreparedQuery::<(&Position, Option<&Velocity>)>::new();
-        query.for_each_chunk(&mut world, |(positions, opt_velocities)| {
+        query.for_each_chunk(&mut world, |positions, opt_velocities| {
             assert!(!positions.is_empty());
             if opt_velocities.is_some() {
                 chunks_with_vel += 1;
@@ -1185,7 +1259,7 @@ mod tests {
     }
 
     #[test]
-    fn chunk_fn_with_receives_disjoint_columns_and_explicit_state() {
+    fn chunk_callback_can_capture_state_with_separate_columns() {
         fn move_chunk(moved: &mut usize, positions: &mut [Position], velocities: &[Velocity]) {
             for (position, velocity) in positions.iter_mut().zip(velocities) {
                 position.x += velocity.x;
@@ -1199,7 +1273,9 @@ mod tests {
 
         let mut moved = 0;
         let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        query.for_each_chunk_fn_with(&mut world, &mut moved, move_chunk);
+        query.for_each_chunk(&mut world, |positions, velocities| {
+            move_chunk(&mut moved, positions, velocities);
+        });
 
         assert_eq!(moved, 128);
         let mut check = PreparedQuery::<&Position>::new();
@@ -1209,7 +1285,7 @@ mod tests {
     }
 
     #[test]
-    fn chunk_fn_accepts_a_non_capturing_function() {
+    fn chunk_callback_accepts_a_non_capturing_function() {
         fn move_chunk(positions: &mut [Position], velocities: &[Velocity]) {
             for (position, velocity) in positions.iter_mut().zip(velocities) {
                 position.x += velocity.x;
@@ -1221,11 +1297,30 @@ mod tests {
         world.spawn_batch((0..64).map(|_| (Position::default(), Velocity { x: 4.0, y: 5.0 })));
 
         let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        query.for_each_chunk_fn(&mut world, move_chunk);
+        query.for_each_chunk(&mut world, move_chunk);
 
         let mut check = PreparedQuery::<&Position>::new();
         check.for_each(&world, |position| {
             assert_eq!((position.x, position.y), (4.0, 5.0));
+        });
+    }
+
+    #[test]
+    fn entity_callback_accepts_a_non_capturing_function() {
+        fn move_entity(position: &mut Position, velocity: &Velocity) {
+            position.x += velocity.x;
+            position.y += velocity.y;
+        }
+
+        let mut world = World::new();
+        world.spawn_batch((0..64).map(|_| (Position::default(), Velocity { x: 6.0, y: 7.0 })));
+
+        let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
+        query.for_each(&mut world, move_entity);
+
+        let mut check = PreparedQuery::<&Position>::new();
+        check.for_each(&world, |position| {
+            assert_eq!((position.x, position.y), (6.0, 7.0));
         });
     }
 
@@ -1236,7 +1331,7 @@ mod tests {
         world.spawn((Position { x: 0.0, y: 0.0 },));
 
         let mut query = PreparedQuery::<(&mut Position, Option<&Velocity>)>::new();
-        query.for_each(&mut world, |(pos, vel)| {
+        query.for_each(&mut world, |pos, vel| {
             if let Some(v) = vel {
                 pos.x += v.x;
                 pos.y += v.y;
@@ -1359,7 +1454,7 @@ mod tests {
             &MatchD,
         )>::new();
         let mut seen = 0;
-        query.for_each(&world, |(h, b, f, a, g, c, e, d)| {
+        query.for_each(&world, |h, b, f, a, g, c, e, d| {
             assert_eq!(
                 (h.0, b.0, f.0, a.0, g.0, c.0, e.0, d.0),
                 (8, 2, 6, 1, 7, 3, 5, 4)
@@ -1393,7 +1488,7 @@ mod tests {
             &MatchD,
         )>::new();
         let mut seen = 0;
-        optional.for_each(&world, |(g, missing, a, f, b, e, c, d)| {
+        optional.for_each(&world, |g, missing, a, f, b, e, c, d| {
             assert!(missing.is_none());
             assert_eq!((g.0, a.0, f.0, b.0, e.0, c.0, d.0), (7, 1, 6, 2, 5, 3, 4));
             seen += 1;

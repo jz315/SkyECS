@@ -32,12 +32,14 @@ fn named_query_data_supports_read_and_mutable_items() {
 
     world
         .query_mut::<Movement>()
-        .for_each(|item| item.position.0 += item.velocity.0);
+        .for_each(|position, velocity| position.0 += velocity.0);
 
     let mut values = Vec::new();
-    world.query::<ReadMovement>().for_each(|item| {
-        values.push((item.position.0, item.velocity.map(|velocity| velocity.0)));
-    });
+    world
+        .query::<ReadMovement>()
+        .for_each(|position, velocity| {
+            values.push((position.0, velocity.map(|velocity| velocity.0)));
+        });
     values.sort_by(|left, right| left.0.total_cmp(&right.0));
 
     assert_eq!(values, vec![(3.0, Some(2.0)), (10.0, None)]);
@@ -52,7 +54,7 @@ fn named_query_data_uses_the_same_parallel_chunk_path() {
 
     world
         .query_mut::<Movement>()
-        .par_for_each_chunk(|(positions, velocities)| {
+        .par_for_each_chunk(|positions, velocities| {
             for (position, velocity) in positions.iter_mut().zip(velocities) {
                 position.0 += velocity.0;
             }
@@ -72,7 +74,7 @@ fn named_query_data_uses_the_same_parallel_entity_path() {
 
     world
         .query_mut::<Movement>()
-        .par_for_each(|item| item.position.0 += item.velocity.0);
+        .par_for_each(|position, velocity| position.0 += velocity.0);
 
     world
         .query::<&Position>()
@@ -164,24 +166,26 @@ fn query_data_and_filters_support_sixteen_components() {
     )>();
 
     let mut sum = 0u32;
-    query.for_each(|item| {
-        sum = u32::from(item.c0.0)
-            + u32::from(item.c1.0)
-            + u32::from(item.c2.0)
-            + u32::from(item.c3.0)
-            + u32::from(item.c4.0)
-            + u32::from(item.c5.0)
-            + u32::from(item.c6.0)
-            + u32::from(item.c7.0)
-            + u32::from(item.c8.0)
-            + u32::from(item.c9.0)
-            + u32::from(item.c10.0)
-            + u32::from(item.c11.0)
-            + u32::from(item.c12.0)
-            + u32::from(item.c13.0)
-            + u32::from(item.c14.0)
-            + u32::from(item.c15.0);
-    });
+    query.for_each(
+        |c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15| {
+            sum = u32::from(c0.0)
+                + u32::from(c1.0)
+                + u32::from(c2.0)
+                + u32::from(c3.0)
+                + u32::from(c4.0)
+                + u32::from(c5.0)
+                + u32::from(c6.0)
+                + u32::from(c7.0)
+                + u32::from(c8.0)
+                + u32::from(c9.0)
+                + u32::from(c10.0)
+                + u32::from(c11.0)
+                + u32::from(c12.0)
+                + u32::from(c13.0)
+                + u32::from(c14.0)
+                + u32::from(c15.0);
+        },
+    );
 
     assert_eq!(query.count(), 1);
     assert_eq!(sum, 120);

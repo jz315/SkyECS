@@ -36,7 +36,7 @@ fn main() {
     let optional_velocity = world.query::<(&Position, Option<&Velocity>)>();
     let mut moving = 0;
     let mut stationary = 0;
-    optional_velocity.for_each(|(_, velocity)| {
+    optional_velocity.for_each(|_, velocity| {
         if velocity.is_some() {
             moving += 1;
         } else {
@@ -47,7 +47,7 @@ fn main() {
 
     world
         .query_mut::<Movement<'_>>()
-        .for_each(|item| item.position.0 += item.velocity.0);
+        .for_each(|position, velocity| position.0 += velocity.0);
     assert_eq!(world.get::<Position>(player), Some(&Position(2)));
     assert_eq!(world.get::<Position>(moving_enemy), Some(&Position(9)));
 

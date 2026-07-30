@@ -35,14 +35,14 @@ fn tiny_b() {
 }
 
 fn integrate(entities: View<(&mut Position2D, &Velocity2D)>) {
-    entities.for_each(|(position, velocity)| {
+    entities.for_each(|position, velocity| {
         position.x = black_box(position.x + velocity.x);
         position.y = black_box(position.y + velocity.y);
     });
 }
 
 fn integrate_parallel(entities: ParView<(&mut Position2D, &Velocity2D)>) {
-    entities.par_for_each(|(position, velocity)| {
+    entities.par_for_each(|position, velocity| {
         position.x = black_box(position.x + velocity.x);
         position.y = black_box(position.y + velocity.y);
     });

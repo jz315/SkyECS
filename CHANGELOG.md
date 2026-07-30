@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Unified typed entity and chunk iteration under `for_each` and
+  `for_each_chunk`: query components are passed as separate callback arguments
+  for arities 1 through 16, and the same methods accept capturing closures or
+  ordinary functions. Removed the redundant `for_each_chunk_fn` and
+  `for_each_chunk_fn_with` variants.
 - Added `PreparedEntityAccessor<T>` for reusable single-component access by
   arbitrary entity ID without rebuilding its chunk-route table on every bind.
 - Scoped prepared entity-route invalidation to the components in each access

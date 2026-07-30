@@ -419,7 +419,7 @@ mod tests {
 
         let chunk_visits = AtomicUsize::new(0);
         let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        query.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        query.par_for_each_chunk(&mut world, |positions, velocities| {
             chunk_visits.fetch_add(1, Ordering::Relaxed);
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x;
@@ -454,7 +454,7 @@ mod tests {
         });
 
         let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        query.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        query.par_for_each_chunk(&mut world, |positions, velocities| {
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x * 2.0;
                 positions[index].y += velocities[index].y * 4.0;
@@ -483,7 +483,7 @@ mod tests {
         });
 
         let mut query = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        query.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        query.par_for_each_chunk(&mut world, |positions, velocities| {
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x;
                 positions[index].y += velocities[index].y;
@@ -510,7 +510,7 @@ mod tests {
         let with_velocity = AtomicUsize::new(0);
         let without_velocity = AtomicUsize::new(0);
         let mut query = PreparedQuery::<(&mut Position, Option<&Velocity>)>::new();
-        query.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        query.par_for_each_chunk(&mut world, |positions, velocities| {
             for index in 0..positions.len() {
                 if let Some(velocities) = velocities {
                     positions[index].x += velocities[index].x;
@@ -546,7 +546,7 @@ mod tests {
         let seen = Mutex::new(Vec::new());
         let chunk_lengths = AtomicUsize::new(0);
         let mut query = PreparedQuery::<(&Position, &Velocity)>::new();
-        query.par_for_each_chunk_with_entities(&mut world, |entities, (positions, velocities)| {
+        query.par_for_each_chunk_with_entities(&mut world, |entities, positions, velocities| {
             assert_eq!(entities.len(), positions.len());
             assert_eq!(entities.len(), velocities.len());
             chunk_lengths.fetch_add(entities.len(), Ordering::Relaxed);
@@ -583,7 +583,7 @@ mod tests {
 
         let chunk_visits = AtomicUsize::new(0);
         let mut query = PreparedQuery::<(&Position, &Velocity)>::new();
-        query.par_for_each_chunk_with_entities(&mut world, |entities, (positions, velocities)| {
+        query.par_for_each_chunk_with_entities(&mut world, |entities, positions, velocities| {
             chunk_visits.fetch_add(1, Ordering::Relaxed);
             assert_eq!(entities.len(), positions.len());
             assert_eq!(entities.len(), velocities.len());
@@ -641,7 +641,7 @@ mod tests {
         let none_entities = AtomicUsize::new(0);
 
         let mut query = PreparedQuery::<(&mut Position, Option<&mut Velocity>)>::new();
-        query.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        query.par_for_each_chunk(&mut world, |positions, velocities| {
             if let Some(velocities) = velocities {
                 some_chunks.fetch_add(1, Ordering::Relaxed);
                 for index in 0..positions.len() {
@@ -669,7 +669,7 @@ mod tests {
         let mut with_velocity_seen = 0usize;
         let mut without_velocity_seen = 0usize;
         let mut check = PreparedQuery::<(&Position, Option<&Velocity>)>::new();
-        check.for_each(&mut world, |(position, velocity)| {
+        check.for_each(&mut world, |position, velocity| {
             if let Some(velocity) = velocity {
                 assert_eq!(velocity.y, 12.0);
                 assert!(position.x >= 1.0 && position.x <= with_velocity_count as f32);
@@ -692,7 +692,7 @@ mod tests {
 
         let invocations = AtomicUsize::new(0);
         let mut query = PreparedQuery::<(&Position, &Velocity)>::new();
-        query.par_for_each_chunk(&mut world, |_| {
+        query.par_for_each_chunk(&mut world, |_, _| {
             invocations.fetch_add(1, Ordering::Relaxed);
         });
 
@@ -710,7 +710,7 @@ mod tests {
         ));
 
         let mut prepared = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        prepared.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        prepared.par_for_each_chunk(&mut world, |positions, velocities| {
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x;
             }
@@ -724,7 +724,7 @@ mod tests {
             LargePad::default(),
         ));
 
-        prepared.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        prepared.par_for_each_chunk(&mut world, |positions, velocities| {
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x;
             }
@@ -746,7 +746,7 @@ mod tests {
         world.spawn((Position::default(), Velocity { x: 1.0, y: 0.0 }));
 
         let mut prepared = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        prepared.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        prepared.par_for_each_chunk(&mut world, |positions, velocities| {
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x;
             }
@@ -754,7 +754,7 @@ mod tests {
 
         world.spawn((Position::default(), Velocity { x: 1.0, y: 0.0 }));
 
-        prepared.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        prepared.par_for_each_chunk(&mut world, |positions, velocities| {
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x;
             }
@@ -781,7 +781,7 @@ mod tests {
         }
 
         let mut prepared = PreparedQuery::<(&mut Position, &Velocity)>::new();
-        prepared.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        prepared.par_for_each_chunk(&mut world, |positions, velocities| {
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x;
             }
@@ -796,7 +796,7 @@ mod tests {
             ));
         }
 
-        prepared.par_for_each_chunk(&mut world, |(positions, velocities)| {
+        prepared.par_for_each_chunk(&mut world, |positions, velocities| {
             for index in 0..positions.len() {
                 positions[index].x += velocities[index].x;
                 positions[index].y += velocities[index].y;
@@ -843,13 +843,13 @@ mod tests {
         world.spawn((Position::default(), Velocity { x: 1.0, y: 0.0 }));
 
         let mut prepared = PreparedQuery::<(&Position, &Velocity)>::new();
-        prepared.par_for_each_chunk_with_entities(&mut world, |_entities, _chunk| {});
+        prepared.par_for_each_chunk_with_entities(&mut world, |_entities, _, _| {});
 
         assert!(world.despawn(removed));
         let replacement = world.spawn((Position::default(), Velocity { x: 1.0, y: 0.0 }));
 
         let seen = Mutex::new(Vec::new());
-        prepared.par_for_each_chunk_with_entities(&mut world, |entities, _chunk| {
+        prepared.par_for_each_chunk_with_entities(&mut world, |entities, _, _| {
             lock(&seen).extend_from_slice(entities);
         });
 

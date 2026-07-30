@@ -57,7 +57,7 @@ fn main() {
 
     world
         .query_mut::<(&mut Position, &Velocity)>()
-        .for_each(|(position, velocity)| {
+        .for_each(|position, velocity| {
             position.x += velocity.x / 60.0;
             position.y += velocity.y / 60.0;
         });

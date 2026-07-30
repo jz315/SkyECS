@@ -85,7 +85,10 @@ pub mod stage {
 pub mod __private {
     pub use super::chunk::Chunk;
     pub use super::query::{
-        EntityFetchSpec, QueryDescriptor, QueryParam, QuerySpec, ReadOnlyQuerySpec,
+        Args1, Args10, Args11, Args12, Args13, Args14, Args15, Args16, Args2, Args3, Args4, Args5,
+        Args6, Args7, Args8, Args9, Arity1, Arity10, Arity11, Arity12, Arity13, Arity14, Arity15,
+        Arity16, Arity2, Arity3, Arity4, Arity5, Arity6, Arity7, Arity8, Arity9, EntityFetchSpec,
+        QueryDescriptor, QueryParam, QuerySpec, ReadOnlyQuerySpec,
     };
 }
 

@@ -30,7 +30,7 @@ fn movement(
     time: Res<Time>,
     mut log: ResMut<ExecutionLog>,
 ) {
-    bodies.for_each(|(position, velocity)| position.0 += velocity.0 * time.delta);
+    bodies.for_each(|position, velocity| position.0 += velocity.0 * time.delta);
     log.0.push("movement");
 }
 

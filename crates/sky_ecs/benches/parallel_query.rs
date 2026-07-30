@@ -280,7 +280,7 @@ fn bench_chunk_update(c: &mut Criterion) {
             &entity_count,
             |b, &_count| {
                 b.iter(|| {
-                    seq_query.for_each_chunk(&mut world_seq, |(positions, velocities)| {
+                    seq_query.for_each_chunk(&mut world_seq, |positions, velocities| {
                         for index in 0..positions.len() {
                             positions[index].x += velocities[index].x;
                             positions[index].y += velocities[index].y;
@@ -296,7 +296,7 @@ fn bench_chunk_update(c: &mut Criterion) {
             &entity_count,
             |b, &_count| {
                 b.iter(|| {
-                    par_query.par_for_each_chunk(&mut world_par, |(positions, velocities)| {
+                    par_query.par_for_each_chunk(&mut world_par, |positions, velocities| {
                         for index in 0..positions.len() {
                             positions[index].x += velocities[index].x;
                             positions[index].y += velocities[index].y;
@@ -328,7 +328,7 @@ fn bench_chunk_update_with_entities(c: &mut Criterion) {
                 b.iter(|| {
                     seq_query.for_each_chunk_with_entities(
                         &mut world_seq,
-                        |entities: &[EntityId], (positions, velocities)| {
+                        |entities: &[EntityId], positions, velocities| {
                             black_box(entities.first().map(|entity| entity.index()));
                             for index in 0..positions.len() {
                                 positions[index].x += velocities[index].x;
@@ -348,7 +348,7 @@ fn bench_chunk_update_with_entities(c: &mut Criterion) {
                 b.iter(|| {
                     par_query.par_for_each_chunk_with_entities(
                         &mut world_par,
-                        |entities: &[EntityId], (positions, velocities)| {
+                        |entities: &[EntityId], positions, velocities| {
                             black_box(entities.first().map(|entity| entity.index()));
                             for index in 0..positions.len() {
                                 positions[index].x += velocities[index].x;
@@ -382,7 +382,7 @@ fn bench_chunk_update_heavy(c: &mut Criterion) {
                 b.iter(|| {
                     seq_query.for_each_chunk(
                         &mut world_seq,
-                        |(positions, velocities, aux_a, aux_b)| {
+                        |positions, velocities, aux_a, aux_b| {
                             for index in 0..positions.len() {
                                 heavy_kernel(
                                     &mut positions[index],
@@ -405,7 +405,7 @@ fn bench_chunk_update_heavy(c: &mut Criterion) {
                 b.iter(|| {
                     par_query.par_for_each_chunk(
                         &mut world_par,
-                        |(positions, velocities, aux_a, aux_b)| {
+                        |positions, velocities, aux_a, aux_b| {
                             for index in 0..positions.len() {
                                 heavy_kernel(
                                     &mut positions[index],
@@ -456,7 +456,7 @@ fn bench_real_scene(c: &mut Criterion) {
                 b.iter(|| {
                     seq_query.for_each_chunk_with_entities(
                         &mut world_seq,
-                        |entities, (positions, velocities, aux_a, aux_b, statuses)| {
+                        |entities, positions, velocities, aux_a, aux_b, statuses| {
                             for index in 0..positions.len() {
                                 let status = statuses.map(|slice| &slice[index]);
                                 let gust = gusts_seq[entities[index].index() as usize];
@@ -485,7 +485,7 @@ fn bench_real_scene(c: &mut Criterion) {
                 b.iter(|| {
                     par_query.par_for_each_chunk_with_entities(
                         &mut world_par,
-                        |entities, (positions, velocities, aux_a, aux_b, statuses)| {
+                        |entities, positions, velocities, aux_a, aux_b, statuses| {
                             for index in 0..positions.len() {
                                 let status = statuses.map(|slice| &slice[index]);
                                 let gust = gusts_par[entities[index].index() as usize];
@@ -529,7 +529,7 @@ fn bench_bound_facade(c: &mut Criterion) {
         b.iter(|| {
             sequential_world
                 .query_mut::<(&mut Position2D, &Velocity2D)>()
-                .for_each(|(position, velocity)| facade_update(position, velocity));
+                .for_each(facade_update);
         });
     });
 
@@ -538,7 +538,7 @@ fn bench_bound_facade(c: &mut Criterion) {
         b.iter(|| {
             tuple_world
                 .query_mut::<(&mut Position2D, &Velocity2D)>()
-                .par_for_each(|(position, velocity)| facade_update(position, velocity));
+                .par_for_each(facade_update);
         });
     });
 
@@ -547,7 +547,7 @@ fn bench_bound_facade(c: &mut Criterion) {
         b.iter(|| {
             named_world
                 .query_mut::<Movement>()
-                .par_for_each(|item| facade_update(item.position, item.velocity));
+                .par_for_each(facade_update);
         });
     });
 
@@ -556,7 +556,7 @@ fn bench_bound_facade(c: &mut Criterion) {
         b.iter(|| {
             chunk_world
                 .query_mut::<(&mut Position2D, &Velocity2D)>()
-                .par_for_each_chunk(|(positions, velocities)| {
+                .par_for_each_chunk(|positions, velocities| {
                     for (position, velocity) in positions.iter_mut().zip(velocities) {
                         facade_update(position, velocity);
                     }

@@ -198,7 +198,7 @@ mod tests {
         let mut count = 0;
         world
             .query::<(&Position, &Velocity, &Health, &Damage)>()
-            .for_each(|(position, velocity, health, damage)| {
+            .for_each(|position, velocity, health, damage| {
                 let value = position.x;
                 assert_eq!(position.y, value + 0.5);
                 assert_eq!(velocity.x, value * 2.0);

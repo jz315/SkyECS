@@ -60,13 +60,13 @@ impl CandidateWorld {
             IterationCandidate::Function => {
                 self.inner
                     .movement
-                    .for_each_chunk_fn(&mut self.inner.world, move_chunk);
+                    .for_each_chunk(&mut self.inner.world, move_chunk);
                 self.inner
                     .enemies
-                    .for_each_chunk_fn(&mut self.inner.world, damage_chunk);
+                    .for_each_chunk(&mut self.inner.world, damage_chunk);
                 self.inner
                     .allies
-                    .for_each_chunk_fn(&mut self.inner.world, regen_chunk);
+                    .for_each_chunk(&mut self.inner.world, regen_chunk);
                 self.inner
                     .lifetimes
                     .for_each_chunk(&mut self.inner.world, lifetime_chunk);

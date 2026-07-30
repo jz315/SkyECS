@@ -29,7 +29,7 @@ fn main() {
     let mut commands = CommandBuffer::new();
     world
         .query::<(&Name, &Health)>()
-        .for_each_with_entity(|entity, (name, health)| match name.0 {
+        .for_each_with_entity(|entity, name, health| match name.0 {
             "warrior" => commands.insert(entity, Shielded),
             "rogue" if health.0 < 50 => commands.despawn(entity),
             "mage" => commands.remove::<Poisoned>(entity),

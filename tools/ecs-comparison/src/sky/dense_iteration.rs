@@ -19,7 +19,7 @@ pub fn bench_iteration(group: &mut BenchmarkGroup<'_, WallTime>) {
         let mut query = PreparedQuery::<(&mut PositionComponent, &VelocityComponent)>::new();
         assert_eq!(query.count(&world), SIMPLE_ENTITY_COUNT);
         b.iter(|| {
-            query.for_each_chunk_fn(&mut world, move_chunk);
+            query.for_each_chunk(&mut world, move_chunk);
             black_box(&world);
         });
     });
@@ -31,7 +31,7 @@ pub fn bench_iteration_large(group: &mut BenchmarkGroup<'_, WallTime>) {
         let mut query = PreparedQuery::<(&mut PositionComponent, &VelocityComponent)>::new();
         assert_eq!(query.count(&world), LARGE_ITERATION_ENTITY_COUNT);
         b.iter(|| {
-            query.for_each_chunk_fn(&mut world, move_chunk);
+            query.for_each_chunk(&mut world, move_chunk);
             black_box(&world);
         });
     });
@@ -43,7 +43,7 @@ pub fn bench_iteration_1m(group: &mut BenchmarkGroup<'_, WallTime>) {
         let mut query = PreparedQuery::<(&mut PositionComponent, &VelocityComponent)>::new();
         assert_eq!(query.count(&world), VERY_LARGE_ITERATION_ENTITY_COUNT);
         b.iter(|| {
-            query.for_each_chunk_fn(&mut world, move_chunk);
+            query.for_each_chunk(&mut world, move_chunk);
             black_box(&world);
         });
     });

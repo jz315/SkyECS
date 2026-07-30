@@ -103,7 +103,7 @@ published.
 
 | Adapter | Dense/prepared iteration | Entity/random access | Bulk construction from columns |
 |---|---|---|---|
-| Sky | `PreparedQuery::for_each_chunk_fn` for the simple dense kernel; gameplay retains the closure form | `EntityAccessor<T>::get` for comparable EntityId access; `PreparedEntityAccess<T>::iter` for the local fixed-sequence experiment; `PreparedEntityAccessor<T>::get` for reusable single-component items; `PreparedEntityView<Q>::get/get_mut` for arbitrary multi-component items | `World::spawn_columns` with prepared component columns |
+| Sky | Unified `PreparedQuery::for_each_chunk`: the simple dense kernel passes a reusable non-capturing function, while gameplay and the register-heavy diagnostic kernel pass an inlineable capturing closure | `EntityAccessor<T>::get` for comparable EntityId access; `PreparedEntityAccess<T>::iter` for the local fixed-sequence experiment; `PreparedEntityAccessor<T>::get` for reusable single-component items; `PreparedEntityView<Q>::get/get_mut` for arbitrary multi-component items | `World::spawn_columns` with prepared component columns |
 | hecs | Provisional: 10K/100K use `World::query_mut().into_iter_batched(u32::MAX)`; 1M uses prepared matching `Archetype::get` columns. Publication remains uncertified until the candidate bench is repeated on the publication target | `PreparedQuery::view_mut(...).get` / `get_mut` | build and fill `ColumnBatch` in timing, then `World::spawn_column_batch` |
 | Flecs C | prepared `ecs_query_t` with `ecs_query_iter` / `ecs_query_next` and direct `ecs_field` columns | `ecs_ref_init_id` in permitted stable-identity setup plus `ecs_ref_get_id`; otherwise `ecs_get_id` / `ecs_get_mut_id`. Gameplay must use the latter because it reads `TargetSlot` and builds the target list each frame | build the per-batch descriptor in timing, then `ecs_bulk_init` |
 | Bevy ECS | reusable `QueryState::iter_mut` | reusable `QueryState::get_manual` / `get_mut` | drain neutral columns into `World::spawn_batch` |
@@ -130,8 +130,13 @@ published.
 
 The bulk-construction workload has contract tests and starts every adapter from
 the same four neutral component columns.
-Sky API experiments live in `crates/sky_ecs/benches`; the canonical comparison
-contains only the selected paths and never chooses an API on a shared runner.
+Sky library API experiments live in `crates/sky_ecs/benches`. An exact
+adapter-codegen experiment that depends on comparison-owned workload types may
+instead live in the feature-gated `api_candidates` bench; the Heavy Compute
+function-boundary/inline-closure candidates are reproduced with `cargo bench
+-p sky_ecs_comparison --bench api_candidates --features api-experiments --
+sky_heavy_compute_api`. The canonical comparison contains only the selected
+path and never chooses an API on a shared runner.
 Re-run `SKY_ECS_CERTIFY_GAMEPLAY_API=1 cargo bench -p sky_ecs_comparison --bench
 api_candidates --features api-experiments -- sky` on a clean publication target after
 relevant workload, toolchain, or storage changes. This command records raw
@@ -162,7 +167,7 @@ publication toolchain and target before clearing the hecs dense row's
 uncertified status or publishing comparison numbers that use these paths.
 
 The canonical Sky adapter for the 10K, 100K, and 1M simple prepared-iteration
-workloads uses `PreparedQuery::for_each_chunk_fn` and a reusable non-capturing
+workloads uses `PreparedQuery::for_each_chunk` with a reusable non-capturing
 function:
 
 ```rust
@@ -174,9 +179,10 @@ fn move_chunk(positions: &mut [PositionComponent], velocities: &[VelocityCompone
 }
 ```
 
-Do not replace this boundary with a tuple-valued capturing closure without new
-assembly and benchmark evidence. The plain function preserves independent
-slice alias contracts after raw ECS columns have been reconstructed.
+Do not replace this boundary with a capturing closure without new assembly and
+benchmark evidence. The unified API still passes each component slice as an
+independent function parameter, preserving its alias contract after raw ECS
+columns have been reconstructed.
 
 Use `crates/sky_ecs/benches/chunk_cost.rs` to distinguish flat computation,
 segmentation, descriptor walking, prepared dispatch, and full ECS computation.

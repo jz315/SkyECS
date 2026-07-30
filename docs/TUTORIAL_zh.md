@@ -63,7 +63,7 @@ let dt = 1.0 / 60.0;
 
 world
     .query_mut::<(&mut Position, &Velocity)>()
-    .for_each(|(position, velocity)| {
+    .for_each(|position, velocity| {
         position.x += velocity.x * dt;
         position.y += velocity.y * dt;
     });
@@ -122,7 +122,7 @@ fn movement(
     bodies: View<(&mut Position, &Velocity)>,
     time: Res<Time>,
 ) {
-    bodies.for_each(|(position, velocity)| {
+    bodies.for_each(|position, velocity| {
         position.x += velocity.x * time.delta;
         position.y += velocity.y * time.delta;
     });

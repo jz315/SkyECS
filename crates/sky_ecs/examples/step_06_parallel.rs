@@ -12,11 +12,11 @@ struct Position(f64);
 struct Velocity(f64);
 
 fn serial_integrate(bodies: View<(&mut Position, &Velocity)>, time: Res<Time>) {
-    bodies.for_each(|(position, velocity)| position.0 += velocity.0 * f64::from(time.delta));
+    bodies.for_each(|position, velocity| position.0 += velocity.0 * f64::from(time.delta));
 }
 
 fn parallel_integrate(bodies: ParView<(&mut Position, &Velocity)>, time: Res<Time>) {
-    bodies.par_for_each(|(position, velocity)| {
+    bodies.par_for_each(|position, velocity| {
         position.0 += velocity.0 * f64::from(time.delta);
     });
 }

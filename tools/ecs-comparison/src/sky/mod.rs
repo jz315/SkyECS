@@ -9,6 +9,8 @@ mod entity_insertion;
 mod fragmented_iteration;
 mod gameplay_frame;
 mod heavy_compute;
+#[cfg(feature = "api-experiments")]
+mod heavy_compute_candidates;
 mod mixed_frame;
 mod random_access;
 mod random_fragmented_iteration;
@@ -26,6 +28,8 @@ pub use gameplay_frame::{
     PositionCandidate,
 };
 pub use heavy_compute::bench_heavy_compute;
+#[cfg(feature = "api-experiments")]
+pub use heavy_compute_candidates::bench_heavy_compute_candidates;
 pub use mixed_frame::{bench_mixed_frame, bench_mixed_frame_phases};
 pub use random_access::{bench_entity_id_random_access, bench_fixed_sequence_access};
 pub use random_fragmented_iteration::bench_random_fragmented_iteration;

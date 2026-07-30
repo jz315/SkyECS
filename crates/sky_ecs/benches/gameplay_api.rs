@@ -59,13 +59,13 @@ impl GameplayFixture {
 
     pub(crate) fn iteration_closure(&mut self) {
         self.movement
-            .for_each_chunk(&mut self.world, |(positions, velocities)| {
+            .for_each_chunk(&mut self.world, |positions, velocities| {
                 move_chunk(positions, velocities);
             });
     }
 
     pub(crate) fn iteration_function(&mut self) {
-        self.movement.for_each_chunk_fn(&mut self.world, move_chunk);
+        self.movement.for_each_chunk(&mut self.world, move_chunk);
     }
 
     pub(crate) fn ai_world_get_pair(&mut self) {

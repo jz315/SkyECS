@@ -3,16 +3,19 @@ use super::cell::{SystemParamContext, UnsafeWorldCell};
 use super::stage::ScheduleError;
 use crate::ecs::access::{EntityRouteView, EntityViewCache};
 use crate::ecs::query::{
-    count_matches, matches_nothing, par_for_each, par_for_each_chunk,
+    count_matches, for_each_query_arity, matches_nothing, par_for_each, par_for_each_chunk,
     par_for_each_chunk_with_entities, par_for_each_with_entity, prepare_job_cache,
     prepared_job_snapshot, run_cached_for_each, run_cached_for_each_chunk,
     run_cached_for_each_chunk_with_entities, run_cached_for_each_with_entity, run_for_each,
     run_for_each_chunk, run_for_each_chunk_with_entities, run_for_each_with_entity,
-    ParallelJobCache, ParallelJobSnapshot, PreparedCache, QueryDescriptor, SequentialChunk,
-    SequentialChunkCache,
+    ParallelJobCache, ParallelJobSnapshot, PreparedCache, QueryDescriptor, QueryShapeMarker,
+    SequentialChunk, SequentialChunkCache,
 };
 use crate::ecs::{
-    Commands, EntityFetchSpec, EntityId, QueryFilter, QuerySpec, ReadOnlyQuerySpec, World,
+    Args1, Args10, Args11, Args12, Args13, Args14, Args15, Args16, Args2, Args3, Args4, Args5,
+    Args6, Args7, Args8, Args9, Arity1, Arity10, Arity11, Arity12, Arity13, Arity14, Arity15,
+    Arity16, Arity2, Arity3, Arity4, Arity5, Arity6, Arity7, Arity8, Arity9, Commands,
+    EntityFetchSpec, EntityId, QueryFilter, QuerySpec, ReadOnlyQuerySpec, World,
 };
 use std::cell::Cell;
 use std::marker::PhantomData;
@@ -113,12 +116,12 @@ impl<Q: QuerySpec, F: QueryFilter> ParViewState<Q, F> {
 ///     view.par_for_each(|_| {});
 /// }
 /// ```
-pub struct View<'w, Q: QuerySpec, F: QueryFilter = ()> {
+pub struct View<'w, Q: QuerySpec, F: QueryFilter = (), Shape = <Q as QuerySpec>::Arity> {
     world: UnsafeWorldCell<'w>,
     archetypes: &'w [crate::ecs::query::CachedArchetype],
     sequential_chunks: &'w SequentialChunkCache,
     active_iteration: &'w Cell<bool>,
-    marker: PhantomData<fn() -> (Q, F)>,
+    marker: QueryShapeMarker<Q, F, Shape>,
 }
 
 /// A scheduler-issued component view with serially prepared parallel jobs.
@@ -126,13 +129,13 @@ pub struct View<'w, Q: QuerySpec, F: QueryFilter = ()> {
 /// `ParView` makes parallel preparation explicit in the system signature. Its
 /// iterators still use the shared query runner's automatic small-workload
 /// sequential fallback.
-pub struct ParView<'w, Q: QuerySpec, F: QueryFilter = ()> {
+pub struct ParView<'w, Q: QuerySpec, F: QueryFilter = (), Shape = <Q as QuerySpec>::Arity> {
     world: UnsafeWorldCell<'w>,
     archetypes: &'w [crate::ecs::query::CachedArchetype],
     parallel_jobs: &'w ParallelJobCache,
     sequential_chunks: &'w SequentialChunkCache,
     active_iteration: &'w Cell<bool>,
-    marker: PhantomData<fn() -> (Q, F)>,
+    marker: QueryShapeMarker<Q, F, Shape>,
 }
 
 struct ViewIterationGuard<'a>(&'a Cell<bool>);
@@ -143,7 +146,7 @@ impl Drop for ViewIterationGuard<'_> {
     }
 }
 
-impl<Q, F> View<'_, Q, F>
+impl<Q, F, Shape> View<'_, Q, F, Shape>
 where
     Q: QuerySpec,
     F: QueryFilter,
@@ -169,7 +172,7 @@ where
         self.sequential_chunks.current(self.world())
     }
 
-    pub fn for_each<Func>(&self, f: Func)
+    fn for_each_impl<Func>(&self, f: Func)
     where
         Func: for<'a> FnMut(Q::Item<'a>),
     {
@@ -181,7 +184,7 @@ where
         run_for_each::<Q, _>(self.world(), self.archetypes, f);
     }
 
-    pub fn for_each_with_entity<Func>(&self, f: Func)
+    fn for_each_with_entity_impl<Func>(&self, f: Func)
     where
         Func: for<'a> FnMut(EntityId, Q::Item<'a>),
     {
@@ -193,7 +196,7 @@ where
         run_for_each_with_entity::<Q, _>(self.world(), self.archetypes, f);
     }
 
-    pub fn for_each_chunk<Func>(&self, f: Func)
+    fn for_each_chunk_impl<Func>(&self, f: Func)
     where
         Func: for<'a> FnMut(Q::Chunk<'a>),
     {
@@ -205,7 +208,7 @@ where
         run_for_each_chunk::<Q, _>(self.world(), self.archetypes, f);
     }
 
-    pub fn for_each_chunk_with_entities<Func>(&self, f: Func)
+    fn for_each_chunk_with_entities_impl<Func>(&self, f: Func)
     where
         Func: for<'a> FnMut(&'a [EntityId], Q::Chunk<'a>),
     {
@@ -232,15 +235,17 @@ where
 
 // Safety: query descriptor access is registered exactly, preparation freezes
 // matching archetypes, and the scheduler calls `get` only for a validated wave.
-unsafe impl<'marker, Q, F> SystemParam for View<'marker, Q, F>
+unsafe impl<'marker, Q, F, Shape> SystemParam for View<'marker, Q, F, Shape>
 where
     Q: QuerySpec + 'static,
     F: QueryFilter + 'static,
     for<'a> Q::Item<'a>: Send,
     for<'a> Q::Chunk<'a>: Send,
+    for<'a> Q::ItemArgs<'a>: Send,
+    for<'a> Q::ChunkArgs<'a>: Send,
 {
     type State = ViewState<Q, F>;
-    type Item<'w> = View<'w, Q, F>;
+    type Item<'w> = View<'w, Q, F, Shape>;
 
     fn register(meta: &mut SystemMeta) {
         for component in Q::descriptor().components {
@@ -275,7 +280,7 @@ where
     }
 }
 
-impl<Q, F> ParView<'_, Q, F>
+impl<Q, F, Shape> ParView<'_, Q, F, Shape>
 where
     Q: QuerySpec,
     F: QueryFilter,
@@ -306,7 +311,7 @@ where
         self.sequential_chunks.current(self.world())
     }
 
-    pub fn par_for_each<Func>(&self, f: Func)
+    fn par_for_each_impl<Func>(&self, f: Func)
     where
         for<'a> Q::Item<'a>: Send,
         Func: for<'a> Fn(Q::Item<'a>) + Send + Sync,
@@ -323,7 +328,7 @@ where
         par_for_each::<Q, _>(self.archetypes, unsafe { world.world() }, jobs, f);
     }
 
-    pub fn par_for_each_with_entity<Func>(&self, f: Func)
+    fn par_for_each_with_entity_impl<Func>(&self, f: Func)
     where
         for<'a> Q::Item<'a>: Send,
         Func: for<'a> Fn(EntityId, Q::Item<'a>) + Send + Sync,
@@ -340,7 +345,7 @@ where
         par_for_each_with_entity::<Q, _>(self.archetypes, unsafe { world.world() }, jobs, f);
     }
 
-    pub fn par_for_each_chunk<Func>(&self, f: Func)
+    fn par_for_each_chunk_impl<Func>(&self, f: Func)
     where
         for<'a> Q::Chunk<'a>: Send,
         Func: for<'a> Fn(Q::Chunk<'a>) + Send + Sync,
@@ -357,7 +362,7 @@ where
         par_for_each_chunk::<Q, _>(self.archetypes, unsafe { world.world() }, jobs, f);
     }
 
-    pub fn par_for_each_chunk_with_entities<Func>(&self, f: Func)
+    fn par_for_each_chunk_with_entities_impl<Func>(&self, f: Func)
     where
         for<'a> Q::Chunk<'a>: Send,
         Func: for<'a> Fn(&'a [EntityId], Q::Chunk<'a>) + Send + Sync,
@@ -396,17 +401,161 @@ where
     }
 }
 
+macro_rules! impl_view_iteration {
+    ($Arity:ident, $Args:ident, $(($Assoc:ident, $arg:ident)),+ $(,)?) => {
+        impl<Q, F> View<'_, Q, F, $Arity>
+        where
+            Q: QuerySpec<Arity = $Arity>,
+            F: QueryFilter,
+        {
+            #[inline(always)]
+            pub fn for_each<Func>(&self, function: Func)
+            where
+                for<'a> Q::ItemArgs<'a>: $Args,
+                Func: for<'a> FnMut($(<Q::ItemArgs<'a> as $Args>::$Assoc),+),
+            {
+                let mut function = function;
+                self.for_each_impl(move |item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline(always)]
+            pub fn for_each_with_entity<Func>(&self, function: Func)
+            where
+                for<'a> Q::ItemArgs<'a>: $Args,
+                Func: for<'a> FnMut(
+                    EntityId,
+                    $(<Q::ItemArgs<'a> as $Args>::$Assoc),+
+                ),
+            {
+                let mut function = function;
+                self.for_each_with_entity_impl(move |entity, item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function(entity, $($arg),+);
+                });
+            }
+
+            #[inline(always)]
+            pub fn for_each_chunk<Func>(&self, function: Func)
+            where
+                for<'a> Q::ChunkArgs<'a>: $Args,
+                Func: for<'a> FnMut($(<Q::ChunkArgs<'a> as $Args>::$Assoc),+),
+            {
+                let mut function = function;
+                self.for_each_chunk_impl(move |chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline(always)]
+            pub fn for_each_chunk_with_entities<Func>(&self, function: Func)
+            where
+                for<'a> Q::ChunkArgs<'a>: $Args,
+                Func: for<'a> FnMut(
+                    &'a [EntityId],
+                    $(<Q::ChunkArgs<'a> as $Args>::$Assoc),+
+                ),
+            {
+                let mut function = function;
+                self.for_each_chunk_with_entities_impl(move |entities, chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function(entities, $($arg),+);
+                });
+            }
+        }
+
+        impl<Q, F> ParView<'_, Q, F, $Arity>
+        where
+            Q: QuerySpec<Arity = $Arity>,
+            F: QueryFilter,
+        {
+            #[inline]
+            pub fn par_for_each<Func>(&self, function: Func)
+            where
+                for<'a> Q::Item<'a>: Send,
+                for<'a> Q::ItemArgs<'a>: $Args + Send,
+                Func: for<'a> Fn($(<Q::ItemArgs<'a> as $Args>::$Assoc),+) + Send + Sync,
+            {
+                self.par_for_each_impl(move |item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each_with_entity<Func>(&self, function: Func)
+            where
+                for<'a> Q::Item<'a>: Send,
+                for<'a> Q::ItemArgs<'a>: $Args + Send,
+                Func: for<'a> Fn(
+                    EntityId,
+                    $(<Q::ItemArgs<'a> as $Args>::$Assoc),+
+                ) + Send + Sync,
+            {
+                self.par_for_each_with_entity_impl(move |entity, item| {
+                    let ($($arg,)+) =
+                        <Q::ItemArgs<'_> as $Args>::split(Q::into_item_args(item));
+                    function(entity, $($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each_chunk<Func>(&self, function: Func)
+            where
+                for<'a> Q::Chunk<'a>: Send,
+                for<'a> Q::ChunkArgs<'a>: $Args + Send,
+                Func: for<'a> Fn($(<Q::ChunkArgs<'a> as $Args>::$Assoc),+) + Send + Sync,
+            {
+                self.par_for_each_chunk_impl(move |chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function($($arg),+);
+                });
+            }
+
+            #[inline]
+            pub fn par_for_each_chunk_with_entities<Func>(&self, function: Func)
+            where
+                for<'a> Q::Chunk<'a>: Send,
+                for<'a> Q::ChunkArgs<'a>: $Args + Send,
+                Func: for<'a> Fn(
+                    &'a [EntityId],
+                    $(<Q::ChunkArgs<'a> as $Args>::$Assoc),+
+                ) + Send + Sync,
+            {
+                self.par_for_each_chunk_with_entities_impl(move |entities, chunk| {
+                    let ($($arg,)+) =
+                        <Q::ChunkArgs<'_> as $Args>::split(Q::into_chunk_args(chunk));
+                    function(entities, $($arg),+);
+                });
+            }
+        }
+    };
+}
+
+for_each_query_arity!(impl_view_iteration);
+
 // Safety: access registration matches View, while stripe discovery and pointer
 // resolution finish in the serial prepare pass before the system can run.
-unsafe impl<'marker, Q, F> SystemParam for ParView<'marker, Q, F>
+unsafe impl<'marker, Q, F, Shape> SystemParam for ParView<'marker, Q, F, Shape>
 where
     Q: QuerySpec + 'static,
     F: QueryFilter + 'static,
     for<'a> Q::Item<'a>: Send,
     for<'a> Q::Chunk<'a>: Send,
+    for<'a> Q::ItemArgs<'a>: Send,
+    for<'a> Q::ChunkArgs<'a>: Send,
 {
     type State = ParViewState<Q, F>;
-    type Item<'w> = ParView<'w, Q, F>;
+    type Item<'w> = ParView<'w, Q, F, Shape>;
 
     fn register(meta: &mut SystemMeta) {
         for component in Q::descriptor().components {

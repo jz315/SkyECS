@@ -28,7 +28,7 @@ fn main() {
     let mut chunk_count = 0;
     world
         .query_mut::<(&mut Position, &Velocity)>()
-        .for_each_chunk(|(positions, velocities)| {
+        .for_each_chunk(|positions, velocities| {
             // Every slice represents the same entity range in this chunk.
             assert_eq!(positions.len(), velocities.len());
             chunk_count += 1;

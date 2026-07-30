@@ -6,6 +6,8 @@ mod fixed_sequence;
 mod hecs_dense;
 #[path = "api_candidates/sky_gameplay.rs"]
 mod sky_gameplay;
+#[path = "api_candidates/sky_heavy.rs"]
+mod sky_heavy;
 
 criterion_group!(
     api_candidates,
@@ -14,5 +16,6 @@ criterion_group!(
     hecs_dense::bench_100k,
     hecs_dense::bench_1m,
     sky_gameplay::run,
+    sky_heavy::run,
 );
 criterion_main!(api_candidates);

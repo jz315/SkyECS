@@ -47,7 +47,7 @@ fn spawn_and_aim(
     // A newly queued enemy is not visible inside this stage. The turret fires
     // only at enemies that existed when PreUpdate began.
     if !enemies.is_empty() {
-        turrets.for_each(|(position, turret)| {
+        turrets.for_each(|position, turret| {
             commands.spawn((
                 *position,
                 Velocity(3),
@@ -63,15 +63,15 @@ fn spawn_and_aim(
 }
 
 fn movement(movers: View<(&mut Position, &Velocity)>) {
-    movers.for_each(|(position, velocity)| position.0 += velocity.0);
+    movers.for_each(|position, velocity| position.0 += velocity.0);
 }
 
 fn collisions(
     bullets: View<(&Position, &mut Bullet)>,
     enemies: View<(&Position, &mut Health), With<Enemy>>,
 ) {
-    bullets.for_each(|(bullet_position, bullet)| {
-        enemies.for_each(|(enemy_position, health)| {
+    bullets.for_each(|bullet_position, bullet| {
+        enemies.for_each(|enemy_position, health| {
             if !bullet.spent && bullet_position.0 >= enemy_position.0 {
                 health.0 -= bullet.damage;
                 bullet.spent = true;
@@ -86,7 +86,7 @@ fn cleanup_and_score(
     mut state: ResMut<GameState>,
     mut commands: Commands<'_>,
 ) {
-    enemies.for_each_with_entity(|entity, (position, health)| {
+    enemies.for_each_with_entity(|entity, position, health| {
         if health.0 <= 0 {
             state.score += 1;
             commands.despawn(entity);
@@ -108,14 +108,14 @@ fn ascii_line(world: &World) -> String {
     let mut cells = ['.'; 9];
     world
         .query::<(&Position, &Turret)>()
-        .for_each(|(position, _)| cells[position.0 as usize] = 'T');
+        .for_each(|position, _| cells[position.0 as usize] = 'T');
     world
         .query::<&Position>()
         .filter::<With<Enemy>>()
         .for_each(|position| cells[position.0 as usize] = 'E');
     world
         .query::<(&Position, &Bullet)>()
-        .for_each(|(position, _)| cells[position.0 as usize] = 'B');
+        .for_each(|position, _| cells[position.0 as usize] = 'B');
     cells.into_iter().collect()
 }
 

@@ -58,7 +58,7 @@ fn validate_construction() {
         )>::new()
         .for_each(
             &mut context.world,
-            |(transform, position, rotation, velocity)| {
+            |transform, position, rotation, velocity| {
                 actual.push((*transform, *position, *rotation, *velocity));
             },
         );
@@ -80,7 +80,7 @@ fn validate_construction() {
         )>::new()
         .for_each(
             &mut construction_world,
-            |(transform, position, rotation, velocity)| {
+            |transform, position, rotation, velocity| {
                 actual.push((*transform, *position, *rotation, *velocity));
             },
         );
@@ -95,7 +95,7 @@ fn validate_dense_iteration() {
     let mut checksum = 0.0;
     PreparedQuery::<(&mut PositionComponent, &VelocityComponent)>::new().for_each(
         &mut world,
-        |(position, velocity)| {
+        |position, velocity| {
             position.0 += velocity.0;
             count += 1;
             checksum += position.0.x;
@@ -202,7 +202,7 @@ fn validate_random_fragmented_iteration() {
                     let mut matched = 0;
                     let mut values = 0.0;
                     let mut checksum = 0;
-                    query.for_each_with_entity(&mut random_fragmented, |entity, (a, b, c, d)| {
+                    query.for_each_with_entity(&mut random_fragmented, |entity, a, b, c, d| {
                         matched += 1;
                         values += a.0 + b.0 + c.0 + d.0;
                         checksum = add_random_fragment_checksum(
@@ -228,7 +228,7 @@ fn validate_random_fragmented_iteration() {
                     let mut checksum = 0;
                     query.for_each_with_entity(
                         &mut random_fragmented,
-                        |entity, (a, b, c, d, e, f, g, h)| {
+                        |entity, a, b, c, d, e, f, g, h| {
                             matched += 1;
                             values += a.0 + b.0 + c.0 + d.0 + e.0 + f.0 + g.0 + h.0;
                             checksum = add_random_fragment_component_8_checksum(

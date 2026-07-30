@@ -7,9 +7,9 @@
 ## 声明
 
 ```rust
-pub struct Query<'w, Q, Flt = ()> { /* 私有字段 */ }
-pub struct QueryMut<'w, Q, Flt = ()> { /* 私有字段 */ }
-pub struct PreparedQuery<Q, Flt = ()> { /* 私有字段 */ }
+pub struct Query<'w, Q, Flt = (), Shape = Q::Arity> { /* 私有字段 */ }
+pub struct QueryMut<'w, Q, Flt = (), Shape = Q::Arity> { /* 私有字段 */ }
+pub struct PreparedQuery<Q, Flt = (), Shape = Q::Arity> { /* 私有字段 */ }
 
 pub trait QueryFilter: /* sealed */ { /* 隐藏实现成员 */ }
 pub struct With<T>(/* private */);
@@ -19,8 +19,9 @@ pub struct Any<F>(/* private */);
 
 支持的 query parameter 是 `&T`、`&mut T`、`Option<&T>` 和
 `Option<&mut T>`，可单独使用或组成最多 16 个组件类型的 tuple。同一查询中不能重复同一
-组件类型，无论 optional 与访问模式是否不同。`#[derive(QueryData)]` 可生成具名实体级结果，
-见[宏与类型](plugins-types.md)。
+组件类型，无论 optional 与访问模式是否不同。`#[derive(QueryData)]` 可生成具名查询声明和
+具名实体级返回值；迭代 callback 仍按字段声明顺序接收独立参数。见
+[宏与类型](plugins-types.md)。
 
 ## World-bound 查询
 
@@ -41,10 +42,10 @@ prepare，同一 `(Q, Flt)` 类型重复创建时复用 World 中的匹配元数
 
 | 声明 | Callback 契约 |
 |---|---|
-| `for_each_chunk<F>(&self, f: F)` | `F: for<'a> FnMut(Q::Chunk<'a>)` |
-| `for_each<F>(&self, f: F)` | `F: for<'a> FnMut(Q::Item<'a>)` |
-| `for_each_with_entity<F>(&self, f: F)` | `F: for<'a> FnMut(EntityId, Q::Item<'a>)` |
-| `for_each_chunk_with_entities<F>(&self, f: F)` | `F: for<'a> FnMut(&'a [EntityId], Q::Chunk<'a>)` |
+| `for_each_chunk<F>(&self, f: F)` | 每个查询参数对应一个组件 slice 参数。 |
+| `for_each<F>(&self, f: F)` | 每个查询参数对应一个组件引用参数。 |
+| `for_each_with_entity<F>(&self, f: F)` | 先传 `EntityId`，再传各组件引用。 |
+| `for_each_chunk_with_entities<F>(&self, f: F)` | 先传 EntityId slice，再传对齐的组件 slice。 |
 | `par_for_each_chunk<F>(&self, f: F)` | Chunk 为 `Send`；`F: Fn(...) + Send + Sync`。 |
 | `par_for_each<F>(&self, f: F)` | Item 为 `Send`；`F: Fn(...) + Send + Sync`。 |
 | `par_for_each_with_entity<F>(&self, f: F)` | 并行 EntityId 版本。 |
@@ -57,6 +58,12 @@ prepare，同一 `(Q, Flt)` 类型重复创建时复用 World 中的匹配元数
 `QueryMut` 提供同名成员但接收 `&mut self`；其 `filter` 返回
 `QueryMut<'w, Q, Flt>`。顺序遍历遵循稠密存储顺序，并行顺序未指定。每次 chunk callback
 中的 entity slice 和组件 slice 长度相同、行完全对齐。
+
+类型化 callback 在编译期为 1–16 个查询参数展开。例如
+`(&mut Position, &Velocity)` 的逐实体 callback 接受
+`FnMut(&mut Position, &Velocity)`，逐 chunk callback 接受
+`FnMut(&mut [Position], &[Velocity])`。既可以直接传普通函数，也可以传捕获状态的
+closure。
 
 ## `PreparedQuery`
 
@@ -86,25 +93,8 @@ World：
 只读 `Q` 接受 `&World` 或 `&mut World`；包含可变访问的 `Q` 必须传
 `&mut World`。切换 World 或 archetype/storage 发生相关变化时，缓存自动刷新。
 
-宽度 2–16 的 tuple query 还提供：
-
-```rust
-pub fn for_each_chunk_fn<W>(
-    &mut self,
-    world: W,
-    function: for<'w> fn(P0::Slice<'w>, P1::Slice<'w>, /* ... */),
-);
-
-pub fn for_each_chunk_fn_with<W, State>(
-    &mut self,
-    world: W,
-    state: &mut State,
-    function: for<'w> fn(&mut State, P0::Slice<'w>, P1::Slice<'w>, /* ... */),
-);
-```
-
-这两个普通函数入口把组件 slice 保持为分离参数，适用于依赖 alias 信息的计算 kernel。
-每个匹配 chunk 调用一次，不接受捕获环境的 closure。
+`for_each_chunk` 本身同时接受普通函数和捕获 closure。直接传可复用函数时，各组件
+slice 仍作为分离参数进入依赖 alias 信息的 kernel；捕获状态不再需要另一套 API。
 
 ## Filter
 
@@ -148,7 +138,7 @@ world.spawn((Position(1.0), Velocity(2.0), Active));
 world
     .query_mut::<(&mut Position, &Velocity)>()
     .filter::<With<Active>>()
-    .for_each(|(position, velocity)| position.0 += velocity.0);
+    .for_each(|position, velocity| position.0 += velocity.0);
 ```
 
 ## 相关 API
