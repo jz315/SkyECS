@@ -316,10 +316,17 @@ fn despawn_invalidates_entity_and_keeps_other_entities_accessible() {
     let mut world = World::new();
     let first = world.spawn((Position { x: 1.0, y: 2.0 },));
     let second = world.spawn((Position { x: 3.0, y: 4.0 },));
+    let second_route_before = world.entity_route(second).unwrap();
 
     assert!(world.despawn(first));
     assert!(!world.contains(first));
     assert_eq!(world.get::<Position>(first), None);
+    let second_route_after = world.entity_route(second).unwrap();
+    assert_eq!(second_route_after.chunk_id, second_route_before.chunk_id);
+    assert_ne!(
+        second_route_after.entity_index,
+        second_route_before.entity_index
+    );
     assert_eq!(
         world.get::<Position>(second),
         Some(&Position { x: 3.0, y: 4.0 })

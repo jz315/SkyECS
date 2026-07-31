@@ -92,8 +92,19 @@ impl World {
 
     #[inline(always)]
     pub(super) fn finish_chunk_removal(&mut self, removal: ChunkRemoval) {
-        if let Some((moved_entity, moved_route)) = removal.moved {
-            self.set_entity_route(moved_entity, moved_route);
+        match removal.moved {
+            Some(MovedEntityRepair::Row {
+                entity,
+                entity_index,
+            }) => {
+                let record = &mut self.entities[entity.index() as usize];
+                debug_assert_eq!(record.generation, entity.generation());
+                record.set_entity_index(entity_index);
+            }
+            Some(MovedEntityRepair::Route { entity, route }) => {
+                self.set_entity_route(entity, route);
+            }
+            None => {}
         }
         if let Some(retired_chunk) = removal.retired_chunk {
             self.chunk_directory.release(retired_chunk);

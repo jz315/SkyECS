@@ -15,7 +15,7 @@ mod warm_start;
 pub(crate) use archetype_storage::{ArchetypeStorage, ChunkRowSpan};
 pub use entity_chunk::Chunk;
 pub(crate) use layout::ChunkLayout;
-pub(crate) use rows::{ChunkEntityLocation, ChunkRemoval};
+pub(crate) use rows::{ChunkEntityLocation, ChunkRemoval, MovedEntityRepair};
 
 pub(crate) const TINY_CHUNK_SIZE: usize = 1024;
 pub(crate) const SMALL_CHUNK_SIZE: usize = 4 * 1024;

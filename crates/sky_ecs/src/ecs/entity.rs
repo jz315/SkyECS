@@ -183,6 +183,17 @@ impl EntityRecord {
         self.entity_index = entity_index;
     }
 
+    /// Repairs the row of an entity that moved within its existing chunk.
+    ///
+    /// Keeping this separate from [`Self::set_route`] avoids rewriting the
+    /// unchanged chunk route on the common same-chunk swap-remove path.
+    #[inline(always)]
+    pub(crate) fn set_entity_index(&mut self, entity_index: usize) {
+        debug_assert!(self.chunk_id.is_assigned());
+        self.entity_index =
+            u32::try_from(entity_index).expect("chunk entity index limit exhausted");
+    }
+
     #[inline(always)]
     pub(crate) fn clear_route(&mut self) {
         self.chunk_id = ChunkId::UNASSIGNED;
@@ -215,6 +226,11 @@ mod tests {
         let actual = record.route().unwrap();
         assert_eq!(actual.chunk_id, route.chunk_id);
         assert_eq!(actual.entity_index, route.entity_index);
+
+        record.set_entity_index(3);
+        let moved_within_chunk = record.route().unwrap();
+        assert_eq!(moved_within_chunk.chunk_id, route.chunk_id);
+        assert_eq!(moved_within_chunk.entity_index, 3);
 
         record.clear_route();
         assert!(!record.is_alive());

@@ -8,8 +8,23 @@ pub struct ChunkEntityLocation {
     pub entity_index: usize,
 }
 
+pub(crate) enum MovedEntityRepair {
+    /// The tail row moved within the same physical chunk, so its stable chunk
+    /// route remains valid and only its row changed.
+    Row {
+        entity: EntityId,
+        entity_index: usize,
+    },
+    /// The tail row crossed a physical chunk boundary, so both parts of its
+    /// route must be replaced.
+    Route {
+        entity: EntityId,
+        route: EntityRoute,
+    },
+}
+
 pub(crate) struct ChunkRemoval {
-    pub(crate) moved: Option<(EntityId, EntityRoute)>,
+    pub(crate) moved: Option<MovedEntityRepair>,
     pub(crate) retired_chunk: Option<ChunkId>,
 }
 
@@ -125,7 +140,7 @@ impl ArchetypeStorage {
         location: ChunkEntityLocation,
         last_chunk_index: usize,
         last_entity_index: usize,
-    ) -> Option<(EntityId, EntityRoute)> {
+    ) -> Option<MovedEntityRepair> {
         let removed_is_last =
             location.chunk_index == last_chunk_index && location.entity_index == last_entity_index;
         if removed_is_last {
@@ -135,25 +150,30 @@ impl ArchetypeStorage {
         let moved_entity = self.chunks[last_chunk_index]
             .entity_id(last_entity_index)
             .unwrap();
-        if location.chunk_index == last_chunk_index {
+        let repair = if location.chunk_index == last_chunk_index {
             self.chunks[last_chunk_index]
                 .copy_entity_within(last_entity_index, location.entity_index);
+            MovedEntityRepair::Row {
+                entity: moved_entity,
+                entity_index: location.entity_index,
+            }
         } else {
             let (head, tail) = self.chunks.split_at_mut(last_chunk_index);
             let dst_chunk = &mut head[location.chunk_index];
             let src_chunk = &tail[0];
             dst_chunk.copy_entity_from(src_chunk, last_entity_index, location.entity_index);
-        }
+            let chunk_id = self.chunk_ids[location.chunk_index];
+            debug_assert!(chunk_id.is_assigned());
+            MovedEntityRepair::Route {
+                entity: moved_entity,
+                route: EntityRoute {
+                    chunk_id,
+                    entity_index: location.entity_index,
+                },
+            }
+        };
 
-        let chunk_id = self.chunk_ids[location.chunk_index];
-        debug_assert!(chunk_id.is_assigned());
-        Some((
-            moved_entity,
-            EntityRoute {
-                chunk_id,
-                entity_index: location.entity_index,
-            },
-        ))
+        Some(repair)
     }
 
     /// Swap-removes a row while the tail is known to remain live.
