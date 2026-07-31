@@ -32,7 +32,7 @@ pub fn bench_bulk_construction(group: &mut BenchmarkGroup<'_, WallTime>) {
                 insert_bulk_from_columns(context);
                 black_box(&context.world);
             },
-            BatchSize::SmallInput,
+            construction_batch_size(),
         );
     });
 }
@@ -48,7 +48,7 @@ pub fn bench_single_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
                 }
                 black_box(&world);
             },
-            BatchSize::SmallInput,
+            construction_batch_size(),
         );
     });
 }

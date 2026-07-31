@@ -1,7 +1,7 @@
 use crate::common::*;
 use bevy_ecs::entity::Entity as BevyEntity;
 use bevy_ecs::world::World;
-use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
+use criterion::{measurement::WallTime, BenchmarkGroup};
 use std::hint::black_box;
 
 mod dense_iteration;

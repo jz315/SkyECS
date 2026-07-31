@@ -240,7 +240,7 @@ impl Chunk {
     }
 
     #[inline(always)]
-    unsafe fn component_ptr_unchecked(
+    pub(super) unsafe fn component_ptr_unchecked(
         &self,
         component_index: usize,
         entity_index: usize,
@@ -276,55 +276,6 @@ impl Chunk {
 
     pub fn entity_id(&self, entity_index: usize) -> Option<EntityId> {
         self.entities.get(entity_index).copied()
-    }
-
-    /// Bitwise-copy entity data from `src_index` to `dst_index` within
-    /// this chunk.  The destination slot must be logically uninitialised
-    /// (or already dropped) — this function does NOT drop the old data
-    /// at `dst_index`.
-    #[inline(always)]
-    pub(crate) fn copy_entity_within(&mut self, src_index: usize, dst_index: usize) {
-        if src_index == dst_index {
-            return;
-        }
-
-        for (component_index, component) in self.archetype.components.iter().enumerate() {
-            if component.size == 0 {
-                continue;
-            }
-            unsafe {
-                ptr::copy_nonoverlapping(
-                    self.component_ptr_unchecked(component_index, src_index),
-                    self.component_ptr_unchecked(component_index, dst_index),
-                    component.size,
-                );
-            }
-        }
-
-        self.entities[dst_index] = self.entities[src_index];
-    }
-
-    /// Bitwise-copy entity data from `src` chunk at `src_index` into
-    /// `self` at `dst_index`.  The destination slot must be logically
-    /// uninitialised (or already dropped).
-    #[inline(always)]
-    pub(crate) fn copy_entity_from(&mut self, src: &Chunk, src_index: usize, dst_index: usize) {
-        debug_assert_eq!(self.archetype.id(), src.archetype.id());
-
-        for (component_index, component) in self.archetype.components.iter().enumerate() {
-            if component.size == 0 {
-                continue;
-            }
-            unsafe {
-                ptr::copy_nonoverlapping(
-                    src.component_ptr_unchecked(component_index, src_index),
-                    self.component_ptr_unchecked(component_index, dst_index),
-                    component.size,
-                );
-            }
-        }
-
-        self.entities[dst_index] = src.entities[src_index];
     }
 
     #[inline(always)]

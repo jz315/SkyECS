@@ -45,6 +45,33 @@ fn row_layout_epoch_tracks_layout_changes_but_not_value_updates() {
 }
 
 #[test]
+fn clear_discards_archetype_warm_start_capacity_hints() {
+    let mut world = World::new();
+    let entities: Vec<_> = (0..10_000)
+        .map(|index| {
+            world.spawn((Position {
+                x: index as f32,
+                y: 0.0,
+            },))
+        })
+        .collect();
+    for entity in entities.into_iter().rev() {
+        assert!(world.despawn(entity));
+    }
+
+    let reactivated = world.spawn((Position { x: 1.0, y: 2.0 },));
+    assert_eq!(world.data[0].chunks[0].block_size(), 64 * 1024);
+    assert!(world.despawn(reactivated));
+
+    world.clear();
+    world.spawn((Position { x: 3.0, y: 4.0 },));
+    assert_eq!(
+        world.data[0].chunks[0].block_size(),
+        crate::ecs::chunk::TINY_CHUNK_SIZE
+    );
+}
+
+#[test]
 #[should_panic(expected = "world archetype epoch exhausted")]
 fn archetype_epoch_panics_instead_of_wrapping() {
     let mut world = World::new();

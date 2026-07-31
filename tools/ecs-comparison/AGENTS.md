@@ -104,8 +104,8 @@ published.
 | Adapter | Dense/prepared iteration | Entity/random access | Bulk construction from columns |
 |---|---|---|---|
 | Sky | Unified `PreparedQuery::for_each_chunk`: the simple dense kernel passes a reusable non-capturing function, while gameplay and the register-heavy diagnostic kernel pass an inlineable capturing closure | `EntityAccessor<T>::get` for comparable EntityId access; `PreparedEntityAccess<T>::iter` for the local fixed-sequence experiment; `PreparedEntityAccessor<T>::get` for reusable single-component items; `PreparedEntityView<Q>::get/get_mut` for arbitrary multi-component items | `World::spawn_columns` with prepared component columns |
-| hecs | Provisional: 10K/100K use `World::query_mut().into_iter_batched(u32::MAX)`; 1M uses prepared matching `Archetype::get` columns. Publication remains uncertified until the candidate bench is repeated on the publication target | `PreparedQuery::view_mut(...).get` / `get_mut` | build and fill `ColumnBatch` in timing, then `World::spawn_column_batch` |
-| Flecs C | prepared `ecs_query_t` with `ecs_query_iter` / `ecs_query_next` and direct `ecs_field` columns | `ecs_ref_init_id` in permitted stable-identity setup plus `ecs_ref_get_id`; otherwise `ecs_get_id` / `ecs_get_mut_id`. Gameplay must use the latter because it reads `TargetSlot` and builds the target list each frame | build the per-batch descriptor in timing, then `ecs_bulk_init` |
+| hecs | Provisional: 10K/100K use `World::query_mut().into_iter_batched(u32::MAX)`; 1M uses prepared matching `Archetype::get` columns. Publication remains uncertified until the candidate bench is repeated on the publication target | `PreparedQuery::view_mut(...).get` / `get_mut` | prepare `ColumnBatchType` with the static schema in setup; `into_batch`, writers, build and `World::spawn_column_batch` remain timed |
+| Flecs C | prepared `ecs_query_t` with `ecs_query_iter` / `ecs_query_next` and direct `ecs_field` columns | `ecs_ref_init_id` in permitted stable-identity setup plus `ecs_ref_get_id`; otherwise `ecs_get_id` / `ecs_get_mut_id`. Gameplay must use the latter because it reads `TargetSlot` and builds the target list each frame | prepare the stable component-ID ordering and empty target table in setup; build the per-batch descriptor in timing, then call `ecs_bulk_init` with that table |
 | Bevy ECS | reusable `QueryState::iter_mut` | reusable `QueryState::get_manual` / `get_mut` | drain neutral columns into `World::spawn_batch` |
 | Shipyard | borrowed `ViewMut`/`View` tuple with `IntoIter::iter` | borrowed `View<T>` / `ViewMut<T>` with `Get::get` | drain neutral columns into `World::bulk_add_entity` |
 | FreeCS | warmed `World::for_each_mut(mask, ...)` | generated typed component getters such as `get_position` / `get_cooldown_mut` | drain neutral columns inside `World::spawn_batch` |
@@ -118,6 +118,28 @@ published.
 | Bevy ECS | `EntityWorldMut::insert` / `remove` | `World::despawn` then tuple `World::spawn` |
 | Shipyard | `World::add_component` / `delete_component` | `World::delete_entity` then `World::add_entity` |
 | FreeCS | generated typed setters/removers | `World::despawn_entities` batch then `World::spawn_batch` |
+
+Formal `entity_ops` uses these operation-specific paths:
+
+| Adapter | Spawn/despawn 1K | Add/remove valued component 1K |
+|---|---|---|
+| Sky | tuple `World::spawn` / `World::despawn` | `World::insert` / `World::remove` |
+| hecs | tuple `World::spawn` / `World::despawn` | `World::insert_one` / `World::remove_one` |
+| Flecs C | `ecs_new_w_table`, direct `ecs_get_mut_id` initialization, then `ecs_delete` | `ecs_emplace_id`, direct initialization, then `ecs_remove_id` |
+| Bevy ECS | tuple `World::spawn` / `World::despawn` | `EntityWorldMut::insert` / `remove` |
+| Shipyard | `World::add_entity` / `delete_entity` | `World::add_component` / `delete_component` |
+| FreeCS | generated one-row `spawn_batch` / `despawn_entities` | generated typed setter / remover |
+
+The feature-gated `api_candidates_structural_writes` suite compares hecs bulk
+schema placement, Flecs target-table and column-mapping preparation, three
+Flecs single-entity construction paths, and three Flecs valued add/remove
+paths with identical state contracts.
+Run the clean-worktree certification with
+`SKY_ECS_CERTIFY_STRUCTURAL_API=1 cargo bench -p sky_ecs_comparison --bench
+api_candidates --features api-experiments -- structural`. A dirty diagnostic
+uses the same AB/BA measurements but is explicitly ineligible for production
+evidence. Until the clean certificate is recorded, these structural selections
+remain provisional and block publication.
 
 | Adapter | Gameplay AI source | Gameplay target Position |
 |---|---|---|
@@ -226,14 +248,19 @@ entering the timed region.
 | Adapter | Timed public path | Input at timing boundary |
 |---|---|---|
 | Sky | `World::spawn_columns` | four component `Vec`s |
-| hecs | `ColumnBatchType` + `into_batch` + all writers + `build` + `World::spawn_column_batch` | four component `Vec`s |
-| Flecs C | per-batch column mapping + `ecs_bulk_init` | four C++ component vectors |
+| hecs | prepared `ColumnBatchType` + timed `into_batch`, writers, `build` and `World::spawn_column_batch` | four component `Vec`s plus the static batch schema |
+| Flecs C | prepared component-ID ordering and empty target table + timed descriptor construction and `ecs_bulk_init` | four C++ component vectors plus the static ID mapping and table |
 | Bevy ECS | drain zipped bundles into `World::spawn_batch` | four component `Vec`s |
 | Shipyard | drain zipped bundles into `World::bulk_add_entity` | four component `Vec`s |
 | FreeCS | `World::spawn_batch` with timed column writes | four component `Vec`s |
 
 Destroy the benchmark context after timing. Explicitly exhaust or drop returned
 iterators inside the measured closure when that action completes insertion.
+Use Criterion `LargeInput` batching for both 10K construction rows. Each
+measured input becomes a large World, so `SmallInput` retains enough completed
+Worlds in one timed batch to turn allocator retention into part of the result.
+This batching rule does not move native batch construction or any other engine
+work out of the timed closure.
 Keep `single_insert_10k` as the repeated single-spawn row and display it as
 "Individual construction 10K" or "逐实体构建 10K" so readers do not mistake
 the name for a single-entity benchmark. Use

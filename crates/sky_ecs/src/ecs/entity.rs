@@ -112,6 +112,43 @@ impl EntityRecord {
         }
     }
 
+    /// Appends one contiguous range of fresh generation-zero routes.
+    ///
+    /// # Safety
+    ///
+    /// `records` must have capacity for `count` additional records.
+    /// `first_entity_index + count` and the resulting entity-slot range must
+    /// already have been validated to fit in `u32`.
+    #[inline]
+    pub(crate) unsafe fn append_fresh_span(
+        records: &mut Vec<Self>,
+        chunk_id: ChunkId,
+        first_entity_index: u32,
+        count: usize,
+    ) -> u32 {
+        debug_assert!(chunk_id.is_assigned());
+        debug_assert!(records.capacity() - records.len() >= count);
+
+        let record_start = records.len();
+        let first_entity_id = u32::try_from(record_start).expect("entity slot limit exhausted");
+        let output = unsafe { records.as_mut_ptr().add(record_start) };
+
+        for offset in 0..count {
+            let offset = offset as u32;
+            unsafe {
+                output.add(offset as usize).write(Self::occupied_indices(
+                    0,
+                    chunk_id,
+                    first_entity_index + offset,
+                ));
+            }
+        }
+        unsafe {
+            records.set_len(record_start + count);
+        }
+        first_entity_id
+    }
+
     #[inline(always)]
     pub(crate) fn occupied(generation: u32, route: EntityRoute) -> Self {
         let mut record = Self::vacant(generation);

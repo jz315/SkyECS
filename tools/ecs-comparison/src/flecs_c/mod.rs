@@ -1,12 +1,14 @@
 use crate::common::{
-    random_fragment_masks, random_fragment_match_count, LARGE_ITERATION_ENTITY_COUNT,
-    RANDOM_FRAGMENT_WORKLOADS, SIMPLE_ENTITY_COUNT, VERY_LARGE_ITERATION_ENTITY_COUNT,
-    WARM_RANDOM_ENTITY_COUNT,
+    construction_batch_size, random_fragment_masks, random_fragment_match_count,
+    LARGE_ITERATION_ENTITY_COUNT, RANDOM_FRAGMENT_WORKLOADS, SIMPLE_ENTITY_COUNT,
+    VERY_LARGE_ITERATION_ENTITY_COUNT, WARM_RANDOM_ENTITY_COUNT,
 };
-use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
+use criterion::{measurement::WallTime, BenchmarkGroup};
 use std::ffi::c_void;
 use std::hint::black_box;
 
+#[cfg(feature = "api-experiments")]
+mod api_candidates;
 mod dense_iteration;
 mod entity_insertion;
 mod fragmented_iteration;
@@ -19,6 +21,11 @@ mod random_fragmented_iteration;
 mod structural_changes;
 mod validation;
 
+#[cfg(feature = "api-experiments")]
+pub use api_candidates::{
+    measure_add_remove_candidate, measure_bulk_candidate, measure_spawn_candidate,
+    AddRemoveCandidate, BulkConstructionCandidate, SpawnCandidate,
+};
 pub use dense_iteration::{bench_iteration, bench_iteration_1m, bench_iteration_large};
 pub use entity_insertion::{bench_bulk_construction, bench_single_insert};
 pub use fragmented_iteration::bench_fragmented_iteration;

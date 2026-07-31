@@ -15,11 +15,14 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 
 mod columns;
+mod despawn;
 mod entities;
 mod epochs;
+mod fresh_entities;
 mod queries;
 mod resources;
 mod schedule;
+mod storage_rows;
 mod transitions;
 
 use epochs::{ChunkSetEpochGuard, StorageEpochs};
@@ -40,6 +43,7 @@ struct CopySpan {
 
 struct TransitionPlan {
     copy_spans: SmallVec<[CopySpan; 8]>,
+    source_component_index: Option<u8>,
     target_component_index: Option<u8>,
     target_data_index: usize,
 }
@@ -202,63 +206,6 @@ impl World {
         }
     }
 
-    #[inline(always)]
-    fn ensure_chunk_route(&mut self, data_index: usize, chunk_index: usize) -> ChunkId {
-        let directory = &mut self.chunk_directory;
-        let storage = &mut self.data[data_index];
-        directory.ensure(&mut storage.chunk_ids[chunk_index], data_index, chunk_index)
-    }
-
-    /// Allocates one uninitialized storage row and registers its physical
-    /// chunk before an entity record can make that row observable.
-    ///
-    /// # Safety
-    ///
-    /// The caller must initialize every component in the returned row before
-    /// exposing the entity or allowing that row to be dropped.
-    #[inline(always)]
-    unsafe fn allocate_storage_row(
-        &mut self,
-        data_index: usize,
-        entity: EntityId,
-    ) -> ChunkEntityLocation {
-        let location = {
-            let mut storage =
-                ChunkSetEpochGuard::new(&mut self.data[data_index], &mut self.storage_epochs);
-            unsafe { storage.storage_mut().add_entity(entity) }
-        };
-        self.ensure_chunk_route(data_index, location.chunk_index);
-        location
-    }
-
-    #[inline(always)]
-    fn remove_storage_row(
-        &mut self,
-        data_index: usize,
-        location: ChunkEntityLocation,
-    ) -> ChunkRemoval {
-        let mut storage =
-            ChunkSetEpochGuard::new(&mut self.data[data_index], &mut self.storage_epochs);
-        storage.storage_mut().remove_entity(location)
-    }
-
-    #[inline(always)]
-    fn finish_chunk_removal(&mut self, data_index: usize, removal: ChunkRemoval) {
-        if let Some((moved_entity, moved_location)) = removal.moved {
-            self.set_entity_location(
-                moved_entity,
-                EntityLocation {
-                    data_index,
-                    chunk_index: moved_location.chunk_index,
-                    entity_index: moved_location.entity_index,
-                },
-            );
-        }
-        if let Some(retired_chunk) = removal.retired_chunk {
-            self.chunk_directory.release(retired_chunk);
-        }
-    }
-
     /// Invalidates cached resource views after the resource set changes.
     #[inline(always)]
     fn bump_resource_epoch(&mut self) {
@@ -334,50 +281,6 @@ impl World {
         component: &ComponentType,
     ) -> Option<&ComponentPostingList> {
         self.component_postings.list(component)
-    }
-
-    #[inline(always)]
-    pub(crate) fn entity_location(&self, entity: EntityId) -> Option<EntityLocation> {
-        let route = self.entity_route(entity)?;
-        let address = self
-            .chunk_directory
-            .resolve(route.chunk_id)
-            .expect("live entity must reference a registered chunk");
-        Some(EntityLocation {
-            data_index: address.data_index,
-            chunk_index: address.chunk_index,
-            entity_index: route.entity_index,
-        })
-    }
-
-    #[inline(always)]
-    pub(crate) fn entity_route(&self, entity: EntityId) -> Option<EntityRoute> {
-        EntityRecord::resolve(&self.entities, entity)
-    }
-
-    #[inline(always)]
-    pub(crate) fn entity_records(&self) -> &[EntityRecord] {
-        &self.entities
-    }
-
-    #[inline(always)]
-    pub(crate) fn set_entity_location(&mut self, entity: EntityId, location: EntityLocation) {
-        let chunk_id = self.data[location.data_index].chunk_id(location.chunk_index);
-        assert!(
-            chunk_id.is_assigned(),
-            "entity row must belong to a registered chunk"
-        );
-        let record = &mut self.entities[entity.index() as usize];
-        debug_assert_eq!(record.generation, entity.generation());
-        record.set_route(EntityRoute {
-            chunk_id,
-            entity_index: location.entity_index,
-        });
-    }
-
-    #[inline(always)]
-    pub(crate) fn chunk_route_slot_count(&self) -> usize {
-        self.chunk_directory.slot_count()
     }
 
     /// Returns the total number of live entities across all archetypes.

@@ -1,5 +1,5 @@
 use super::{
-    Archetype, Chunk, ChunkLayout, EntityId, CHUNK_SIZE_TIERS, CHUNK_TIER_COUNT, MAX_CHUNK_SIZE,
+    Archetype, Chunk, ChunkLayout, CHUNK_SIZE_TIERS, CHUNK_TIER_COUNT, MAX_CHUNK_SIZE,
     REPEATED_TIER_START, SMALL_CHUNK_SIZE, TINY_CHUNK_SIZE,
 };
 use crate::ecs::ChunkId;
@@ -10,6 +10,7 @@ pub(crate) struct ArchetypeStorage {
     pub(super) layouts: SmallVec<[ChunkLayout; CHUNK_TIER_COUNT]>,
     pub chunks: Vec<Chunk>,
     pub(crate) chunk_ids: Vec<ChunkId>,
+    pub(super) warm_start_layout_index: u8,
     chunk_set_version: u64,
     column_base_version: u64,
 }
@@ -21,21 +22,10 @@ enum GrowthAction {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ChunkEntityLocation {
-    pub chunk_index: usize,
-    pub entity_index: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
 pub(crate) struct ChunkRowSpan {
     pub chunk_index: usize,
     pub first_entity_index: usize,
     pub entity_count: usize,
-}
-
-pub(crate) struct ChunkRemoval {
-    pub(crate) moved: Option<(EntityId, ChunkEntityLocation)>,
-    pub(crate) retired_chunk: Option<ChunkId>,
 }
 
 impl ArchetypeStorage {
@@ -78,6 +68,7 @@ impl ArchetypeStorage {
             layouts,
             chunks: Vec::new(),
             chunk_ids: Vec::new(),
+            warm_start_layout_index: 0,
             chunk_set_version: 0,
             column_base_version: 0,
         }
@@ -315,7 +306,7 @@ impl ArchetypeStorage {
 
     pub(super) fn grow_tail(&mut self, incoming_entities: usize) {
         let Some(current_size) = self.chunks.last().map(Chunk::block_size) else {
-            let layout_index = self.layout_index_for_capacity(incoming_entities);
+            let layout_index = self.warm_start_layout_for_capacity(incoming_entities);
             self.add_chunk_with_layout(layout_index);
             return;
         };
@@ -406,115 +397,5 @@ impl ArchetypeStorage {
         }
 
         spans
-    }
-
-    #[inline(always)]
-    /// Adds a logical entity slot without initializing component columns.
-    ///
-    /// # Safety
-    ///
-    /// The caller must initialize every component column at the returned
-    /// location before the entity is observed or any destructor can run.
-    pub(crate) unsafe fn add_entity(&mut self, entity: EntityId) -> ChunkEntityLocation {
-        unsafe { self.add_entity_with_batch_hint(entity, 1) }
-    }
-
-    /// Adds an entity while using a guaranteed remaining batch size when the
-    /// current tail needs to grow.
-    ///
-    /// # Safety
-    ///
-    /// The caller must initialize every component column at the returned
-    /// location before the entity is observed or any destructor can run.
-    #[inline(always)]
-    pub(crate) unsafe fn add_entity_with_batch_hint(
-        &mut self,
-        entity: EntityId,
-        guaranteed_remaining: usize,
-    ) -> ChunkEntityLocation {
-        if let Some(chunk) = self.chunks.last_mut() {
-            if let Some(entity_index) = unsafe { chunk.add_entity(entity) } {
-                return ChunkEntityLocation {
-                    chunk_index: self.chunks.len() - 1,
-                    entity_index,
-                };
-            }
-        }
-
-        self.grow_tail(guaranteed_remaining.max(1));
-        let chunk = self.chunks.last_mut().unwrap();
-        let entity_index = unsafe { chunk.add_entity(entity) }.unwrap();
-        ChunkEntityLocation {
-            chunk_index: self.chunks.len() - 1,
-            entity_index,
-        }
-    }
-
-    #[inline(always)]
-    pub fn remove_entity(&mut self, location: ChunkEntityLocation) -> ChunkRemoval {
-        if self.chunks.is_empty() {
-            return ChunkRemoval {
-                moved: None,
-                retired_chunk: None,
-            };
-        }
-
-        let last_chunk_index = self.chunks.len() - 1;
-        let Some(last_entity_index) = self.chunks[last_chunk_index].entity_count.checked_sub(1)
-        else {
-            return ChunkRemoval {
-                moved: None,
-                retired_chunk: None,
-            };
-        };
-
-        let removed_is_last =
-            location.chunk_index == last_chunk_index && location.entity_index == last_entity_index;
-
-        let moved_entity = if removed_is_last {
-            None
-        } else {
-            let moved_entity = self.chunks[last_chunk_index]
-                .entity_id(last_entity_index)
-                .unwrap();
-
-            if location.chunk_index == last_chunk_index {
-                self.chunks[last_chunk_index]
-                    .copy_entity_within(last_entity_index, location.entity_index);
-            } else {
-                let (head, tail) = self.chunks.split_at_mut(last_chunk_index);
-                let dst_chunk = &mut head[location.chunk_index];
-                let src_chunk = &tail[0];
-                dst_chunk.copy_entity_from(src_chunk, last_entity_index, location.entity_index);
-            }
-
-            Some((
-                moved_entity,
-                ChunkEntityLocation {
-                    chunk_index: location.chunk_index,
-                    entity_index: location.entity_index,
-                },
-            ))
-        };
-
-        self.chunks[last_chunk_index].remove_last_entity();
-        let retired_chunk = if self.chunks.last().is_some_and(Chunk::is_empty) {
-            // Dropping the empty chunk returns its block to the bounded,
-            // thread-local pool shared by every archetype on this thread.
-            self.mark_chunk_set_changed();
-            self.mark_column_bases_changed();
-            self.chunks.pop();
-            self.chunk_ids
-                .pop()
-                .filter(|chunk_id| chunk_id.is_assigned())
-        } else {
-            None
-        };
-        debug_assert_eq!(self.chunks.len(), self.chunk_ids.len());
-
-        ChunkRemoval {
-            moved: moved_entity,
-            retired_chunk,
-        }
     }
 }

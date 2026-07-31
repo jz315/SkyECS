@@ -13,7 +13,7 @@ pub fn bench_bulk_construction(group: &mut BenchmarkGroup<'_, WallTime>) {
                 // SAFETY: `context` is the insertion context expected by this call.
                 black_box(unsafe { sky_flecs_c_bulk_from_columns(context.pointer()) });
             },
-            BatchSize::SmallInput,
+            construction_batch_size(),
         );
     });
 }
@@ -26,7 +26,7 @@ pub fn bench_single_insert(group: &mut BenchmarkGroup<'_, WallTime>) {
                 // SAFETY: `context` is the insertion context expected by this call.
                 black_box(unsafe { sky_flecs_c_single_insert(context.pointer()) });
             },
-            BatchSize::SmallInput,
+            construction_batch_size(),
         );
     });
 }

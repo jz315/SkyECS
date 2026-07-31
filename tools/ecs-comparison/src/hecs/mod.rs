@@ -1,5 +1,5 @@
 use crate::common::*;
-use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
+use criterion::{measurement::WallTime, BenchmarkGroup};
 use hecs::{Entity as HecsEntity, PreparedQuery, Query as HecsQuery, World};
 use std::hint::black_box;
 
@@ -16,6 +16,8 @@ mod validation;
 
 pub use dense_iteration::{bench_iteration, bench_iteration_1m, bench_iteration_large};
 pub use entity_insertion::{bench_bulk_construction, bench_single_insert};
+#[cfg(feature = "api-experiments")]
+pub use entity_insertion::{measure_bulk_schema_candidate, BulkSchemaCandidate};
 pub use fragmented_iteration::bench_fragmented_iteration;
 pub use gameplay_frame::{bench_gameplay_frame, bench_gameplay_phases, validate_gameplay_contract};
 pub use heavy_compute::bench_heavy_compute;

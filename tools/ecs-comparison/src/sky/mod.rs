@@ -1,5 +1,5 @@
 use crate::common::*;
-use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
+use criterion::{measurement::WallTime, BenchmarkGroup};
 use sky_ecs::dynamic::{DynamicBundle, WorldDynamicExt};
 use sky_ecs::{Bundle, EntityId, PreparedQuery, World};
 use std::hint::black_box;

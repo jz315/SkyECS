@@ -8,6 +8,8 @@ mod hecs_dense;
 mod sky_gameplay;
 #[path = "api_candidates/sky_heavy.rs"]
 mod sky_heavy;
+#[path = "api_candidates/structural_writes.rs"]
+mod structural_writes;
 
 criterion_group!(
     api_candidates,
@@ -17,5 +19,6 @@ criterion_group!(
     hecs_dense::bench_1m,
     sky_gameplay::run,
     sky_heavy::run,
+    structural_writes::run,
 );
 criterion_main!(api_candidates);

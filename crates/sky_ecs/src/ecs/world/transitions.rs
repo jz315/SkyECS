@@ -95,18 +95,23 @@ impl World {
                     &self.data[target_data_index],
                     &[],
                 ),
+                source_component_index: None,
                 target_component_index: Some(target_component_index as u8),
                 target_data_index,
             }
         } else {
             let target_archetype = Self::archetype_without_component(base, component)?;
             let target_data_index = self.ensure_data_index(target_archetype);
+            let source_component_index = base
+                .query_component_index(&component)
+                .expect("remove transition source must contain the component");
             TransitionPlan {
                 copy_spans: Self::build_copy_spans(
                     &self.data[source_data_index],
                     &self.data[target_data_index],
                     &[],
                 ),
+                source_component_index: Some(source_component_index as u8),
                 target_component_index: None,
                 target_data_index,
             }
@@ -365,14 +370,7 @@ impl World {
             }
         }
 
-        self.set_entity_location(
-            entity,
-            EntityLocation {
-                data_index: target_data_index,
-                chunk_index: target_location.chunk_index,
-                entity_index: target_location.entity_index,
-            },
-        );
+        self.set_entity_route(entity, target_location.route());
 
         // Source entity data was bitwise-moved to target; the swap-remove
         // here only rearranges the source chunk — no drops needed.
@@ -383,7 +381,7 @@ impl World {
                 entity_index: source_location.entity_index,
             },
         );
-        self.finish_chunk_removal(source_location.data_index, removal);
+        self.finish_chunk_removal(removal);
 
         true
     }
@@ -438,30 +436,22 @@ impl World {
             // Drop the removed component column from the source entity.
             // Safety: source_location is valid and this column is being
             // discarded (not copied to the target archetype).
-            if let Some(removed_component_index) =
-                source_chunk.archetype.query_component_index(&component_ty)
-            {
-                let ptr = unsafe {
-                    source_chunk
-                        .column_ptr(removed_component_index)
-                        .add(source_location.entity_index * component_ty.size)
-                };
-                // Safety: this value is removed rather than moved. The source
-                // row is compacted before a captured panic is resumed.
-                unsafe {
-                    Self::drop_component_catching(component_ty, ptr, &mut drop_panic);
-                }
+            let removed_component_index = plan
+                .source_component_index
+                .expect("remove transition plans must cache the removed source column");
+            let ptr = unsafe {
+                source_chunk
+                    .column_ptr(removed_component_index as usize)
+                    .add(source_location.entity_index * component_ty.size)
+            };
+            // Safety: this value is removed rather than moved. The source row
+            // is compacted before a captured panic is resumed.
+            unsafe {
+                Self::drop_component_catching(component_ty, ptr, &mut drop_panic);
             }
         }
 
-        self.set_entity_location(
-            entity,
-            EntityLocation {
-                data_index: target_data_index,
-                chunk_index: target_location.chunk_index,
-                entity_index: target_location.entity_index,
-            },
-        );
+        self.set_entity_route(entity, target_location.route());
 
         // Source entity data was bitwise-moved (kept columns) and dropped
         // (removed column); the swap-remove only rearranges the chunk.
@@ -472,7 +462,7 @@ impl World {
                 entity_index: source_location.entity_index,
             },
         );
-        self.finish_chunk_removal(source_location.data_index, removal);
+        self.finish_chunk_removal(removal);
 
         if let Some(payload) = drop_panic {
             std::panic::resume_unwind(payload);
@@ -554,14 +544,7 @@ impl World {
             value.write(ptr);
         }
 
-        self.set_entity_location(
-            entity,
-            EntityLocation {
-                data_index: target_data_index,
-                chunk_index: target_location.chunk_index,
-                entity_index: target_location.entity_index,
-            },
-        );
+        self.set_entity_route(entity, target_location.route());
 
         let removal = self.remove_storage_row(
             source_location.data_index,
@@ -570,7 +553,7 @@ impl World {
                 entity_index: source_location.entity_index,
             },
         );
-        self.finish_chunk_removal(source_location.data_index, removal);
+        self.finish_chunk_removal(removal);
 
         true
     }
@@ -612,30 +595,22 @@ impl World {
                 &plan.copy_spans,
             );
 
-            if let Some(removed_component_index) =
-                source_chunk.archetype.query_component_index(&component)
-            {
-                let ptr = unsafe {
-                    source_chunk
-                        .column_ptr(removed_component_index)
-                        .add(source_location.entity_index * component.size)
-                };
-                // Safety: this value is removed rather than moved and the
-                // source row is compacted before a captured panic resumes.
-                unsafe {
-                    Self::drop_component_catching(component, ptr, &mut drop_panic);
-                }
+            let removed_component_index = plan
+                .source_component_index
+                .expect("remove transition plans must cache the removed source column");
+            let ptr = unsafe {
+                source_chunk
+                    .column_ptr(removed_component_index as usize)
+                    .add(source_location.entity_index * component.size)
+            };
+            // Safety: this value is removed rather than moved and the source
+            // row is compacted before a captured panic resumes.
+            unsafe {
+                Self::drop_component_catching(component, ptr, &mut drop_panic);
             }
         }
 
-        self.set_entity_location(
-            entity,
-            EntityLocation {
-                data_index: target_data_index,
-                chunk_index: target_location.chunk_index,
-                entity_index: target_location.entity_index,
-            },
-        );
+        self.set_entity_route(entity, target_location.route());
 
         let removal = self.remove_storage_row(
             source_location.data_index,
@@ -644,7 +619,7 @@ impl World {
                 entity_index: source_location.entity_index,
             },
         );
-        self.finish_chunk_removal(source_location.data_index, removal);
+        self.finish_chunk_removal(removal);
 
         if let Some(payload) = drop_panic {
             std::panic::resume_unwind(payload);
@@ -806,14 +781,7 @@ impl World {
             }
         }
 
-        self.set_entity_location(
-            entity,
-            EntityLocation {
-                data_index: target_data_index,
-                chunk_index: target_location.chunk_index,
-                entity_index: target_location.entity_index,
-            },
-        );
+        self.set_entity_route(entity, target_location.route());
 
         // Every source component was either semantically moved or explicitly
         // dropped above, so compact the source row without running destructors.
@@ -824,7 +792,7 @@ impl World {
                 entity_index: source_location.entity_index,
             },
         );
-        self.finish_chunk_removal(source_location.data_index, removal);
+        self.finish_chunk_removal(removal);
 
         if let Some(payload) = drop_panic {
             std::panic::resume_unwind(payload);

@@ -4,8 +4,16 @@ use std::ptr::NonNull;
 #[link(name = "sky_flecs_c_native", kind = "static", modifiers = "-bundle")]
 unsafe extern "C" {
     pub(super) fn sky_flecs_c_insert_new() -> *mut c_void;
+    #[cfg(feature = "api-experiments")]
+    pub(super) fn sky_flecs_c_insert_new_unprepared_table() -> *mut c_void;
     pub(super) fn sky_flecs_c_insert_delete(context: *mut c_void);
     pub(super) fn sky_flecs_c_bulk_from_columns(context: *mut c_void) -> u64;
+    #[cfg(feature = "api-experiments")]
+    pub(super) fn sky_flecs_c_bulk_from_columns_prepared(context: *mut c_void) -> u64;
+    #[cfg(feature = "api-experiments")]
+    pub(super) fn sky_flecs_c_bulk_from_columns_resolve_table(context: *mut c_void) -> u64;
+    #[cfg(feature = "api-experiments")]
+    pub(super) fn sky_flecs_c_bulk_from_columns_remap(context: *mut c_void) -> u64;
     pub(super) fn sky_flecs_c_single_insert(context: *mut c_void) -> u64;
     pub(super) fn sky_flecs_c_simple_new(count: usize) -> *mut c_void;
     pub(super) fn sky_flecs_c_simple_delete(context: *mut c_void);
@@ -35,9 +43,21 @@ unsafe extern "C" {
     pub(super) fn sky_flecs_c_entity_ops_new() -> *mut c_void;
     pub(super) fn sky_flecs_c_entity_ops_delete(context: *mut c_void);
     pub(super) fn sky_flecs_c_spawn_despawn(context: *mut c_void) -> u64;
+    #[cfg(feature = "api-experiments")]
+    pub(super) fn sky_flecs_c_spawn_despawn_get_mut(context: *mut c_void) -> u64;
+    #[cfg(feature = "api-experiments")]
+    pub(super) fn sky_flecs_c_spawn_despawn_set_id(context: *mut c_void) -> u64;
+    #[cfg(feature = "api-experiments")]
+    pub(super) fn sky_flecs_c_spawn_despawn_bulk_one(context: *mut c_void) -> u64;
     pub(super) fn sky_flecs_c_add_remove_new() -> *mut c_void;
     pub(super) fn sky_flecs_c_add_remove_delete(context: *mut c_void);
     pub(super) fn sky_flecs_c_add_remove(context: *mut c_void) -> u64;
+    #[cfg(feature = "api-experiments")]
+    pub(super) fn sky_flecs_c_add_remove_set_id(context: *mut c_void) -> u64;
+    #[cfg(feature = "api-experiments")]
+    pub(super) fn sky_flecs_c_add_remove_emplace(context: *mut c_void) -> u64;
+    #[cfg(feature = "api-experiments")]
+    pub(super) fn sky_flecs_c_add_remove_add_get_mut(context: *mut c_void) -> u64;
     pub(super) fn sky_flecs_c_mixed_new() -> *mut c_void;
     pub(super) fn sky_flecs_c_mixed_delete(context: *mut c_void);
     pub(super) fn sky_flecs_c_mixed_frame(context: *mut c_void) -> u64;

@@ -921,6 +921,121 @@ fn incremental_growth_promotes_only_tiny_chunk_then_keeps_later_chunks_stable() 
 }
 
 #[test]
+fn empty_storage_warm_starts_from_the_highest_bounded_retired_tier() {
+    let _guard = PoolGuard::new();
+
+    let archetype = create_archetype().add_rust_component::<Large>().build();
+    let mut data = super::ArchetypeStorage::new(archetype);
+    let mut locations = Vec::new();
+
+    // This reaches the 256 KiB tier. The warm-start policy deliberately caps
+    // the remembered tier at 64 KiB.
+    for index in 0..90 {
+        let location = unsafe { data.add_entity(test_entity(index)) };
+        unsafe {
+            data.chunks[location.chunk_index]
+                .component_ptr(0, location.entity_index)
+                .cast::<Large>()
+                .write(Large([index as u8; 1024]));
+        }
+        locations.push(location);
+    }
+
+    let warm_chunk_ptr = data
+        .chunks
+        .iter()
+        .find(|chunk| chunk.block_size() == 64 * 1024)
+        .unwrap()
+        .data_ptr();
+    assert_eq!(
+        data.chunks.last().unwrap().block_size(),
+        REPEATED_TIER_START
+    );
+
+    for location in locations.into_iter().rev() {
+        data.remove_entity(location);
+    }
+
+    assert!(data.chunks.is_empty());
+    assert_eq!(data.warm_start_chunk_size(), 64 * 1024);
+
+    let location = unsafe { data.add_entity(test_entity(100)) };
+    assert_eq!(location.chunk_index, 0);
+    assert_eq!(location.entity_index, 0);
+    assert_eq!(data.chunks[0].block_size(), 64 * 1024);
+    assert_eq!(data.chunks[0].data_ptr(), warm_chunk_ptr);
+    unsafe {
+        data.chunks[0]
+            .component_ptr(0, 0)
+            .cast::<Large>()
+            .write(Large([100; 1024]));
+    }
+}
+
+#[test]
+fn empty_storage_warm_start_is_correct_when_the_tls_pool_misses() {
+    let _guard = PoolGuard::new();
+
+    let archetype = create_archetype().add_rust_component::<Large>().build();
+    let mut data = super::ArchetypeStorage::new(archetype);
+    let mut locations = Vec::new();
+    for index in 0..90 {
+        let location = unsafe { data.add_entity(test_entity(index)) };
+        unsafe {
+            data.chunks[location.chunk_index]
+                .component_ptr(0, location.entity_index)
+                .cast::<Large>()
+                .write(Large([index as u8; 1024]));
+        }
+        locations.push(location);
+    }
+    for location in locations.into_iter().rev() {
+        data.remove_entity(location);
+    }
+
+    assert!(data.chunks.is_empty());
+    assert_eq!(data.warm_start_chunk_size(), 64 * 1024);
+    CHUNK_BLOCK_POOL.with(|pool| pool.borrow_mut().clear());
+    assert_eq!(pool_stats(), (0, 0));
+
+    let location = unsafe { data.add_entity(test_entity(100)) };
+    assert_eq!(data.chunks[0].block_size(), 64 * 1024);
+    unsafe {
+        data.chunks[0]
+            .component_ptr(0, location.entity_index)
+            .cast::<Large>()
+            .write(Large([100; 1024]));
+    }
+    assert_eq!(data.chunks[0].entity_id(0), Some(test_entity(100)));
+}
+
+#[test]
+fn retiring_only_a_large_chunk_clamps_the_warm_start_hint() {
+    let _guard = PoolGuard::new();
+
+    let archetype = create_archetype().add_rust_component::<Tiny>().build();
+    let mut data = super::ArchetypeStorage::new(archetype);
+    let large_layout_index = data
+        .layouts
+        .iter()
+        .position(|layout| layout.chunk_size() == REPEATED_TIER_START)
+        .unwrap();
+    data.add_chunk_with_layout(large_layout_index);
+
+    let location = unsafe { data.add_entity(test_entity(0)) };
+    unsafe {
+        data.chunks[0]
+            .component_ptr(0, location.entity_index)
+            .cast::<Tiny>()
+            .write(Tiny(7));
+    }
+    data.remove_entity(location);
+
+    assert!(data.chunks.is_empty());
+    assert_eq!(data.warm_start_chunk_size(), 64 * 1024);
+}
+
+#[test]
 fn repeated_tail_tier_check_stops_after_four_matching_chunks() {
     let _guard = PoolGuard::new();
 

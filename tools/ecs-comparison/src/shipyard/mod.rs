@@ -1,5 +1,5 @@
 use crate::common::*;
-use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
+use criterion::{measurement::WallTime, BenchmarkGroup};
 use shipyard::{EntityId, Get, IntoIter, View, ViewMut, World};
 use std::hint::black_box;
 

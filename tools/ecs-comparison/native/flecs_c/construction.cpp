@@ -48,6 +48,7 @@ struct Context {
     std::vector<Velocity> velocities;
     std::array<ecs_id_t, 4> bulk_ids{};
     std::array<void*, 4> bulk_data{};
+    ecs_table_t* bulk_table = nullptr;
 
     ~Context() {
         if (world) {
@@ -110,25 +111,31 @@ ecs_table_t* find_target_table(const Context& context) {
         static_cast<std::int32_t>(context.bulk_ids.size()));
 }
 
-Context* create_context() {
+Context* create_context(bool prepare_target_table) {
     auto* context = new Context();
     context->world = ecs_init();
     define_components(*context);
     prepare_input(*context);
     prepare_bulk_columns(*context);
+    if (prepare_target_table) {
+        context->bulk_table = find_target_table(*context);
+    }
     return context;
 }
 
 const ecs_entity_t* insert_bulk_from_columns(
     Context& context,
-    std::size_t entity_count) {
-    // Rebuild the per-batch native column mapping inside the measured path.
-    // Component registration and source-column generation remain setup work.
-    prepare_bulk_columns(context);
+    std::size_t entity_count,
+    bool rebuild_column_mapping,
+    bool use_prepared_table) {
+    if (rebuild_column_mapping) {
+        prepare_bulk_columns(context);
+    }
     ecs_bulk_desc_t descriptor{};
     descriptor.count = static_cast<std::int32_t>(entity_count);
     std::copy(context.bulk_ids.begin(), context.bulk_ids.end(), descriptor.ids);
     descriptor.data = context.bulk_data.data();
+    descriptor.table = use_prepared_table ? context.bulk_table : nullptr;
     return ecs_bulk_init(context.world, &descriptor);
 }
 
@@ -152,17 +159,23 @@ ecs_entity_t insert_one(
     return entity;
 }
 
-std::uint64_t bulk_from_columns_10k(Context& context) {
+std::uint64_t bulk_from_columns_10k(
+    Context& context,
+    bool rebuild_column_mapping,
+    bool use_prepared_table) {
     const ecs_entity_t* entities =
-        insert_bulk_from_columns(context, ENTITY_COUNT);
+        insert_bulk_from_columns(
+            context,
+            ENTITY_COUNT,
+            rebuild_column_mapping,
+            use_prepared_table);
     return entities[ENTITY_COUNT - 1];
 }
 
 std::uint64_t single_insert_10k(Context& context) {
-    ecs_table_t* target_table = find_target_table(context);
     ecs_entity_t last_entity = 0;
     for (std::size_t index = 0; index < ENTITY_COUNT; ++index) {
-        last_entity = insert_one(context, target_table, index);
+        last_entity = insert_one(context, context.bulk_table, index);
     }
     return last_entity;
 }
@@ -228,15 +241,21 @@ bool has_no_workload_entities(const Context& context) {
         ecs_count_id(context.world, context.velocity_id) == 0;
 }
 
-bool validate_bulk() {
-    Context* context = create_context();
+bool validate_bulk(
+    bool rebuild_column_mapping,
+    bool use_prepared_table) {
+    Context* context = create_context(use_prepared_table);
     if (!context) {
         return false;
     }
     bool valid = has_no_workload_entities(*context);
     assign_distinct_input(*context, CONTRACT_ENTITY_COUNT);
     const ecs_entity_t* entities =
-        insert_bulk_from_columns(*context, CONTRACT_ENTITY_COUNT);
+        insert_bulk_from_columns(
+            *context,
+            CONTRACT_ENTITY_COUNT,
+            rebuild_column_mapping,
+            use_prepared_table);
     valid = valid && entities != nullptr;
     for (std::size_t index = 0; valid && index < CONTRACT_ENTITY_COUNT; ++index) {
         valid = entity_matches_input(*context, entities[index], index);
@@ -246,7 +265,7 @@ bool validate_bulk() {
 }
 
 bool validate_single() {
-    Context* context = create_context();
+    Context* context = create_context(true);
     if (!context) {
         return false;
     }
@@ -265,7 +284,10 @@ bool validate_single() {
 }
 
 bool validate() {
-    return validate_bulk() && validate_single();
+    return validate_bulk(false, true) &&
+        validate_bulk(false, false) &&
+        validate_bulk(true, true) &&
+        validate_single();
 }
 
 } // namespace sky_ecs_bench::flecs_c::construction
@@ -275,7 +297,11 @@ using ConstructionContext = sky_ecs_bench::flecs_c::construction::Context;
 extern "C" {
 
 void* sky_flecs_c_insert_new() {
-    return sky_ecs_bench::flecs_c::construction::create_context();
+    return sky_ecs_bench::flecs_c::construction::create_context(true);
+}
+
+void* sky_flecs_c_insert_new_unprepared_table() {
+    return sky_ecs_bench::flecs_c::construction::create_context(false);
 }
 
 void sky_flecs_c_insert_delete(void* context) {
@@ -284,7 +310,30 @@ void sky_flecs_c_insert_delete(void* context) {
 
 std::uint64_t sky_flecs_c_bulk_from_columns(void* context) {
     return sky_ecs_bench::flecs_c::construction::bulk_from_columns_10k(
-        *static_cast<ConstructionContext*>(context));
+        *static_cast<ConstructionContext*>(context),
+        false,
+        true);
+}
+
+std::uint64_t sky_flecs_c_bulk_from_columns_prepared(void* context) {
+    return sky_ecs_bench::flecs_c::construction::bulk_from_columns_10k(
+        *static_cast<ConstructionContext*>(context),
+        false,
+        true);
+}
+
+std::uint64_t sky_flecs_c_bulk_from_columns_resolve_table(void* context) {
+    return sky_ecs_bench::flecs_c::construction::bulk_from_columns_10k(
+        *static_cast<ConstructionContext*>(context),
+        false,
+        false);
+}
+
+std::uint64_t sky_flecs_c_bulk_from_columns_remap(void* context) {
+    return sky_ecs_bench::flecs_c::construction::bulk_from_columns_10k(
+        *static_cast<ConstructionContext*>(context),
+        true,
+        true);
 }
 
 std::uint64_t sky_flecs_c_single_insert(void* context) {

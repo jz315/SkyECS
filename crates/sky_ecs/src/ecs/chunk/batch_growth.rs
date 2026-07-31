@@ -38,7 +38,7 @@ impl ArchetypeStorage {
             let mut plan = BatchGrowthPlan::for_remaining(
                 self.archetype,
                 guaranteed_entities,
-                TINY_CHUNK_SIZE,
+                self.warm_start_minimum_chunk_size(),
             );
             let planned_chunks = plan.remaining_chunk_count();
             if planned_chunks > 0 {
@@ -48,7 +48,9 @@ impl ArchetypeStorage {
                 return plan;
             }
 
-            let layout_index = self.layout_index_for_batch(guaranteed_entities);
+            let layout_index = self
+                .layout_index_for_batch(guaranteed_entities)
+                .max(self.warm_start_layout_index());
             let chunk_count = self.batch_chunk_count(guaranteed_entities);
             self.chunks.reserve_exact(chunk_count);
             self.chunk_ids.reserve_exact(chunk_count);

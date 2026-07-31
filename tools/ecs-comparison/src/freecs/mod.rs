@@ -1,6 +1,6 @@
 use crate::common::*;
 use ::freecs::Entity;
-use criterion::{measurement::WallTime, BatchSize, BenchmarkGroup};
+use criterion::{measurement::WallTime, BenchmarkGroup};
 use std::hint::black_box;
 
 mod dense_iteration;

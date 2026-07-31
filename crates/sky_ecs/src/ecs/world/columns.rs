@@ -102,18 +102,19 @@ impl World {
                 }
             }
 
-            for row_offset in reused_in_span..span.entity_count {
-                let index = entities.len() as u32;
-                let entity_index = span.first_entity_index + row_offset;
-                let record_entity_index = entity_index as u32;
+            let fresh_count = span.entity_count - reused_in_span;
+            if fresh_count > 0 {
+                // SAFETY: component columns for the complete span were moved
+                // before metadata commit. Both vectors reserved the complete
+                // span, and the row and entity-slot bounds were checked above.
                 unsafe {
-                    EntityRecord::append_reserved(
+                    super::fresh_entities::commit_fresh_entity_span(
                         entities,
-                        EntityRecord::occupied_indices(0, chunk_id, record_entity_index),
+                        chunk,
+                        chunk_id,
+                        span.first_entity_index + reused_in_span,
+                        fresh_count,
                     );
-                    let actual_entity_index =
-                        chunk.add_entity_reserved_unchecked(EntityId::new(index, 0));
-                    debug_assert_eq!(actual_entity_index, entity_index);
                 }
             }
             debug_assert_eq!(
@@ -153,6 +154,21 @@ mod tests {
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     struct Marker;
+
+    #[derive(Clone, Copy)]
+    #[repr(align(64))]
+    struct OverAligned {
+        value: usize,
+    }
+
+    #[derive(Clone, Copy)]
+    struct ReuseSeed;
+
+    #[derive(Clone, Copy)]
+    struct Wide {
+        value: usize,
+        _padding: [u8; 1_000],
+    }
 
     struct DropTracked {
         drops: Arc<AtomicUsize>,
@@ -248,7 +264,8 @@ mod tests {
             })
             .collect();
         let markers = vec![Marker; 300];
-        let mut columns = (values, positions, markers);
+        let aligned: Vec<_> = (0..300).map(|value| OverAligned { value }).collect();
+        let mut columns = (values, positions, markers, aligned);
         let mut world = World::new();
 
         world.spawn_columns(&mut columns).unwrap();
@@ -262,9 +279,86 @@ mod tests {
             .query::<&DropTracked>()
             .for_each(|component| sum += component.value);
         assert_eq!(sum, (0..300usize).sum::<usize>());
+        let mut aligned_sum = 0usize;
+        world.query::<&OverAligned>().for_each(|component| {
+            assert_eq!(
+                component as *const OverAligned as usize % std::mem::align_of::<OverAligned>(),
+                0
+            );
+            aligned_sum += component.value;
+        });
+        assert_eq!(aligned_sum, (0..300usize).sum::<usize>());
+        for (chunk_index, chunk) in world.data[0].chunks.iter().enumerate() {
+            let chunk_id = world.data[0].chunk_id(chunk_index);
+            for (entity_index, &entity) in chunk.entities().iter().enumerate() {
+                let route = world.entity_route(entity).unwrap();
+                assert_eq!(route.chunk_id, chunk_id);
+                assert_eq!(route.entity_index, entity_index);
+            }
+        }
 
         drop(world);
         assert_eq!(drops.load(Ordering::Relaxed), 300);
+    }
+
+    #[test]
+    fn mixes_reused_and_fresh_metadata_across_multiple_chunk_spans() {
+        let mut world = World::new();
+        let stale: Vec<_> = (0..175).map(|_| world.spawn((ReuseSeed,))).collect();
+        for &entity in &stale {
+            assert!(world.despawn(entity));
+        }
+
+        let wide: Vec<_> = (0..300)
+            .map(|value| Wide {
+                value,
+                _padding: [value as u8; 1_000],
+            })
+            .collect();
+        let positions: Vec<_> = (0..300)
+            .map(|value| Position {
+                x: value as f32,
+                y: value as f32 + 0.5,
+            })
+            .collect();
+        let mut columns = (wide, positions);
+
+        world.spawn_columns(&mut columns).unwrap();
+
+        assert_eq!(world.entity_count(), 300);
+        assert_eq!(world.entities.len(), 300);
+        assert!(stale.into_iter().all(|entity| !world.contains(entity)));
+        assert_eq!(
+            world
+                .entities()
+                .filter(|entity| entity.generation() == 1)
+                .count(),
+            175
+        );
+        let storage = world
+            .data
+            .iter()
+            .find(|storage| {
+                storage
+                    .archetype
+                    .has_component(&crate::ecs::component_type::<Wide>())
+            })
+            .unwrap();
+        assert!(storage.chunks.len() > 1);
+        for (chunk_index, chunk) in storage.chunks.iter().enumerate() {
+            let chunk_id = storage.chunk_id(chunk_index);
+            for (entity_index, &entity) in chunk.entities().iter().enumerate() {
+                let route = world.entity_route(entity).unwrap();
+                assert_eq!(route.chunk_id, chunk_id);
+                assert_eq!(route.entity_index, entity_index);
+            }
+        }
+
+        let mut sum = 0usize;
+        world.query::<&Wide>().for_each(|component| {
+            sum += component.value;
+        });
+        assert_eq!(sum, (0..300usize).sum::<usize>());
     }
 
     #[test]
