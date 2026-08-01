@@ -62,6 +62,7 @@ pub(crate) struct ChunkDirectory {
     entries: Vec<ChunkDirectoryEntry>,
     free: Vec<u32>,
     epoch: u64,
+    last_resolved: Option<(ChunkId, ChunkAddress)>,
 }
 
 impl ChunkDirectory {
@@ -154,6 +155,23 @@ impl ChunkDirectory {
         })
     }
 
+    /// Resolves a live route for a mutable World operation, reusing the most
+    /// recent address when consecutive entities occupy the same chunk.
+    #[inline(always)]
+    pub(crate) fn resolve_live_cached(&mut self, id: ChunkId) -> ChunkAddress {
+        if let Some((cached_id, address)) = self.last_resolved {
+            if cached_id == id {
+                return address;
+            }
+        }
+
+        let address = self
+            .resolve(id)
+            .expect("live entity must reference a registered chunk");
+        self.last_resolved = Some((id, address));
+        address
+    }
+
     pub(crate) fn release(&mut self, id: ChunkId) {
         if !id.is_assigned() {
             return;
@@ -165,6 +183,12 @@ impl ChunkDirectory {
         assert!(!entry.is_vacant(), "chunk route released twice");
         *entry = ChunkDirectoryEntry::VACANT;
         self.free.push(id.0);
+        if self
+            .last_resolved
+            .is_some_and(|(cached_id, _)| cached_id == id)
+        {
+            self.last_resolved = None;
+        }
     }
 
     #[inline(always)]
@@ -176,6 +200,7 @@ impl ChunkDirectory {
         self.bump_epoch();
         self.entries.clear();
         self.free.clear();
+        self.last_resolved = None;
     }
 }
 
@@ -208,6 +233,32 @@ mod tests {
                 data_index: 5,
                 chunk_index: 7
             })
+        );
+    }
+
+    #[test]
+    fn cached_live_resolution_is_invalidated_before_id_reuse() {
+        let mut directory = ChunkDirectory::default();
+        let mut first = ChunkId::UNASSIGNED;
+        directory.ensure(&mut first, 2, 3);
+        assert_eq!(
+            directory.resolve_live_cached(first),
+            ChunkAddress {
+                data_index: 2,
+                chunk_index: 3,
+            }
+        );
+
+        directory.release(first);
+        let mut reused = ChunkId::UNASSIGNED;
+        directory.ensure(&mut reused, 5, 7);
+        assert_eq!(reused, first);
+        assert_eq!(
+            directory.resolve_live_cached(reused),
+            ChunkAddress {
+                data_index: 5,
+                chunk_index: 7,
+            }
         );
     }
 }

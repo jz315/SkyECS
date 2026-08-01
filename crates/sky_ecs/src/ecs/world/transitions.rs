@@ -293,7 +293,7 @@ impl World {
     /// If the old component's destructor panics while overwriting, the
     /// replacement is installed before that panic resumes.
     pub fn insert<T: 'static>(&mut self, entity: EntityId, component: T) -> bool {
-        let Some(source_location) = self.entity_location(entity) else {
+        let Some(source_location) = self.entity_location_mut(entity) else {
             return false;
         };
 
@@ -393,7 +393,7 @@ impl World {
     /// If the removed component's destructor panics, migration and location
     /// repair finish before that panic resumes.
     pub fn remove<T: 'static>(&mut self, entity: EntityId) -> bool {
-        let Some(source_location) = self.entity_location(entity) else {
+        let Some(source_location) = self.entity_location_mut(entity) else {
             return false;
         };
 
@@ -477,7 +477,7 @@ impl World {
         component: ComponentType,
         value: &mut super::erased_value::InsertValue,
     ) -> bool {
-        let Some(source_location) = self.entity_location(entity) else {
+        let Some(source_location) = self.entity_location_mut(entity) else {
             return false;
         };
 
@@ -559,7 +559,7 @@ impl World {
     }
 
     fn remove_dynamic(&mut self, entity: EntityId, component: ComponentType) -> bool {
-        let Some(source_location) = self.entity_location(entity) else {
+        let Some(source_location) = self.entity_location_mut(entity) else {
             return false;
         };
 
@@ -649,7 +649,7 @@ impl World {
             };
         }
 
-        let Some(source_location) = self.entity_location(entity) else {
+        let Some(source_location) = self.entity_location_mut(entity) else {
             return false;
         };
 

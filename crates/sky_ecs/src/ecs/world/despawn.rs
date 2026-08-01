@@ -30,7 +30,7 @@ impl World {
     /// If a component destructor panics, removal and location repair finish
     /// before that panic resumes.
     pub fn despawn(&mut self, entity: EntityId) -> bool {
-        let Some(location) = self.entity_location(entity) else {
+        let Some(location) = self.entity_location_mut(entity) else {
             return false;
         };
 

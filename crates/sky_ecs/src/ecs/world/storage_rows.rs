@@ -125,6 +125,20 @@ impl World {
         })
     }
 
+    /// Resolves an entity for a mutable operation. Consecutive structural
+    /// writes commonly touch one chunk, so the directory can reuse its last
+    /// stable `ChunkId` translation without caching any component pointer.
+    #[inline(always)]
+    pub(super) fn entity_location_mut(&mut self, entity: EntityId) -> Option<EntityLocation> {
+        let route = EntityRecord::resolve(&self.entities, entity)?;
+        let address = self.chunk_directory.resolve_live_cached(route.chunk_id);
+        Some(EntityLocation {
+            data_index: address.data_index,
+            chunk_index: address.chunk_index,
+            entity_index: route.entity_index,
+        })
+    }
+
     #[inline(always)]
     pub(crate) fn entity_route(&self, entity: EntityId) -> Option<EntityRoute> {
         EntityRecord::resolve(&self.entities, entity)
