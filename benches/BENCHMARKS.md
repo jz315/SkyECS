@@ -3,22 +3,22 @@
 Compare-ECS measures six ECS libraries through equivalent public APIs. Each
 formal adapter uses the fastest supported path certified for that workload.
 
-[GitHub Actions run 30210139416](https://github.com/jz315/SkyECS/actions/runs/30210139416)
+[GitHub Actions run 30705936563](https://github.com/jz315/SkyECS/actions/runs/30705936563)
 
 ## Comparable
 
 | Test | Scale / Mode | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Entity construction | Individual 10K | **276.147 µs** | 580.473 µs | 812.098 µs | 746.055 µs | 883.430 µs | 1.216 ms |
-| Entity construction | Bulk construction 10K | 97.557 µs† | **85.942 µs**† | 522.206 µs† | 113.279 µs† | 327.816 µs | 478.557 µs |
-| Entity operations | Spawn/despawn 1K | 52.233 µs | **46.841 µs** | 104.725 µs | 69.633 µs | 111.703 µs | 112.621 µs |
-| Entity operations | Add/remove component 1K | 107.321 µs | 109.014 µs | 164.131 µs | 135.085 µs | 219.504 µs | **51.248 µs** |
-| EntityId random access | Hot 10K | 16.628 µs | **15.982 µs** | 44.384 µs | 37.963 µs | 23.440 µs | 20.246 µs |
-| EntityId random access | Warm 100K | 304.531 µs | **299.879 µs** | 901.731 µs | 694.855 µs | 453.338 µs | 457.975 µs |
-| Prepared iteration | 10K | 7.819 µs | 7.773 µs | 9.327 µs | **7.471 µs** | 12.136 µs | 17.657 µs |
-| Prepared iteration | 100K | 77.263 µs | 78.032 µs | 93.822 µs | **75.782 µs** | 119.623 µs | 176.043 µs |
-| Prepared iteration | 1M | **910.881 µs**† | 954.929 µs† | 1.086 ms† | 971.924 µs† | 1.258 ms | 1.794 ms |
-| Fragmented iteration | 26 × 400 | 1.051 µs | 4.254 µs | 6.844 µs | 1.169 µs | 859.694 ns | **812.176 ns** |
+| Entity construction | Individual 10K | **275.942 µs**† | 552.600 µs† | 771.155 µs† | 698.128 µs | 829.703 µs† | 1.161 ms |
+| Entity construction | Bulk construction 10K | **42.712 µs**† | 63.621 µs† | 504.789 µs | 84.409 µs | 323.161 µs† | 466.833 µs |
+| Entity operations | Spawn/despawn 1K | **41.540 µs** | 44.792 µs | 102.800 µs | 68.277 µs | 110.843 µs | 112.659 µs |
+| Entity operations | Add/remove component 1K | 88.204 µs | 109.202 µs | 161.564 µs | 119.973 µs | 224.711 µs | **52.114 µs** |
+| EntityId random access | Hot 10K | 16.445 µs | **16.147 µs** | 44.372 µs | 37.982 µs | 23.881 µs | 20.070 µs |
+| EntityId random access | Warm 100K | 303.143 µs | **293.978 µs** | 858.468 µs | 670.284 µs | 445.330 µs | 439.425 µs |
+| Prepared iteration | 10K | 7.755 µs | 7.770 µs | 9.440 µs | **7.690 µs** | 11.819 µs | 17.336 µs |
+| Prepared iteration | 100K | 77.338 µs | 78.275 µs | 94.956 µs | **75.214 µs** | 119.823 µs | 173.370 µs |
+| Prepared iteration | 1M | 825.249 µs† | 850.049 µs† | 954.499 µs† | **796.771 µs**† | 1.194 ms | 1.772 ms |
+| Fragmented iteration | 26 × 400 | 1.045 µs | 6.854 µs | 6.840 µs | 1.125 µs | 860.278 ns | **811.752 ns** |
 
 ## Random Fragmentation
 
@@ -28,48 +28,48 @@ This section follows Sander Mertens' public random-fragmentation benchmark.
 
 | Shapes | Terms | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---|---:|---:|---:|---:|---:|---:|
-| 6 Tags | 1 | 4.010 µs | 39.347 µs | 31.048 µs | 5.859 µs | **3.693 µs** | 5.123 µs |
-| 6 Tags | 4 | 449.689 ns | 3.194 µs† | 3.877 µs | 745.030 ns | **431.660 ns** | 427.385 µs |
-| 8 Tags | 1 | 8.305 µs | 45.969 µs | 33.454 µs | 8.458 µs | 6.955 µs | **5.127 µs** |
-| 8 Tags | 4 | 839.860 ns | 4.013 µs† | 3.979 µs | 878.798 ns | **612.073 ns** | 433.407 µs |
-| 10 Tags | 1 | 16.012 µs | 60.060 µs | 46.420 µs | 14.491 µs | 10.798 µs | **5.127 µs** |
-| 10 Tags | 4 | 1.191 µs | 7.488 µs | 4.037 µs | 1.255 µs | **829.195 ns** | 433.651 µs |
-| 10 Tags | 8 | **49.352 ns** | 428.847 ns | 283.650 ns | 110.222 ns | 59.828 ns | 509.815 µs |
-| 16 Tags | 1 | 255.953 µs | 549.267 µs | 204.164 µs† | 423.656 µs† | N/A | **5.125 µs** |
-| 16 Tags | 4 | 31.177 µs | 165.934 µs | **11.235 µs**† | 49.807 µs† | N/A | 436.262 µs |
-| 16 Tags | 8 | 949.188 ns | 16.251 µs | **413.305 ns** | 1.669 µs | N/A | 507.019 µs |
+| 6 Tags | 1 | 4.024 µs | 38.620 µs† | 30.999 µs | 4.255 µs | **3.663 µs** | 5.117 µs |
+| 6 Tags | 4 | 442.065 ns | 3.123 µs† | 3.874 µs | 498.419 ns | **429.859 ns** | 425.192 µs |
+| 8 Tags | 1 | 8.177 µs | 45.436 µs† | 33.208 µs | 7.381 µs | 6.835 µs | **5.117 µs** |
+| 8 Tags | 4 | 696.163 ns | 3.991 µs† | 3.976 µs | 712.907 ns | **610.077 ns** | 428.397 µs |
+| 10 Tags | 1 | 15.628 µs | 58.490 µs | 44.700 µs | 13.049 µs | 11.367 µs† | **5.116 µs** |
+| 10 Tags | 4 | 1.179 µs | 7.637 µs | 4.030 µs | 1.222 µs | **827.935 ns** | 428.080 µs |
+| 10 Tags | 8 | **47.560 ns** | 431.729 ns | 283.385 ns | 96.230 ns | 60.538 ns | 494.809 µs |
+| 16 Tags | 1 | 246.435 µs† | 548.341 µs | 197.198 µs† | 422.379 µs† | N/A | **5.115 µs** |
+| 16 Tags | 4 | 29.215 µs† | 171.080 µs | **10.650 µs**† | 56.191 µs† | N/A | 429.848 µs |
+| 16 Tags | 8 | 937.198 ns† | 15.260 µs | **410.390 ns**† | 1.667 µs | N/A | 497.604 µs |
 
 ### Data Components
 
 | Shapes | Terms | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---|---:|---:|---:|---:|---:|---:|
-| 6 Components | 1 | 45.023 µs | 83.185 µs | 56.020 µs | **36.267 µs** | 51.473 µs | 46.795 µs |
-| 6 Components | 4 | **18.264 µs** | 26.003 µs | 22.894 µs | 18.626 µs | 23.861 µs | 456.214 µs |
-| 8 Components | 1 | 51.382 µs | 89.033 µs | 63.598 µs | **41.154 µs** | 54.573 µs | 46.798 µs |
-| 8 Components | 4 | **18.752 µs** | 29.739 µs† | 23.165 µs | 18.858 µs | 23.988 µs | 461.390 µs |
-| 10 Components | 1 | 67.469 µs | 108.050 µs | 88.781 µs | 57.078 µs | 65.494 µs | **46.782 µs** |
-| 10 Components | 4 | **19.706 µs** | 36.375 µs | 24.414 µs | 19.928 µs | 24.517 µs | 463.311 µs |
-| 10 Components | 8 | 3.076 µs | 3.418 µs | 3.060 µs | **2.423 µs** | 3.364 µs | 549.839 µs |
-| 16 Components | 1 | 366.952 µs† | 749.331 µs† | 395.648 µs | 778.724 µs† | N/A | **46.798 µs** |
-| 16 Components | 4 | **95.813 µs** | 234.381 µs† | 109.631 µs | 96.665 µs† | N/A | 466.051 µs |
-| 16 Components | 8 | 6.733 µs | 22.133 µs | 6.836 µs | **6.106 µs** | N/A | 553.427 µs |
+| 6 Components | 1 | 44.729 µs | 80.358 µs | 55.728 µs | **42.381 µs** | 51.258 µs | 46.727 µs |
+| 6 Components | 4 | **18.252 µs** | 25.602 µs | 22.870 µs | 18.571 µs | 23.832 µs | 450.832 µs |
+| 8 Components | 1 | 50.720 µs | 86.264 µs | 62.745 µs | 47.053 µs | 53.967 µs | **46.709 µs** |
+| 8 Components | 4 | **18.740 µs** | 29.454 µs | 23.134 µs | 18.809 µs | 23.959 µs | 455.592 µs |
+| 10 Components | 1 | 66.018 µs | 104.561 µs | 86.374 µs | 60.824 µs | 63.774 µs | **46.717 µs** |
+| 10 Components | 4 | **19.682 µs** | 35.332 µs | 24.287 µs | 19.904 µs | 24.468 µs | 452.694 µs |
+| 10 Components | 8 | 3.073 µs | 3.421 µs | 3.051 µs | **2.417 µs** | 3.357 µs | 535.227 µs |
+| 16 Components | 1 | 345.745 µs† | 638.925 µs† | 364.205 µs | 543.730 µs† | N/A | **46.714 µs** |
+| 16 Components | 4 | **92.601 µs**† | 238.301 µs† | 102.557 µs | 100.671 µs† | N/A | 458.649 µs |
+| 16 Components | 8 | 6.781 µs† | 20.750 µs | 6.587 µs | **6.171 µs** | N/A | 542.174 µs |
 
 ## Gameplay Scenario
 
 | Gameplay item | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| Full frame | **121.191 µs** | 146.026 µs | 212.210 µs | 138.926 µs | 183.532 µs | 326.138 µs |
-| Iteration | 53.850 µs | 60.639 µs | 81.835 µs | **50.638 µs** | 86.417 µs | 208.248 µs |
-| AI source lookup | 24.226 µs | **19.172 µs** | 40.636 µs† | 30.299 µs | 23.252 µs | 32.317 µs |
-| Target Position lookup | 19.796 µs† | **18.266 µs** | 29.640 µs | 26.609 µs | 18.797 µs | 20.153 µs |
-| Status transition | 17.851 µs | 34.407 µs | 32.262 µs | 18.769 µs | 33.265 µs | **7.696 µs** |
-| Projectile recycle | **9.454 µs** | 13.621 µs | 26.935 µs | 13.391 µs | 21.690 µs | 59.700 µs† |
+| Full frame | **113.920 µs** | 138.687 µs | 201.104 µs | 134.947 µs | 177.867 µs | 311.203 µs |
+| Iteration | 54.539 µs | 60.089 µs | 84.272 µs | **50.096 µs** | 87.049 µs | 197.963 µs |
+| AI source lookup | 18.407 µs | **17.127 µs** | 37.696 µs | 28.972 µs | 21.524 µs | 29.142 µs |
+| Target Position lookup | **15.941 µs** | 16.727 µs | 27.014 µs | 24.871 µs | 17.675 µs | 18.916 µs |
+| Status transition | 16.199 µs | 32.444 µs | 30.450 µs | 18.488 µs | 32.629 µs | **7.316 µs** |
+| Projectile recycle | **8.201 µs** | 13.178 µs | 22.170 µs | 13.455 µs | 19.116 µs | 54.306 µs |
 
 ## Diagnostic
 
 | Diagnostic | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---:|---:|---:|---:|---:|---:|
-| Heavy compute | 4.127 ms | 3.554 ms | 3.665 ms | **3.354 ms** | 3.598 ms | 3.477 ms |
+| Heavy compute | 3.643 ms | 3.578 ms | 3.671 ms | **3.319 ms** | 3.580 ms | 3.502 ms |
 
 ## Notes
 

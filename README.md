@@ -76,21 +76,21 @@ For larger workloads, replace serial iteration with `par_for_each` or
 
 ## Benchmarks
 
-[GitHub Actions run 30210139416](https://github.com/jz315/SkyECS/actions/runs/30210139416)
+[GitHub Actions run 30705936563](https://github.com/jz315/SkyECS/actions/runs/30705936563)
 
 | Test | Scale / Mode | Sky | hecs | Bevy | Flecs C | FreeCS | Shipyard |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Entity construction | Individual 10K | **276.147 µs** | 580.473 µs | 812.098 µs | 746.055 µs | 883.430 µs | 1.216 ms |
-| Entity construction | Bulk construction 10K | 97.557 µs† | **85.942 µs**† | 522.206 µs† | 113.279 µs† | 327.816 µs | 478.557 µs |
-| Entity operations | Spawn/despawn 1K | 52.233 µs | **46.841 µs** | 104.725 µs | 69.633 µs | 111.703 µs | 112.621 µs |
-| Entity operations | Add/remove component 1K | 107.321 µs | 109.014 µs | 164.131 µs | 135.085 µs | 219.504 µs | **51.248 µs** |
-| EntityId random access | Hot 10K | 16.628 µs | **15.982 µs** | 44.384 µs | 37.963 µs | 23.440 µs | 20.246 µs |
-| EntityId random access | Warm 100K | 304.531 µs | **299.879 µs** | 901.731 µs | 694.855 µs | 453.338 µs | 457.975 µs |
-| Prepared iteration | 10K | 7.819 µs | 7.773 µs | 9.327 µs | **7.471 µs** | 12.136 µs | 17.657 µs |
-| Prepared iteration | 100K | 77.263 µs | 78.032 µs | 93.822 µs | **75.782 µs** | 119.623 µs | 176.043 µs |
-| Prepared iteration | 1M | **910.881 µs**† | 954.929 µs† | 1.086 ms† | 971.924 µs† | 1.258 ms | 1.794 ms |
-| Fragmented iteration | 26 × 400 | 1.051 µs | 4.254 µs | 6.844 µs | 1.169 µs | 859.694 ns | **812.176 ns** |
-| Gameplay | Full frame | **121.191 µs** | 146.026 µs | 212.210 µs | 138.926 µs | 183.532 µs | 326.138 µs |
+| Entity construction | Individual 10K | **275.942 µs**† | 552.600 µs† | 771.155 µs† | 698.128 µs | 829.703 µs† | 1.161 ms |
+| Entity construction | Bulk construction 10K | **42.712 µs**† | 63.621 µs† | 504.789 µs | 84.409 µs | 323.161 µs† | 466.833 µs |
+| Entity operations | Spawn/despawn 1K | **41.540 µs** | 44.792 µs | 102.800 µs | 68.277 µs | 110.843 µs | 112.659 µs |
+| Entity operations | Add/remove component 1K | 88.204 µs | 109.202 µs | 161.564 µs | 119.973 µs | 224.711 µs | **52.114 µs** |
+| EntityId random access | Hot 10K | 16.445 µs | **16.147 µs** | 44.372 µs | 37.982 µs | 23.881 µs | 20.070 µs |
+| EntityId random access | Warm 100K | 303.143 µs | **293.978 µs** | 858.468 µs | 670.284 µs | 445.330 µs | 439.425 µs |
+| Prepared iteration | 10K | 7.755 µs | 7.770 µs | 9.440 µs | **7.690 µs** | 11.819 µs | 17.336 µs |
+| Prepared iteration | 100K | 77.338 µs | 78.275 µs | 94.956 µs | **75.214 µs** | 119.823 µs | 173.370 µs |
+| Prepared iteration | 1M | 825.249 µs† | 850.049 µs† | 954.499 µs† | **796.771 µs**† | 1.194 ms | 1.772 ms |
+| Fragmented iteration | 26 × 400 | 1.045 µs | 6.854 µs | 6.840 µs | 1.125 µs | 860.278 ns | **811.752 ns** |
+| Gameplay | Full frame | **113.920 µs** | 138.687 µs | 201.104 µs | 134.947 µs | 177.867 µs | 311.203 µs |
 
 Lower is faster; `†` marks a noisy shared-runner result. See the
 [benchmark documentation](benches/BENCHMARKS.md) for the complete 37-row
