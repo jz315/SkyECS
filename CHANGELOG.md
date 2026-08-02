@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-02
+
 - Unified typed entity and chunk iteration under `for_each` and
   `for_each_chunk`: query components are passed as separate callback arguments
   for arities 1 through 16, and the same methods accept capturing closures or
@@ -13,6 +15,9 @@ All notable changes to this project are documented here.
   arbitrary entity ID without rebuilding its chunk-route table on every bind.
 - Scoped prepared entity-route invalidation to the components in each access
   plan, so unrelated archetype backing changes no longer rebuild its cache.
+- Reduced common structural-write overhead with direct registered routes,
+  warm-start chunk sizing, contiguous fresh-entity metadata spans, and shorter
+  despawn paths while preserving stale-ID and component ownership semantics.
 
 ## [0.2.0] - 2026-07-27
 
@@ -79,7 +84,8 @@ All notable changes to this project are documented here.
   documentation.
 - Kept the public ECS API compatible with 0.1.0.
 
-[Unreleased]: https://github.com/jz315/SkyECS/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jz315/SkyECS/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/jz315/SkyECS/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jz315/SkyECS/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/jz315/SkyECS/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/jz315/SkyECS/compare/v0.1.1...v0.1.2
