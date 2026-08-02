@@ -61,6 +61,26 @@ catalog, GitHub performance workflow, or published result tables. Keep it in a
 feature-gated local candidate bench; CI may compile it but must not execute it
 or use it to select a production API.
 
+Native parallel-query comparison is a feature-gated diagnostic experiment.
+Keep `parallel_candidates` out of the formal 37 rows, publisher catalog,
+formal Compare-ECS workflow, README snapshot, and published benchmark tables.
+It may run through the separately dispatched `Parallel candidates` workflow,
+but that shared-runner result stays provisional and must not select or update a
+canonical adapter.
+Run one worker width per process with `SKY_ECS_PAR_THREADS=<N> cargo bench -p
+sky_ecs_comparison --bench parallel_candidates --features
+parallel-experiments -- --noplot`; compare separate 1/2/4/8-thread processes
+rather than changing pool width inside one process. The common workloads are
+dense bandwidth, dense compute, and fragmented bandwidth, with identical
+entity counts, component values, kernels, and completion checks. The current
+native public paths are Sky `PreparedQuery::par_for_each_chunk`, Bevy
+`QueryState::par_iter_mut`, Flecs C a multi-threaded system in its worker
+pipeline, FreeCS `World::par_for_each_mut`, and Shipyard view-tuple
+`par_iter`. hecs 0.11 is N/A because it exposes no native public parallel
+query or scheduler API; do not manufacture an unsafe Rayon adapter and present
+it as an engine capability. Candidate numbers are diagnostic and never alter
+the canonical serial adapter automatically.
+
 Gameplay phase rows are formal GitHub results, not local API candidates. Every
 phase benchmark must advance the same complete evolving state machine as the
 full frame while timing only the selected phase. Do not replace these rows with

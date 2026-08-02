@@ -1,0 +1,91 @@
+name: Parallel candidates
+
+on:
+  workflow_dispatch:
+    inputs:
+      threads:
+        description: "Worker threads used by every supported engine"
+        required: true
+        default: "4"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "4"
+      filter:
+        description: "Optional Criterion filter"
+        required: false
+        default: "parallel_query"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parallel-candidates
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    name: Parallel candidates (${{ inputs.threads }} threads, one pass)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: parallel-candidates
+
+      - name: Install native build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang lld llvm
+
+      - name: Record diagnostic limitations
+        shell: bash
+        run: |
+          {
+            echo "## Parallel candidate benchmark"
+            echo
+            echo "> This is one diagnostic Criterion pass on a shared runner. It is not a formal Compare-ECS result and must not update published rankings or select a canonical API."
+            echo
+            echo "- Worker threads: \`${{ inputs.threads }}\`"
+            echo "- Filter: \`${{ inputs.filter }}\`"
+            echo "- hecs 0.11: N/A (no native public parallel query API)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record runner CPU
+        shell: bash
+        run: |
+          lscpu | tee parallel-runner.txt
+
+      - name: Run one parallel candidate pass
+        shell: bash
+        env:
+          SKY_ECS_PAR_THREADS: ${{ inputs.threads }}
+          BENCH_FILTER: ${{ inputs.filter }}
+        run: |
+          set -o pipefail
+          cargo bench -p sky_ecs_comparison \
+            --bench parallel_candidates \
+            --features parallel-experiments \
+            -- "$BENCH_FILTER" --noplot 2>&1 | tee parallel-benchmark.log
+
+      - name: Upload diagnostic results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: parallel-candidates-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            parallel-benchmark.log
+            parallel-runner.txt
+            target/criterion/parallel_query/
+          if-no-files-found: warn
+          retention-days: 30

@@ -17,11 +17,15 @@ const FLECS_C_SOURCES: &[&str] = &[
     "native/flecs_c/random_fragmentation.cpp",
     "native/flecs_c/validation.cpp",
 ];
+const FLECS_C_PARALLEL_SOURCES: &[&str] = &["native/flecs_c/parallel.cpp"];
 const FLECS_C_HEADERS: &[&str] = &["native/flecs_c/math.hpp"];
 pub fn build() {
     println!("cargo:rerun-if-changed=build_support/flecs.rs");
     println!("cargo:rerun-if-env-changed=SKY_LLVM_ROOT");
     for path in FLECS_C_SOURCES.iter().chain(FLECS_C_HEADERS) {
+        println!("cargo:rerun-if-changed={path}");
+    }
+    for path in FLECS_C_PARALLEL_SOURCES {
         println!("cargo:rerun-if-changed={path}");
     }
     println!("cargo:rerun-if-changed={FLECS_C_CORE_DIR}/flecs.c");
@@ -71,6 +75,11 @@ fn configure_flecs_c(build: &mut cc::Build) {
         .define("FLECS_CUSTOM_BUILD", None)
         .define("FLECS_OS_API_IMPL", None)
         .define("FLECS_TERM_COUNT_MAX", "32");
+    if env::var_os("CARGO_FEATURE_PARALLEL_EXPERIMENTS").is_some() {
+        build
+            .define("FLECS_SYSTEM", None)
+            .define("FLECS_PIPELINE", None);
+    }
 }
 
 fn build_flecs_c_library(include: &Path, out_dir: &Path, optimized: bool) {
@@ -134,8 +143,15 @@ fn build_flecs_c_library(include: &Path, out_dir: &Path, optimized: bool) {
         "cargo:rustc-env=SKY_FLECS_C_ADAPTER_COMPILER={}",
         adapter_compiler.path().display()
     );
-    let adapter_objects: Vec<_> = FLECS_C_SOURCES
-        .iter()
+    let parallel_experiments = env::var_os("CARGO_FEATURE_PARALLEL_EXPERIMENTS").is_some();
+    let adapter_sources = FLECS_C_SOURCES.iter().copied().chain(
+        parallel_experiments
+            .then_some(FLECS_C_PARALLEL_SOURCES)
+            .into_iter()
+            .flatten()
+            .copied(),
+    );
+    let adapter_objects: Vec<_> = adapter_sources
         .map(|source| {
             let source_path = Path::new(source);
             let stem = source_path

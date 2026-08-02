@@ -12,6 +12,8 @@ mod heavy_compute;
 #[cfg(feature = "api-experiments")]
 mod heavy_compute_candidates;
 mod mixed_frame;
+#[cfg(feature = "parallel-experiments")]
+mod parallel;
 mod random_access;
 mod random_fragmented_iteration;
 mod structural_changes;
@@ -31,6 +33,8 @@ pub use heavy_compute::bench_heavy_compute;
 #[cfg(feature = "api-experiments")]
 pub use heavy_compute_candidates::bench_heavy_compute_candidates;
 pub use mixed_frame::{bench_mixed_frame, bench_mixed_frame_phases};
+#[cfg(feature = "parallel-experiments")]
+pub use parallel::bench_parallel_query;
 pub use random_access::{bench_entity_id_random_access, bench_fixed_sequence_access};
 pub use random_fragmented_iteration::bench_random_fragmented_iteration;
 pub use structural_changes::bench_entity_ops;

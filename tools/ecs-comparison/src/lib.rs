@@ -3,6 +3,8 @@ pub mod common;
 pub mod flecs_c;
 pub mod freecs;
 pub mod hecs;
+#[cfg(feature = "parallel-experiments")]
+pub mod parallel;
 pub mod shipyard;
 pub mod sky;
 

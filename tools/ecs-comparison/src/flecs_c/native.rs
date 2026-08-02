@@ -80,6 +80,14 @@ unsafe extern "C" {
         digest: *mut NativeGameplayDigest,
     ) -> bool;
     pub(super) fn sky_flecs_c_validate() -> bool;
+    #[cfg(feature = "parallel-experiments")]
+    pub(super) fn sky_flecs_c_parallel_new(workload: u32, threads: u32) -> *mut c_void;
+    #[cfg(feature = "parallel-experiments")]
+    pub(super) fn sky_flecs_c_parallel_delete(context: *mut c_void);
+    #[cfg(feature = "parallel-experiments")]
+    pub(super) fn sky_flecs_c_parallel_run(context: *mut c_void) -> u64;
+    #[cfg(feature = "parallel-experiments")]
+    pub(super) fn sky_flecs_c_parallel_checksum(context: *mut c_void) -> u64;
 }
 
 #[repr(C)]
