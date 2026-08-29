@@ -9,7 +9,7 @@
 
 ---
 
-**A high-performance, typed, chunk-based Entity Component System for Rust.**
+**A high-performance, archetype-based Entity Component System for Rust.**
 
 Sky ECS is a very fast Entity Component System (ECS) library for Rust, with
 leading results across multiple performance benchmarks.
